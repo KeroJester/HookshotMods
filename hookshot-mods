@@ -1,0 +1,15 @@
+#!/usr/bin/env python3
+"""Main entry point for Hookshot Mod Manager."""
+
+import os
+import sys
+
+# Ensure Hookshot folder is in python path
+HERE = os.path.dirname(os.path.abspath(__file__))
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+
+from mod_manager.cli import main
+
+if __name__ == "__main__":
+    sys.exit(main())

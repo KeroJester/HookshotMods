@@ -1,0 +1,218 @@
+  ?    AbsorbShootHitApproachRate                    not found
+  ?    AfterThrowInvalidPreInputTime                 not found
+0x000  AttentionClimbOffsetY                         tagged
+0x004  AttentionCrouchOffsetY                        tagged
+0x008  AttentionNormalOffsetY                        tagged
+0x00c  AttentionSwimOffsetY                          tagged
+  ?    AttnRatioStepChaseRate                        not found
+  ?    AttnRatioStepHighThreshold                    not found
+  ?    AttnRatioStepLowThreshold                     not found
+  ?    AttnRatioStepMax                              not found
+  ?    BackFlipGravityScale                          not found
+0x030  BackFlipHeight                                tagged
+0x034  BackFlipSpeed                                 tagged
+  ?    BackFlipSpeedInWater                          not found
+0x03c  BackMoveNeedRangeForTalk                      tagged
+0x040  BackMoveSeparatedDistForTalk                  tagged
+  ?    BackStepGravityScale                          not found
+0x048  BackStepHeight                                by-value
+  ?    BackStepSpeed                                 not found
+  ?    BackStepSpeedInWater                          not found
+0x054  BoneSpine1Height                              tagged
+0x058  BottleAttackTerror                            tagged
+  ?    BottleAutoAimFrame                            not found
+0x060  BottleAutoAimHight                            tagged
+0x064  BottleAutoAimTargeDistance                    tagged
+0x068  CautionLifeFrontMaxDist                       tagged
+0x06c  CautionLifeWaterMaxDepth                      tagged
+  ?    CautionWaitFloorLowerVel                      not found
+0x074  CctRadius                                     tagged
+  ?    ChangeToFallCliffHeight                       not found
+  ?    ChargeTimeLevel2to3                           not found
+0x084  CheckPutHeightForwardDistance                 tagged
+  ?    CheckWidthNarrowGroundUnderFood               not found
+0x08c  ClamberJumpHandPosOfsY                        tagged
+  ?    CliffAppliedVelContinueTime                   not found
+  ?    CliffAppliedVelEnableHeight                   not found
+0x098  CliffHoldHeightMaxInAirFirst                  tagged
+0x09c  CliffHoldHeightMaxInAirSecond                 tagged
+0x0a0  CliffHoldHeightMinInAirFirst                  tagged
+0x0a8  CliffHoldHeightMinInAirSecond                 by-value
+  ?    CliffHoldMaxInAirFirstHeavy                   not found
+  ?    CliffHoldMaxInAirSecondHeavy                  not found
+0x0b0  CliffHoldMaxInAirSecondStep                   tagged
+  ?    CliffHoldMinInAirFirstHeavy                   not found
+0x0b4  CliffHoldMinInAirSecondHeavy                  by-value
+  ?    ClimbSlipStartFastVelThreshold                not found
+0x0b8  ClimbSlipStartFrame                           by-value
+  ?    ClimbSpeedRateChaseRate                       not found
+  ?    ContinueBattleModeFrameReflect                not found
+  ?    ContinuousHealCount                           not found
+0x0dc  CrouchGuardInitSpeed                          tagged
+  ?    CuccoGlideAccelerationMps2                    not found
+  ?    CuccoGlideDeaccelerationMps2                  not found
+  ?    CuccoGlideGravityScale                        not found
+  ?    CuccoGlideMaxFallSpeedMps                     not found
+  ?    CuccoGlideMaxInitialSpeedMps                  not found
+  ?    CuccoGlideMaxSpeedMps                         not found
+  ?    CuccoGlideTurnSpeedDps                        not found
+  ?    DamageColorCount                              not found
+  ?    DamageGoronIgnoreInvincibleTime               not found
+  ?    DekuNutBindOffset.X                           not found
+0x128  DekuNutBindOffset.Y                           tagged
+0x12c  DekuNutBindOffset.Z                           by-value
+  ?    DelayBattleModeFrameReflect                   not found
+  ?    DelayClamberFrame                             not found
+  ?    DelayClamberFrameSlip                         not found
+  ?    DirectRideEnableAngleBack                     not found
+  ?    DirectRideEnableAngleFront                    not found
+0x15c  DoorOpenStartDist                             tagged
+  ?    DrawnSheathChaseStep                          not found
+  ?    DrawnToGuardFrontFrame                        not found
+  ?    DrawnToGuardFrontFrameLong                    not found
+0x164  DriftingSandAbyssTime                         by-value
+0x170  EnableCrouchSinkLength                        tagged
+  ?    FairyHealDelayTime                            not found
+  ?    FishingShootFailureLengthToWall               not found
+0x17c  FloatEffectiveHeight                          tagged
+  ?    ForbidReflectFrameDrawnToGuard                not found
+  ?    ForbidReflectFrameDrawnToGuardL               not found
+  ?    ForbidReflectFrameSheathToGuard               not found
+  ?    FrontStepGravityScale                         not found
+  ?    FrontStepHeight                               not found
+0x194  FrontStepSpeed                                tagged
+  ?    FrontStepSpeedInWater                         not found
+  ?    GachaInputBBInterval                          not found
+  ?    GachaInputEffectInterval                      not found
+  ?    GrabMoveMaxDeltaPos                           not found
+0x1b8  GroundSpeedScale                              tagged
+0x1c4  GuardBeamDecSpeed                             by-value
+0x1c8  GuardBeamDownShiftMaxDeg                      by-value
+  ?    GuardBeamEndApproachRate                      not found
+  ?    GuardBeamEndTime                              not found
+0x1cc  GuardBeamInitSpeed                            by-value
+0x1d4  GuardBeamLeftShiftMaxDeg                      by-value
+0x1e4  GuardBeamLeftShiftMinDeg                      by-value
+  ?    GuardBeamRightShiftMaxDeg                     not found
+  ?    GuardBeamRightShiftMinDeg                     not found
+  ?    GuardBeamUpShiftMaxDeg                        not found
+  ?    GuardBeamUpShiftMinDeg                        not found
+  ?    GuardDecSpeed                                 not found
+  ?    GuardInitSpeed                                not found
+0x1ec  HookshotEmenyReleaseDistance                  by-value
+  ?    HookshotMoveFinishDistanceEnemy               not found
+  ?    HoverBootsAccel                               not found
+  ?    HoverBootsFloatingTime                        not found
+  ?    HoverBootsFloatingTimeAfterJump               not found
+  ?    InDownSlipDamageInvincibleTime                not found
+  ?    InvalidFallTime                               not found
+0x238  InvalidFishsingWaterHeight                    tagged
+0x23c  InvalidOcarinaWaterHeight                     tagged
+  ?    InvalidWaterFallClimbingLength                not found
+0x240  JumpCliffHoldHandPosOfsY                      by-value
+  ?    JumpGravityScale                              not found
+  ?    JumpHeight                                    not found
+0x250  JumpMaxInitSpeed                              tagged
+  ?    LargeLandHeight                               not found
+  ?    LiftFailMoveStickLength                       not found
+0x260  LiftHighLimitHeight                           tagged
+0x268  LockOnRollingMaxSpeed                         tagged
+0x26c  LockOnRollingMaxSpeedHeavy                    tagged
+0x274  LockOnSideMoveSuccessDist                     tagged
+  ?    LookOnlyInvalidTimeAfterEvent                 not found
+  ?    LureStateDelayFrame                           not found
+  ?    MaxDownSpeedMpsDownInWater                    not found
+  ?    MediumReactionInitSpeed                       not found
+  ?    MediumReactionInitSpeedSwim                   not found
+  ?    MinDegreeThroughGrassTruthWall                not found
+0x298  MinWaterSurfaceLockOnHeight                   tagged
+  ?    MoveShieldLimitAngleDown                      not found
+  ?    MoveShieldLimitAngleLeft                      not found
+  ?    MoveShieldLimitAngleRight                     not found
+  ?    MoveShieldLimitAngleUp                        not found
+  ?    MoveShieldMaxSpeedNormal                      not found
+  ?    MoveShieldMaxSpeedReflectBeam                 not found
+  ?    MoveShieldMaxSpeedReflectLight                not found
+  ?    MovingOnIceFrame                              not found
+  ?    NayruLoveTime                                 not found
+  ?    NoGetFishCount                                not found
+  ?    OcarinaPeformanceAddRate                      not found
+  ?    OcarinaPeformanceContinueTime                 not found
+  ?    OcarinaPeformanceSubRate                      not found
+  ?    PermitWallAngleMin                            not found
+0x2e4  PlayerCrouchHeight                            tagged
+0x2e8  PlayerHeight                                  tagged
+0x2ec  PlayerShoulderHeight                          tagged
+0x2f0  PlayerStepHeight                              tagged
+  ?    PushedFountainTime                            not found
+0x2f8  PutHighLimitHeight                            tagged
+0x300  RollingMaxSpeed                               tagged
+0x304  RollingMaxSpeedHeavy                          tagged
+  ?    RollingMinSpeedHeavy                          not found
+  ?    RollingTurnStep                               not found
+  ?    ScrubAppearAngleLimit                         not found
+  ?    ScrubAppearGroundGapUpperLimit                not found
+  ?    ScrubAppearLength                             not found
+  ?    ScrubAppearLowerHeight                        not found
+  ?    ScrubAppearUpperHeight                        not found
+  ?    ScrubAppearWaterDepthUpperLimit               not found
+  ?    ScrubRadius                                   not found
+  ?    SensitivityLat2LngRatio                       not found
+  ?    SheathedToGuardFrontFrame                     not found
+0x344  ShieldHeight                                  tagged
+  ?    ShieldLookAtPlaneDistance                     not found
+0x354  ShotInAirByGuardMaxSpeed                      by-value
+  ?    ShoulderOffsetAdult                           not found
+0x358  ShoulderOffsetChild                           by-value
+  ?    SideStepGravityScale                          not found
+0x360  SideStepHeight                                by-value
+0x364  SideStepSpeed                                 tagged
+  ?    SideStepSpeedInWater                          not found
+0x37c  SpeedZeroThreshold                            tagged
+  ?    SpiderWebModifyApplyRadDiff                   not found
+  ?    SpiderWebModifyChaseStep                      not found
+  ?    SpiderWebModifySpeed                          not found
+0x390  SquatDistance                                 tagged
+0x394  StartClamberHeight                            tagged
+  ?    StartJumpClamberHeavy                         not found
+0x39c  StartJumpClamberHeight                        tagged
+  ?    StartJumpCliffHoldHeavy                       not found
+0x3a4  StartJumpCliffHoldHeight                      tagged
+  ?    StartJumpCliffHoldLimitHeavy                  not found
+0x3ac  StartJumpCliffHoldLimitHeight                 tagged
+0x3b0  StartStepJumpFootClamberHeight                tagged
+  ?    SteadyAccelerationUpperVel                    not found
+  ?    StepJumpForwardSpeedMaxMps                    not found
+  ?    StepJumpOfsHeight                             not found
+  ?    SwimBootsChangeFloatingRate                   not found
+0x3d8  SwimDashSpdApproachRateInStream               tagged
+  ?    SwimDashSpeedMps                              not found
+0x3e0  SwimDashSpeedMpsFollowStream                  tagged
+0x3e4  SwimDashSpeedMpsReverseStream                 tagged
+  ?    SwimDashTime                                  not found
+  ?    SwimDashTurnStep                              not found
+  ?    SwimDiveSpeedMaxMps                           not found
+0x3fc  SwimDiveSpeedMinMps                           by-value
+  ?    SwimMaxDownSppedMps                           not found
+0x40c  SwimMaxSpeedMps                               tagged
+  ?    SwimMaxUpSppedMps                             not found
+0x414  SwimSpeedMpsFollowStream                      tagged
+  ?    SwimStartClamberHeight                        not found
+  ?    SwimTurnStepMax                               not found
+0x430  SwimVerticalDashAcc                           tagged
+0x434  SwimVerticalDashDec                           tagged
+  ?    SwimVerticalDashSpeed                         not found
+  ?    ThrownYSpeedDirBongoBongo                     not found
+  ?    ThrownYSpeedDirLikeLike                       not found
+0x444  ThrownYSpeedDirMorpha                         by-value
+0x44c  TouchGrassThreshold                           tagged
+0x450  TouchGrassTime                                tagged
+  ?    UnbalancedRotateAngularVelocity               not found
+0x458  UnderWaterStartClamberHeight                  tagged
+  ?    UnsteadyAccelerationLowerVel                  not found
+  ?    UseItemTriggerPreInputTime                    not found
+  ?    WaterSurfaceDegThreshold                      not found
+0x468  WaterSurfaceSwimHeight                        tagged
+0x46c  WaterSurfaceSwimRiseHeight                    tagged
+  ?    WeakGustInAirKnockBackDecSpeed                not found
+# struct base = anchor-0x300; 82/217 mapped

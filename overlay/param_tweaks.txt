@@ -1,0 +1,44 @@
+# anchor 0x100a34d264 (struct?)
+-1e40  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
+# anchor 0x100a34d264 (struct?)
+-1e40  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
+-1d50  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
+-01e4  0.55 -> 90000  JumpGravityScale 
++0460  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
++0f04  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
++0f18  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
++0f34  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
++0fb0  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
++1254  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
++1330  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
++1344  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
++13b0  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
++19d0  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
+# anchor 0x100a34d264 (struct?)
+-1e40  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
+-1d50  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
+-01e4  0.55 -> 900000  JumpGravityScale 
++0460  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
++0f04  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
++0f18  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
++0f34  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
++0fb0  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
++1254  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
++1330  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
++1344  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
++13b0  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
++19d0  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
+# anchor 0x100a34d264 (struct?)
+-1e40  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
+-1d50  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
+-01e4  0.55 -> 900000  JumpGravityScale 
++0460  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
++0f04  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
++0f18  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
++0f34  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
++0fb0  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
++1254  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
++1330  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
++1344  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
++13b0  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 
++19d0  0.8 -> 900  BackFlipGravityScale BackStepGravityScale BottleAutoAimTargeDistance CautionLifeFrontMaxDist FloatEffectiveHeight LiftFailMoveStickLength LiftHighLimitHeight PlayerCrouchHeight 

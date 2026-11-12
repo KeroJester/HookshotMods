@@ -1,0 +1,10 @@
+[submodule "imgui_src"]
+	path = imgui_src
+	url = https://github.com/ocornut/imgui.git
+	ignore = dirty
+[submodule "vulkan_headers_src"]
+	path = vulkan_headers_src
+	url = https://github.com/KhronosGroup/Vulkan-Headers.git
+[submodule "reference/hookshot-src"]
+	path = reference/hookshot-src
+	url = https://github.com/NotRexed/Hookshot.git
