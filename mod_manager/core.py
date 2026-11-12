@@ -70,6 +70,86 @@ def _rename(src: str, dst: str) -> None:
         raise _locked(e) from e
 
 
+def child_env() -> dict:
+    """Environment for programs the manager starts (the game, 7-Zip, the file manager).
+
+    A packaged app (PyInstaller, AppImage) points the library search path at its own bundled libraries;
+    the game must not inherit that, or it would load the app's copies instead of the system's."""
+    env = os.environ.copy()
+    if getattr(sys, "frozen", False) or env.get("APPIMAGE"):
+        for var in ("LD_LIBRARY_PATH", "QT_PLUGIN_PATH", "QML2_IMPORT_PATH", "PYTHONPATH", "PYTHONHOME"):
+            orig = env.pop(var + "_ORIG", None)          # (PyInstaller saves the original value here)
+            if orig:
+                env[var] = orig
+            else:
+                env.pop(var, None)
+        if sys.platform.startswith("win"):
+            try:                                         # undo the bootloader's DLL directory for child processes
+                import ctypes
+                ctypes.windll.kernel32.SetDllDirectoryW(None)
+            except Exception:
+                pass
+    return env
+
+
+def _no_window() -> dict:
+    """subprocess options that keep a console window from flashing up on Windows."""
+    return {"creationflags": 0x08000000} if sys.platform.startswith("win") else {}   # CREATE_NO_WINDOW
+
+
+def _find_7zip() -> Optional[str]:
+    for name in ("7z", "7za", "7zz"):
+        if shutil.which(name):
+            return shutil.which(name)
+    if sys.platform.startswith("win"):
+        for base in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)"), os.environ.get("ProgramW6432")):
+            if base and os.path.isfile(os.path.join(base, "7-Zip", "7z.exe")):
+                return os.path.join(base, "7-Zip", "7z.exe")
+    return None
+
+
+def extract_archive(path: str, dest: str) -> None:
+    """Unpacks a mod archive: .zip and .tar.* always, .7z with py7zr (bundled in the app) or 7-Zip, .rar with
+    7-Zip or unrar. Paths that would land outside dest are refused."""
+    lower = path.lower()
+    if lower.endswith(".zip"):
+        import zipfile
+        with zipfile.ZipFile(path, "r") as zf:
+            root = os.path.realpath(dest)
+            for name in zf.namelist():
+                if not os.path.realpath(os.path.join(dest, name)).startswith(root + os.sep):
+                    raise ValueError(f"Unsafe path in archive: {name}")
+            zf.extractall(dest)
+        return
+    if lower.endswith((".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tar.xz")):
+        import tarfile
+        with tarfile.open(path, "r:*") as tf:
+            try:
+                tf.extractall(dest, filter="data")
+            except TypeError:                            # (Python without extraction filters)
+                tf.extractall(dest)
+        return
+    if lower.endswith(".7z"):
+        try:
+            import py7zr
+            with py7zr.SevenZipFile(path, "r") as zf:
+                zf.extractall(dest)
+            return
+        except ImportError:
+            pass
+    seven = _find_7zip()
+    if seven:
+        subprocess.run([seven, "x", f"-o{dest}", path, "-y"], check=True, stdout=subprocess.DEVNULL,
+                       env=child_env(), **_no_window())
+        return
+    if lower.endswith(".rar") and shutil.which("unrar"):
+        subprocess.run(["unrar", "x", "-o+", path, dest + os.sep], check=True, stdout=subprocess.DEVNULL,
+                       env=child_env(), **_no_window())
+        return
+    raise RuntimeError(f"Can't unpack {os.path.basename(path)}: install 7-Zip (7-zip.org), "
+                       "or unpack it yourself and install the folder.")
+
+
 def dev_overlay_lib() -> Optional[str]:
     """The Linux developer overlay, built in the source checkout beside this manager (overlay/), if present."""
     lib = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "overlay", "libhookshot_overlay.so")
@@ -328,23 +408,7 @@ class HookshotModManager:
                 if base_name.endswith(".tar"):
                     base_name = os.path.splitext(base_name)[0]
 
-                # Extract archive
-                lower_src = source_path.lower()
-                if lower_src.endswith((".zip",)):
-                    import zipfile
-                    with zipfile.ZipFile(source_path, "r") as zf:
-                        zf.extractall(temp_dir)
-                elif lower_src.endswith((".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tar.xz")):
-                    import tarfile
-                    with tarfile.open(source_path, "r:*") as tf:
-                        tf.extractall(temp_dir)
-                elif lower_src.endswith((".7z",)):
-                    subprocess.run(["7z", "x", f"-o{temp_dir}", source_path, "-y"], check=True, stdout=subprocess.DEVNULL)
-                elif lower_src.endswith((".rar",)):
-                    subprocess.run(["unrar", "x", "-o+", source_path, temp_dir], check=True, stdout=subprocess.DEVNULL)
-                else:
-                    # Fallback to 7z
-                    subprocess.run(["7z", "x", f"-o{temp_dir}", source_path, "-y"], check=True, stdout=subprocess.DEVNULL)
+                extract_archive(source_path, temp_dir)
 
             # A packaged mod folder (info.json with code, data folders...) is installed whole
             root = self._find_mod_root(temp_dir)
@@ -604,7 +668,7 @@ class HookshotModManager:
         """Starts the game (code mods load through hookshot_env.txt, synced first).
         overlay: Linux only, the developer overlay (dev_overlay_lib()) when it exists (LD_PRELOAD)."""
         self.sync_code_mods()
-        env = os.environ.copy()
+        env = child_env()
         if codemods.platform_key() == "windows":
             target = os.path.join(self.game_dir, "hookshot.exe")
         else:

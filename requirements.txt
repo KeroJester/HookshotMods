@@ -1,0 +1,4 @@
+# Running the mod manager from source (python3 hookshot-mods gui)
+PyQt6>=6.6
+zstandard>=0.22
+py7zr>=0.21        # optional: installs .7z mods without 7-Zip

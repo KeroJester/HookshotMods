@@ -5,6 +5,17 @@ Mods and a cross-platform mod manager for the Ocarina of Time remake running und
 
 **This repository contains no game files.** You need your own copy of the game, set up with Hookshot.
 
+## Download (players)
+
+Get the app from the [Releases](https://github.com/KeroJester/HookshotMods/releases) page:
+
+- **Windows:** `HookshotMods.exe`, just run it.
+- **Linux:** `HookshotMods-x86_64.AppImage`. Make it executable (`chmod +x`, or Properties → "Allow executing"), then run it.
+
+The first time, it asks for your Hookshot game folder (the one with `hookshot.exe` or `bin/hookshot`).
+Mods go into that folder's `mods/` folder; drag a mod's zip onto the app or use its Install button.
+Installing `.rar` mods needs [7-Zip](https://www.7-zip.org) on Windows (or `unrar`/`7z` on Linux).
+
 ## What's here
 
 | Folder | What it is |
@@ -27,6 +38,17 @@ git submodule update --init          # imgui, Vulkan-Headers, Hookshot source (f
 plugins/item_controls/build.sh       # builds the Linux .so and the Windows .dll into <game>/mods/050-ItemControls
 python3 mod_manager/build_item_controls.py   # builds the rest of that mod from your own game files
 ```
+
+## Building the app
+
+```sh
+pip install -r packaging/requirements-app.txt
+python packaging/build_app.py        # Windows: dist/HookshotMods.exe · Linux: dist/AppDir (then appimagetool)
+```
+
+GitHub Actions (`.github/workflows/build.yml`) builds the Windows app, the Linux AppImage and the Item
+Controls layer on every push; download them from the run's Artifacts. Pushing a tag like `v0.1.0` also
+creates a draft Release with those files attached.
 
 ## Rules for commits
 

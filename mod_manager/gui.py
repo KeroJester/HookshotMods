@@ -39,10 +39,10 @@ from PyQt6.QtWidgets import (
 )
 
 try:
-    from .core import GameDirNotFound, HookshotModManager, dev_overlay_lib
+    from .core import GameDirNotFound, HookshotModManager, child_env, dev_overlay_lib
     from .models import Mod
 except (ImportError, ValueError):
-    from core import GameDirNotFound, HookshotModManager, dev_overlay_lib
+    from core import GameDirNotFound, HookshotModManager, child_env, dev_overlay_lib
     from models import Mod
 
 DARK_STYLE = """
@@ -228,7 +228,9 @@ class MainWindow(QMainWindow):
         self.resize(1100, 720)
         self.setStyleSheet(DARK_STYLE)
 
-        icon_path = os.path.join(self.mgr.game_dir, "hookshot.png")
+        # the app's own icon: bundled in the packaged app (sys._MEIPASS) or in the source checkout's packaging/
+        base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        icon_path = os.path.join(base, "packaging", "icon.png")
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
 
@@ -761,9 +763,9 @@ class MainWindow(QMainWindow):
 
     def open_path(self, path: str):
         if sys.platform == "linux":
-            subprocess.Popen(["xdg-open", path])
+            subprocess.Popen(["xdg-open", path], env=child_env())
         elif sys.platform == "darwin":
-            subprocess.Popen(["open", path])
+            subprocess.Popen(["open", path], env=child_env())
         elif sys.platform == "win32":
             os.startfile(path)
 
