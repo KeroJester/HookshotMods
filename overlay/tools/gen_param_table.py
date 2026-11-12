@@ -6,8 +6,10 @@ import os, sys
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, ROOT)
 from mod_manager import byml, zstd_helper as z
+from mod_manager.core import find_game_dir
+GAME = os.environ.get("HOOKSHOT_GAME_DIR") or find_game_dir()
 
-R = os.path.join(ROOT, "romfs")
+R = os.path.join(GAME, "romfs")
 pack = os.path.join(R, "Pack/Actor/Player_Child.pack.zs")
 files = z.unpack_sarc_to_dict(z.decompress_zs(open(pack, "rb").read(), "Player_Child.pack.zs", R))
 base = byml.parse_byml(files["Player/PlayerGameParam/Player.game__player__PlayerGameParam.bgyml"])
@@ -17,7 +19,7 @@ merged = dict(base); merged.update(child)
 # Values from the GoronLink mod's Player_Child pack, if built, so the tuner can tell whether
 # the modded values (rather than vanilla) are what the game loaded.
 modded = {}
-mods = os.path.join(ROOT, "mods")
+mods = os.path.join(GAME, "mods")
 for d in sorted(os.listdir(mods)):
     mp = os.path.join(mods, d, "romfs/Pack/Actor/Player_Child.pack.zs")
     if d.endswith("-GoronLink") and os.path.exists(mp):

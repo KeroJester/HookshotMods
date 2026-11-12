@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-# Directory where Hookshot and the Mod Manager live
+# This source checkout (the mod manager finds the game folder itself)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 

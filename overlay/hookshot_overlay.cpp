@@ -31,10 +31,25 @@
 static FILE* g_LogFile = nullptr;
 static std::mutex g_LogMutex;
 
+// The folder holding this library (the source checkout's overlay/): its log and tuner files go there.
+static std::string OverlayPath(const char* name) {
+    static std::string dir = [] {
+        Dl_info info{};
+        std::string d = ".";
+        if (dladdr((void*)&OverlayPath, &info) && info.dli_fname) {
+            d = info.dli_fname;
+            size_t slash = d.rfind('/');
+            d = slash == std::string::npos ? "." : d.substr(0, slash);
+        }
+        return d;
+    }();
+    return dir + "/" + name;
+}
+
 static void OverlayLog(const char* fmt, ...) {
     std::lock_guard<std::mutex> lock(g_LogMutex);
     if (!g_LogFile) {
-        g_LogFile = fopen("overlay/overlay.log", "a");
+        g_LogFile = fopen(OverlayPath("overlay.log").c_str(), "a");
     }
     if (!g_LogFile) return;
     va_list args;
@@ -53,7 +68,7 @@ static void OnOverlayLoaded() {
     if (program_invocation_name && !strstr(program_invocation_name, "hookshot")) {
         return;
     }
-    g_LogFile = fopen("overlay/overlay.log", "a");
+    g_LogFile = fopen(OverlayPath("overlay.log").c_str(), "a");
     OverlayLog("[overlay] Loaded into process pid=%d prog=%s\n", (int)getpid(), program_invocation_name ? program_invocation_name : "?");
     if (const char* t = getenv("HOOKSHOT_GUEST_TRACE")) StartGuestTrace(t);
     InstallModHooks();

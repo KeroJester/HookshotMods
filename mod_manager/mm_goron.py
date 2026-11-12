@@ -13,13 +13,16 @@ with that limb so they can be skinned to the matching bone.
 
 import math
 import os
+import sys
 import struct
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-GAME = os.path.dirname(HERE)
+sys.path.insert(0, HERE)
+from core import find_game_dir   # noqa: E402
+GAME = os.environ.get("HOOKSHOT_GAME_DIR") or find_game_dir() or os.path.dirname(HERE)
 ROM_PATH = os.path.join(GAME, "mods", "_MajoraAssets", "Legend of Zelda, The - Majora's Mask (USA).z64")
 DMADATA = 0x1A500
 FILE_OBJECT_LINK_GORON = 655
@@ -434,7 +437,7 @@ if __name__ == "__main__":
     root, rots = player_anim_frame(rom, ANIM_PG_WAIT, 0)
     world = pose_world(obj, root, rots)
     v = posed_vertices(mesh, world)
-    out = sys.argv[1] if len(sys.argv) > 1 else os.path.join(GAME, "overlay", "goron_preview.png")
+    out = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(HERE), "overlay", "goron_preview.png")
     colors = [((li * 97) % 200 + 55, (li * 57) % 200 + 55, (li * 31) % 200 + 55) for li in
               [mesh.owner[t[0]] for t in mesh.tris]]
     print(render_preview(v, mesh.tris, out, views=("front", "side"), colors=colors))

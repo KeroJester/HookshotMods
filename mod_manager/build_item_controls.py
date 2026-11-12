@@ -43,8 +43,12 @@ import numpy as np
 from PIL import Image
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)
-sys.path.insert(0, ROOT)
+REPO = os.path.dirname(HERE)                  # this source checkout (reference/hookshot-src submodule)
+sys.path.insert(0, REPO)
+from mod_manager.core import find_game_dir   # noqa: E402
+ROOT = os.environ.get("HOOKSHOT_GAME_DIR") or find_game_dir()   # the game folder: romfs/ in, mods/ out
+if not ROOT:
+    raise SystemExit("Game folder not found: set HOOKSHOT_GAME_DIR or run the mod manager once")
 
 MOD_FOLDER = "050-ItemControls"
 MOD_NAME = "ItemControls"
@@ -138,7 +142,7 @@ def build_astc_tool():
     tool = os.path.join(HERE, "tools", "astc_decode")
     if os.path.exists(tool):
         return
-    suyu = os.path.join(ROOT, "reference", "hookshot-src", "gpu", "third_party", "suyu")
+    suyu = os.path.join(REPO, "reference", "hookshot-src", "gpu", "third_party", "suyu")
     subprocess.check_call(["g++", "-O2", "-std=c++20", "-I" + os.path.join(HERE, "tools", "shim"), "-I" + suyu,
                            os.path.join(HERE, "tools", "astc_decode.cpp"),
                            os.path.join(suyu, "video_core", "textures", "astc.cpp"), "-o", tool, "-lpthread"])
@@ -225,7 +229,7 @@ def main():
     mod = os.path.join(ROOT, "mods", MOD_FOLDER)
     os.makedirs(os.path.join(mod, "item_controls"), exist_ok=True)
     with open(os.path.join(mod, "info.json"), "w") as f:
-        json.dump({"name": MOD_NAME, "author": "Justin", "version": MOD_VERSION, "description": MOD_DESCRIPTION,
+        json.dump({"name": MOD_NAME, "author": "KeroJester", "version": MOD_VERSION, "description": MOD_DESCRIPTION,
                    "category": "Gameplay", "homepage": "",
                    # a code mod: the mod manager loads this Vulkan layer through hookshot_env.txt
                    "code": {"vulkan_layer": {"name": "VK_LAYER_HOOKSHOT_item_controls",

@@ -17,19 +17,21 @@ Mods and a cross-platform mod manager for the Ocarina of Time remake running und
 
 ## Development setup
 
-The repo sits inside the Hookshot game folder (everything else in that folder is ignored by `.gitignore`).
+This repo is kept **outside** the game folder. The tools find the game folder through the mod manager
+(`HOOKSHOT_GAME_DIR`, or the folder the manager last used; `./hookshot-mods gamedir` prints it), read
+the game's files from there, and write built mods into its `mods/` folder.
 
 ```sh
 git submodule update --init          # imgui, Vulkan-Headers, Hookshot source (for the ASTC decoder)
-plugins/item_controls/build.sh       # builds the Linux .so and the Windows .dll (needs g++ and mingw-w64)
-python3 mod_manager/build_item_controls.py   # builds mods/050-ItemControls from your own game files
-./start_mod_manager.sh               # GUI
+./start_mod_manager.sh               # GUI; asks for the game folder the first time
+plugins/item_controls/build.sh       # builds the Linux .so and the Windows .dll into <game>/mods/050-ItemControls
+python3 mod_manager/build_item_controls.py   # builds the rest of that mod from your own game files
 ```
 
 ## Rules for commits
 
 - Never commit game data or anything made from it: romfs files, patched archives, extracted icons,
-  memory dumps, ROMs, saves. The whitelist `.gitignore` keeps them out; don't force-add past it.
+  memory dumps, ROMs, saves. They belong in the game folder, never in this repo.
 - Mods are built from the player's own game files; releases carry only our code and patches.
 
 ## License

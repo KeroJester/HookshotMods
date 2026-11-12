@@ -297,6 +297,12 @@ def cmd_play(args) -> int:
     return 0
 
 
+def cmd_gamedir(args) -> int:
+    """Prints the game folder (for scripts: GAME=$(hookshot-mods gamedir))."""
+    print(get_manager(args.game_dir).game_dir)
+    return 0
+
+
 def cmd_gui(args) -> int:
     try:
         from .gui import run_gui
@@ -380,6 +386,10 @@ def main():
     # code mods
     p_code = subparsers.add_parser("code", help="Show code mods (Vulkan layers) and update hookshot_env.txt for them")
     p_code.set_defaults(func=cmd_code)
+
+    # game folder (for scripts)
+    p_gd = subparsers.add_parser("gamedir", help="Print the game folder the manager uses")
+    p_gd.set_defaults(func=cmd_gamedir)
 
     # gui
     p_gui = subparsers.add_parser("gui", help="Launch Graphical Mod Manager (PyQt6)")

@@ -1,47 +1,5 @@
-# This repo lives inside the Hookshot game folder, so it ignores EVERYTHING by default and only
-# lists the project's own source below. Game files, Nintendo-derived files (patched archives, icons,
-# dumps), ROMs, saves, logs and build outputs must never be committed.
-/*
-!/.gitignore
-!/.gitmodules
-!/README.md
-!/LICENSE
-!/RESEARCH_NOTES.md
-!/hookshot-mods
-!/start_mod_manager.sh
-!/run_game_with_overlay.sh
-
-# Mod manager and mod builders (Python)
-!/mod_manager/
-/mod_manager/cache/
-/mod_manager/tools/astc_decode
-/mod_manager/tools/astc_decode.exe
-
-# Code mods (source; the layer binaries are build outputs)
-!/plugins/
-
-# Linux dev overlay (LD_PRELOAD playground)
-!/overlay/
-/overlay/*.o
-/overlay/*.so
-/overlay/*.log
-/overlay/*.mark
-/overlay/*.bin
-
-# Research scripts only (no dumps, game data or symbol lists)
-!/re/
-/re/*
-!/re/*.py
-
-# Third-party checkouts (git submodules)
-!/imgui_src
-!/vulkan_headers_src
-!/reference/
-/reference/*
-!/reference/hookshot-src
-!/reference/README.txt
-
-# Everywhere
+# Game files never live here: the builders read the game folder (HOOKSHOT_GAME_DIR, or the one the mod
+# manager uses) and write mods into it. Never copy game data, ROMs, saves or memory dumps into this repo.
 __pycache__/
 *.pyc
 *.o
@@ -49,3 +7,17 @@ __pycache__/
 *.dll
 *.exe
 *.log
+*.mark
+
+# Build outputs and caches
+/mod_manager/cache/
+/mod_manager/tools/astc_decode
+
+# Dev overlay runtime files (memory dumps of the running game)
+/overlay/*.bin
+/overlay/goron_preview.png
+
+# Local research checkouts besides the Hookshot submodule
+/reference/*
+!/reference/hookshot-src
+!/reference/README.txt

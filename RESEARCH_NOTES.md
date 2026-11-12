@@ -1729,3 +1729,16 @@ The user wants the mod distributable, drag-and-drop on Linux and Windows. Hooksh
   from zip, disable/enable, update keeps slots.txt, user env lines kept) and the GUI offscreen.
 - Running the manager wrote the block into the real hookshot_env.txt (it did not exist before): the item controls
   layer now loads whenever the game starts normally.
+
+## 66. Source repo moved out of the game folder (2026-11-12)
+
+- All project source is now a git repo at `~/Projects/hookshot-mods`: `mod_manager/`, `plugins/`, `overlay/`,
+  `re/*.py`, these notes. Submodules: `imgui_src`, `vulkan_headers_src`, `reference/hookshot-src`.
+- The game folder keeps only game data and research data: `romfs/`, `mods/` (built mods), `re/` dumps, `user/`,
+  `re/testuser_shop`, `reference/mm-decomp`, `reference/Zelda64Recomp`.
+- Tools find the game folder through `core.find_game_dir()` (HOOKSHOT_GAME_DIR, then the saved manager config);
+  shell scripts use `GAME=${HOOKSHOT_GAME_DIR:-$(python3 <repo>/hookshot-mods gamedir)}`.
+- The dev overlay is preloaded from `<repo>/overlay/libhookshot_overlay.so`. It writes `overlay.log`,
+  `param_tweaks.txt` and `param_dump_*.bin` beside itself (dladdr), not in the game's cwd. The manager's
+  "F2 Dev Overlay" box uses `core.dev_overlay_lib()`.
+- Headless tests: `HOS_TEST_USER=<game>/re/testuser_shop <repo>/overlay/tools/run_headless.sh <out> ...`.

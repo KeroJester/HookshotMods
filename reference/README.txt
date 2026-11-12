@@ -1,5 +1,3 @@
-Reference checkouts used by the Goron Link mod (read-only research material, not shipped):
-  mm-decomp/      zeldaret/mm @ 5607eec1 (Zelda64Recomp's lib/mm-decomp pin), sparse checkout
-                  (git sparse-checkout add <path> to pull more)
-  Zelda64Recomp/  https://github.com/Zelda64Recomp/Zelda64Recomp
-  hookshot-src/   https://github.com/NotRexed/Hookshot (main, ~v2.0.10; this folder runs v2.0.3)
+reference/hookshot-src  https://github.com/NotRexed/Hookshot (submodule, ~v2.0.10). Research material, and the
+                        source of the suyu ASTC decoder that mod_manager/build_item_controls.py compiles.
+Other research checkouts (mm-decomp, Zelda64Recomp) may sit here too; they are not part of the repo.

@@ -14,8 +14,9 @@ import sys
 import struct
 import shutil
 
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(ROOT_DIR, 'mod_manager'))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from core import find_game_dir
+ROOT_DIR = os.environ.get('HOOKSHOT_GAME_DIR') or find_game_dir()   # the game folder
 
 import zstd_helper
 import byml

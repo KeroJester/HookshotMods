@@ -1,12 +1,17 @@
 #!/bin/sh
-# Builds the Item Controls Vulkan layer for Linux and Windows into the mod folder:
+# Builds the Item Controls Vulkan layer for Linux and Windows into the mod folder in the game folder
+# (HOOKSHOT_GAME_DIR, or the one the mod manager uses; ITEMCTL_MOD_DIR overrides the mod folder):
 #   mods/050-ItemControls/layer/linux/libVkLayer_hookshot_item_controls.so  + VkLayer_hookshot_item_controls.json
 #   mods/050-ItemControls/layer/windows/VkLayer_hookshot_item_controls.dll  + VkLayer_hookshot_item_controls.json
 # Needs g++ and the mingw-w64 cross compiler (x86_64-w64-mingw32-g++). Usage: plugins/item_controls/build.sh [linux|windows]
 set -eu
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 ROOT=$(CDPATH= cd -- "$HERE/../.." && pwd)
-MOD=${ITEMCTL_MOD_DIR:-$ROOT/mods/050-ItemControls}
+if [ -z "${ITEMCTL_MOD_DIR:-}" ]; then
+    GAME=${HOOKSHOT_GAME_DIR:-$(python3 "$ROOT/hookshot-mods" gamedir)}
+    ITEMCTL_MOD_DIR=$GAME/mods/050-ItemControls
+fi
+MOD=$ITEMCTL_MOD_DIR
 IMGUI=$ROOT/imgui_src
 SRCS="$HERE/src/layer.cpp $HERE/src/item_controls.cpp $HERE/src/hook.cpp $HERE/src/platform.cpp
       $IMGUI/imgui.cpp $IMGUI/imgui_draw.cpp $IMGUI/imgui_tables.cpp $IMGUI/imgui_widgets.cpp $IMGUI/backends/imgui_impl_vulkan.cpp"

@@ -11,7 +11,8 @@
 #   stdout.txt  the game's output; ends with "exit <code>"
 # The overlay is preloaded, so its log (overlay/overlay.log) gets [tuner] lines.
 set -eu
-GAME=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+REPO=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)            # this source checkout
+GAME=${HOOKSHOT_GAME_DIR:-$(python3 "$REPO/hookshot-mods" gamedir)}  # the game folder
 OUT=${1:?out dir}
 SECS=${2:-180}
 EVERY=${3:-60}
@@ -32,6 +33,6 @@ cd "$GAME"
 HOS_HEADLESS=1 HOS_AUDIO=${HOS_AUDIO_RUN:-0} HOS_FS_TRACE=1 HOOKSHOT_NO_UPDATE_CHECK=1 \
 HOS_INPUT_LIVE="$OUT/live.txt" HOOKSHOT_TUNER_CMD="$OUT/tuner.txt" HOS_WATCH="$OUT/watch.txt" \
 RX_VK_SHOTS="$OUT/shots" RX_VK_SHOT_EVERY="$EVERY" \
-LD_PRELOAD="$GAME/overlay/libhookshot_overlay.so" \
+LD_PRELOAD="$REPO/overlay/libhookshot_overlay.so" \
 timeout "$SECS" ./bin/hookshot --user "$OUT/user" > "$OUT/stdout.txt" 2>&1 || true
 echo "exit done" >> "$OUT/stdout.txt"

@@ -39,10 +39,10 @@ from PyQt6.QtWidgets import (
 )
 
 try:
-    from .core import GameDirNotFound, HookshotModManager
+    from .core import GameDirNotFound, HookshotModManager, dev_overlay_lib
     from .models import Mod
 except (ImportError, ValueError):
-    from core import GameDirNotFound, HookshotModManager
+    from core import GameDirNotFound, HookshotModManager, dev_overlay_lib
     from models import Mod
 
 DARK_STYLE = """
@@ -278,7 +278,7 @@ class MainWindow(QMainWindow):
         self.overlay_checkbox.setStyleSheet("color: #10b981; font-weight: bold; font-size: 11px;")
         # (the developer overlay is Linux-only and exists only in a development folder)
         self.overlay_checkbox.setVisible(not sys.platform.startswith("win") and
-                                         os.path.exists(os.path.join(self.mgr.game_dir, "overlay", "libhookshot_overlay.so")))
+                                         dev_overlay_lib() is not None)
         play_vbox.addWidget(self.overlay_checkbox)
 
         h_layout.addLayout(play_vbox)

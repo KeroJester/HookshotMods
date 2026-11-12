@@ -179,15 +179,15 @@ static void SaveFile(bool dump_raw) {
     std::lock_guard<std::mutex> lk(g_Mutex);
     if (g_Selected < 0) return;
     const Candidate& c = g_Cands[g_Selected];
-    char path[256];
+    char path[1024];
     if (dump_raw) {
-        snprintf(path, sizeof(path), "overlay/param_dump_%llx.bin", (unsigned long long)c.anchor);
+        snprintf(path, sizeof(path), "%s", OverlayPath("param_dump_").c_str()); snprintf(path + strlen(path), sizeof(path) - strlen(path), "%llx.bin", (unsigned long long)c.anchor);
         FILE* f = fopen(path, "wb");
         if (!f) { g_Msg = "Could not write dump."; return; }
         fwrite((const void*)(GUEST_RAM_BASE + c.anchor - kWindow), 1, 2 * kWindow, f);
         fclose(f);
     } else {
-        snprintf(path, sizeof(path), "overlay/param_tweaks.txt");
+        snprintf(path, sizeof(path), "%s", OverlayPath("param_tweaks.txt").c_str());
         FILE* f = fopen(path, "a");
         if (!f) { g_Msg = "Could not write tweaks."; return; }
         fprintf(f, "# anchor 0x%llx (%s)\n", (unsigned long long)c.anchor, c.raw_byml ? "raw-byml" : "struct?");

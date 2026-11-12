@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -e
 
-# Directory where Hookshot and the overlay live
+# This source checkout (the overlay) and the game folder
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GAME="${HOOKSHOT_GAME_DIR:-$(python3 "$HERE/hookshot-mods" gamedir)}"
 
 # Always ensure overlay library is up-to-date
 OVERLAY_LIB="$HERE/overlay/libhookshot_overlay.so"
@@ -25,5 +26,5 @@ echo "Press [F2] anytime in-game to toggle the Mod Playground / Cheats Menu!"
 
 export LD_PRELOAD="$OVERLAY_LIB${LD_PRELOAD:+:$LD_PRELOAD}"
 
-cd "$HERE"
-exec "$HERE/bin/hookshot" "$@"
+cd "$GAME"
+exec "$GAME/bin/hookshot" "$@"

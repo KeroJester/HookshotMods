@@ -4,14 +4,14 @@
 # Steps: "sleep:<s>"  wait;  "touch:<file>"  create a file (e.g. the overlay teleport trigger);  "write:<file>=<text>"  write a file;  "tuner:<cmd>"  overlay tuner command (e.g. "snap <path>");  "clean:"  delete the screenshots so far;  "mark:<text>"  write "[mark] <text> <time>" to overlay.log;  anything else is one
 # HOS_INPUT_LIVE line (e.g. "0:LUP/3500,1.0:A/1500"). The game is stopped after the last step.
 set -eu
-GAME=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+REPO=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)            # this source checkout
 R=$1; shift
 SECS=300; EVERY=30
 [ "${1:-}" != "--" ] && { SECS=$1; shift; }
 [ "${1:-}" != "--" ] && { EVERY=$1; shift; }
 [ "${1:-}" = "--" ] && shift
 rm -rf "$R"
-"$GAME/overlay/tools/run_headless.sh" "$R" "$SECS" "$EVERY" &
+"$REPO/overlay/tools/run_headless.sh" "$R" "$SECS" "$EVERY" &
 shots() { ls "$R/shots" 2>/dev/null | wc -l; }
 need=$((1920 / EVERY))
 until [ "$(shots)" -ge "$need" ] || grep -q "^exit" "$R/stdout.txt" 2>/dev/null; do sleep 1; done
@@ -26,7 +26,7 @@ for step in "$@"; do
         write:*) w=${step#write:}; printf '%s' "${w#*=}" > "${w%%=*}" ;;
         tuner:*) echo "${step#tuner:}" >> "$R/tuner.txt" ;;
         clean:*) find "$R/shots" -name "*.png" -delete ;;
-        mark:*) echo "[mark] ${step#mark:} $(date +%s.%N) shot=$(ls -t "$R/shots" | head -1)" >> "$GAME/overlay/overlay.log" ;;
+        mark:*) echo "[mark] ${step#mark:} $(date +%s.%N) shot=$(ls -t "$R/shots" | head -1)" >> "$REPO/overlay/overlay.log" ;;
         *) echo "$step" >> "$R/live.txt" ;;
     esac
 done

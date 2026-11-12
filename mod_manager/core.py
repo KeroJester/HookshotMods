@@ -70,6 +70,12 @@ def _rename(src: str, dst: str) -> None:
         raise _locked(e) from e
 
 
+def dev_overlay_lib() -> Optional[str]:
+    """The Linux developer overlay, built in the source checkout beside this manager (overlay/), if present."""
+    lib = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "overlay", "libhookshot_overlay.so")
+    return lib if os.path.exists(lib) else None
+
+
 def find_game_dir() -> Optional[str]:
     """HOOKSHOT_GAME_DIR, the saved folder, the current folder, or a folder around the manager itself."""
     candidates = [os.environ.get("HOOKSHOT_GAME_DIR"), load_config().get("game_dir"), os.getcwd()]
@@ -596,7 +602,7 @@ class HookshotModManager:
 
     def launch_game(self, overlay: bool = False) -> subprocess.Popen:
         """Starts the game (code mods load through hookshot_env.txt, synced first).
-        overlay: Linux only, the developer overlay overlay/libhookshot_overlay.so when it exists (LD_PRELOAD)."""
+        overlay: Linux only, the developer overlay (dev_overlay_lib()) when it exists (LD_PRELOAD)."""
         self.sync_code_mods()
         env = os.environ.copy()
         if codemods.platform_key() == "windows":
@@ -605,8 +611,8 @@ class HookshotModManager:
             binary = os.path.join(self.game_dir, "bin", "hookshot")
             launcher = os.path.join(self.game_dir, "hookshot")
             target = binary if os.path.exists(binary) and os.access(binary, os.X_OK) else launcher
-            overlay_lib = os.path.join(self.game_dir, "overlay", "libhookshot_overlay.so")
-            if overlay and os.path.exists(overlay_lib):
+            overlay_lib = dev_overlay_lib()
+            if overlay and overlay_lib:
                 env["LD_PRELOAD"] = f"{overlay_lib}:{env.get('LD_PRELOAD', '')}".strip(":")
         if not os.path.exists(target):
             raise FileNotFoundError(f"Game executable not found: {target}")
