@@ -37,4 +37,5 @@ python3 mod_manager/build_item_controls.py   # builds the rest of that mod from 
 ## License
 
 GPL-3.0 (see `LICENSE`). The ASTC decoder used at build time comes from suyu (GPL-2.0-or-later) via the
-Hookshot source; imgui (MIT) and Vulkan-Headers (Apache-2.0) are submodules.
+Hookshot source; imgui (MIT) and Vulkan-Headers (Apache-2.0) are submodules. [AINB](https://github.com/dt-12345/AINB)
+(GPL-2.0, by dt-12345) is a separate submodule in `third_party/AINB`, used only by the old Mod Playground builder.

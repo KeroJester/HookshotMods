@@ -23,6 +23,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from core import find_game_dir
 ROOT_DIR = os.environ.get('HOOKSHOT_GAME_DIR') or find_game_dir()   # the game folder
 
+# AINB (dt-12345/AINB, GPL-2.0) is a git submodule in third_party/AINB; it needs mmh3, or our stand-in.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "third_party", "AINB"))
+try:
+    import mmh3  # noqa: F401
+except ImportError:
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "compat"))
 from ainb import AINB, ChildPlug, StringSelectorPlug, TransitionPlug, Module
 from ainb.node import Node
 from byml import parse_byml, write_byml
