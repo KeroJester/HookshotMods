@@ -15,6 +15,7 @@
 #include "gamefiles.h"
 #include "hook.h"
 #include "item_files.h"
+#include "native_hud.h"
 #include "research.h"
 #include "vfs.h"
 #include "platform.h"
@@ -407,9 +408,9 @@ bool HudVisible() {
 
 void DrawHud() {
     if (!HudVisible()) return;
-    {   // (research: the game-drawn boxes are shown instead during play; RESEARCH_NOTES 70-72)
-        static const char* r = getenv("ITEMCTL_RESEARCH");
-        if (r && strstr(r, "clone") && !strstr(r, "overlay") && !PauseOpen()) return;
+    if (!PauseOpen()) {   // during play the game draws the boxes itself when it can (native_hud.cpp)
+        static const char* r = getenv("ITEMCTL_RESEARCH");   // (research runs: their own boxes, overlay to compare)
+        if (nativehud::Active() || (r && strstr(r, "clone") && !strstr(r, "overlay"))) return;
     }
     ImGuiIO& io = ImGui::GetIO();
     ImDrawList* dl = ImGui::GetForegroundDrawList();
@@ -492,6 +493,7 @@ bool Init(const std::string& modDir) {
         if (!r || !strstr(r, "keepbox")) RegisterFilePatches();
     }
     if (!vfs::Start()) Log("[itemctl] the vanilla RT box and prompts stay (file hooks failed)\n");
+    nativehud::Start();                                   // (false: the overlay HUD draws the boxes)
     std::thread(DecodeIcons).detach();
     research::Start();
     g_On = true;

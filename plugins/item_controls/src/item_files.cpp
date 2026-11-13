@@ -10,6 +10,7 @@
 #include "platform.h"
 #include "vfs.h"
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 
 namespace itemctl {
@@ -20,6 +21,9 @@ template <class T> static T Rd(const uint8_t* b, size_t o) { T v; memcpy(&v, b +
 template <class T> static void Wr(uint8_t* b, size_t o, T v) { memcpy(b + o, &v, sizeof(T)); }
 
 // ---- HUD layout ---------------------------------------------------------------------------------------------------
+static std::atomic<float> g_BoxScale{0.0f};
+float OriginalBoxScale() { return g_BoxScale.load(); }
+
 static const char* kHudArchive = "UI/Layout2Archive/Common.Product.100.Nin_Ounce_NVN2.blarc.zs";
 
 // PlayerStatus_00.buil (BFFH LayoutResData): pane count u32 at 0x318, u64 record offsets at 0x320; records 0x44
@@ -46,6 +50,11 @@ static bool HidePanes(Bytes& sarc, size_t at, size_t size) {
         uint32_t parent = Rd<uint32_t>(b, rec + 0x28);
         if (parent >= count || names[parent] != "N_ScaleR_00") { Log("[hud] %s: unexpected parent\n", pane); return false; }
         recs.push_back(rec);
+    }
+    {   // the RT box's own scale, before it goes to 0: the native boxes (native_hud.cpp) hang under this pane and
+        // give it back at run time
+        const uint64_t rec = recs[1];
+        g_BoxScale = Rd<float>(b, rec + 0x10);
     }
     // the archive holds the layout's bytes more than once: change every copy
     const Bytes layout(sarc.begin() + at, sarc.begin() + at + size);
