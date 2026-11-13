@@ -27,7 +27,7 @@ import sys
 
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.dirname(HERE)                  # this source checkout (reference/hookshot-src submodule)
+REPO = os.path.dirname(HERE)                  # this source checkout
 sys.path.insert(0, REPO)
 from mod_manager.core import find_game_dir   # noqa: E402
 ROOT = os.environ.get("HOOKSHOT_GAME_DIR") or find_game_dir()   # the game folder: romfs/ in, mods/ out

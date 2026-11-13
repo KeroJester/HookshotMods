@@ -5,8 +5,8 @@
 #   mods/050-ItemControls/layer/linux/libVkLayer_hookshot_item_controls.so  + VkLayer_hookshot_item_controls.json
 #   mods/050-ItemControls/layer/windows/VkLayer_hookshot_item_controls.dll  + VkLayer_hookshot_item_controls.json
 # Needs g++/gcc and the mingw-w64 cross compilers (posix threads). Usage: plugins/item_controls/build.sh [linux|windows]
-# Sources besides src/: imgui, Vulkan-Headers, zstd's decoder (third_party/zstd) and suyu's ASTC decoder from the
-# Hookshot source (reference/hookshot-src): git submodule update --init
+# Sources besides src/: imgui, Vulkan-Headers and zstd's decoder (third_party/zstd): git submodule update --init;
+# suyu's ASTC decoder is in the repo (third_party/suyu)
 set -eu
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 ROOT=$(CDPATH= cd -- "$HERE/../.." && pwd)
@@ -16,7 +16,7 @@ if [ -z "${ITEMCTL_MOD_DIR:-}" ]; then
 fi
 MOD=$ITEMCTL_MOD_DIR
 IMGUI=$ROOT/imgui_src
-SUYU=$ROOT/reference/hookshot-src/gpu/third_party/suyu
+SUYU=$ROOT/third_party/suyu
 ZSTD=$ROOT/third_party/zstd/lib
 SRCS="$HERE/src/layer.cpp $HERE/src/item_controls.cpp $HERE/src/hook.cpp $HERE/src/platform.cpp
       $HERE/src/gamefiles.cpp $HERE/src/vfs.cpp $HERE/src/item_files.cpp $HERE/src/native_hud.cpp $HERE/src/research.cpp $SUYU/video_core/textures/astc.cpp

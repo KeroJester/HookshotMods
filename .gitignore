@@ -16,9 +16,8 @@ __pycache__/
 /overlay/*.bin
 /overlay/goron_preview.png
 
-# Local research checkouts besides the Hookshot submodule
+# Local research checkouts (reference/hookshot-src: the Hookshot source, no longer published)
 /reference/*
-!/reference/hookshot-src
 !/reference/README.txt
 
 # App builds

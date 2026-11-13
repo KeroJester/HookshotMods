@@ -5,9 +5,6 @@
 [submodule "vulkan_headers_src"]
 	path = vulkan_headers_src
 	url = https://github.com/KhronosGroup/Vulkan-Headers.git
-[submodule "reference/hookshot-src"]
-	path = reference/hookshot-src
-	url = https://github.com/NotRexed/Hookshot.git
 [submodule "third_party/AINB"]
 	path = third_party/AINB
 	url = https://github.com/dt-12345/AINB.git
