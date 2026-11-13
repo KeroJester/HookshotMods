@@ -1921,3 +1921,36 @@ native_icons_first.png / r10).
   (owner) does not fix it. The text pane (index 14) and its text box match the RT box's apart from own pointers. Root
   objects differ at +0x90/+0x98 and are shifted by 8 bytes from +0x158 on (the RT box's root has one more qword
   there) — unexplained; next suspect. Until solved: no count text on the native boxes (overlay could draw counts).
+
+## 73. Native HUD boxes in the mod: built with the HUD, counts and labels work (2026-11-13)
+
+The count-text corruption (§72) came from building the boxes too late. The HUD screen's open pass f_8045bac0 runs
+BEFORE the HUD setup f_83415d20 and does two things per layout of the screen: (1) f_80c3de80 -> f_81546800(root, ..)
+-> f_81515f20 sizes every pane's draw data (text included) and sets root+0x90 (its draw module struct, via f_81514300)
+and root+0x98; f_815468c0 then allocates ONE draw list of exactly the total size; (2) the animation tables (what
+BuildAnims in research.cpp replicated). Layouts made after it have no draw memory: setting their text writes past the
+list (stretched meshes, HUD gone). Found with HOS_WATCH on the RT root's +0x90/+0x98, re-armed through boot
+(scratchpad watchloop.sh: rewrite watch.txt whenever it becomes watch.txt.done); writers mapped from host offsets to
+f_ symbols with `nm bin/hookshot`. (The root object is 0x158 bytes, made by f_8045a6f0: past it is another object,
+which explained the "8-byte shift" of §72.)
+
+Fix: build the six boxes during the screen's build. Right after the builder virtual f_80459f90 returns the RT box
+(part "PaItemBtn_00", instance "Pa_SelectItem_00"), call it six more times with copies of the same ctx (+8 = 0) and
+description, and add each new layout and its nested part layouts to the screen's layout list = description+0x20
+(f_8156aa50(list, layout+0x40); nested: part panes, flag 0x1800000 at pane+0xa8, nested root [[pane+8]+8], its layout
+at root+0xb0). The open pass then treats them like the game's own: own draw modules, 13 + 3 animations, and the icon
+opacity is right too (no +0x30 workaround needed).
+
+Labels: T_Assign_00 is text pane 14 of the box (22 is T_ItemNum_00). Its source text is not an "@name" tag, so the
+by-name setters (f_80a87d30 / f_8045b970) set nothing: write it with f_80459520(pane, &str, 0). The text box keeps the
+POINTER to the string (+0xf0, length +0x124; f_80459680), so the string must stay alive (per-box buffer from the HUD
+heap; a stack buffer hung the game). Glyphs: f_80a86f70(&str) then f_80a8ae50(&str, button) with the Switch button
+index (table at [0x84cac668]+0x128: None A B X Y L ZL R ZR Plus Minus Up Down ...); the game draws them with Xbox
+labels, so Xbox X/Y/B = 4/3/1, LB/RB = 5/7; two glyph strings (UTF-8 private-use characters) can be joined.
+Counts without a count: the RT update plays StockNum [ctrl+0x30] back (f_802f0fe0) to hide the number.
+Per-frame HUD update: f_802ef010 (x0 = HUD screen, once per frame).
+
+In the mod: src/native_hud.cpp (hooks f_80459f90, f_83415d20, f_802ef010). The HUD file patch still hides the RT box
+pane (scale 0, its original scale recorded by item_files.cpp); the native setup gives it back and hides the RT box's
+own content (its node at scale 0), so when anything is missing the old overlay HUD takes over unchanged.
+ITEMCTL_NATIVE=0 forces the overlay.
