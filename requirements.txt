@@ -2,3 +2,4 @@
 PyQt6>=6.6
 zstandard>=0.22
 py7zr>=0.21        # optional: installs .7z mods without 7-Zip
+rich>=13           # optional: nicer command-line output
