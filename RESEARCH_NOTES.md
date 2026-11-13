@@ -1832,3 +1832,27 @@ Two ways to six native boxes:
 Open questions for the next step: (1) the create-part function and its arguments; (2) the controller's set-item method
 (follow writes to/calls on [HUD screen+0x328] in the HUD's per-frame update); (3) calling lifted guest functions from a
 hook (GuestCtx registers + guest stack) safely.
+
+## 70. Native HUD boxes: six game-drawn PaItemBtn_00 clones on screen (2026-11-12)
+
+Research probe `ITEMCTL_RESEARCH=clone[,keepbox]` (plugins/item_controls/src/research.cpp; keepbox = no file patches).
+Calling game functions from a hook: save the GuestCtx, set x0.., x30 = 0, call the lifted f_ function, restore
+(Hookshot's own host/oot_menu.c guest_call does the same).
+
+Working recipe, after the HUD's setup (f_83415d20, a vtable method of HUD screen 0x84c0b710; x0 screen, x1 heap):
+- template part layout = [[screen+0x328]+0x20] (the RT box controller keeps it; vtable 0x84c41970 = layout)
+- template node T = f_80229650(tmpl+0x40); holder H = f_80229690(T) = the HUD's Pa_SelectItem_00 pane. Tree nodes (T, H)
+  carry the transform: scale +0x60/+0x64, translation +0x6c/+0x70 (H: (-294,-258) 0.85, scale 0 under our HUD patch).
+- per clone: name = f_8005ebe0(32, heap, 8) (operator new(size, heap, align)); layout = f_8005ebe0(0x98, heap, 8);
+  f_80791f70(layout, tmpl, name, 0, 0) builds a fresh copy of the part; f_80235dc0([H+0x18], [layout+0x80], H) attaches
+  its root under the holder; its node f_80229650(layout+0x40) then takes scale/translation in the holder's units.
+- hide the template's content: T scale 0 (the holder must stay visible: its children inherit its scale).
+- Pitfalls that crashed the UI worker (ModuleSystemWorker2, f_8155xxxx): attaching a clone under a pane of another
+  container (N_ScaleR_00), and writing "transform" floats into a layout's root object [layout+0x80] (pointers live at
+  +0x60..+0x70 there; transforms are only on tree nodes). A layout's root object: list links at +0/+8, owner +0xa0,
+  parent +0x108, name pointer +0x148.
+- The screens' "register layout" virtual (slot 0x1e8) is an empty default for the HUD (f_8379bdf0 returns 0): not needed.
+  The dungeon map calls it on its own screen object; [HUD screen+0x20] (vt 0x84c43670) slot 0x1e8 is a DESTRUCTOR —
+  never call it.
+Result: six empty item frames in a 2x3 grid (scale 0.55, step 230, from (-260,-230) in N_ScaleR_00 units), drawn by
+the game, no crash over a full headless run. Next: each box's item (icon, ammo count) and its button label.

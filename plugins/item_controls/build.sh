@@ -19,7 +19,7 @@ IMGUI=$ROOT/imgui_src
 SUYU=$ROOT/reference/hookshot-src/gpu/third_party/suyu
 ZSTD=$ROOT/third_party/zstd/lib
 SRCS="$HERE/src/layer.cpp $HERE/src/item_controls.cpp $HERE/src/hook.cpp $HERE/src/platform.cpp
-      $HERE/src/gamefiles.cpp $HERE/src/vfs.cpp $HERE/src/item_files.cpp $SUYU/video_core/textures/astc.cpp
+      $HERE/src/gamefiles.cpp $HERE/src/vfs.cpp $HERE/src/item_files.cpp $HERE/src/research.cpp $SUYU/video_core/textures/astc.cpp
       $IMGUI/imgui.cpp $IMGUI/imgui_draw.cpp $IMGUI/imgui_tables.cpp $IMGUI/imgui_widgets.cpp $IMGUI/backends/imgui_impl_vulkan.cpp"
 CSRCS="$ZSTD/common/entropy_common.c $ZSTD/common/error_private.c $ZSTD/common/fse_decompress.c
        $ZSTD/common/xxhash.c $ZSTD/common/zstd_common.c $ZSTD/decompress/huf_decompress.c

@@ -15,6 +15,7 @@
 #include "gamefiles.h"
 #include "hook.h"
 #include "item_files.h"
+#include "research.h"
 #include "vfs.h"
 #include "platform.h"
 #include "imgui.h"
@@ -463,9 +464,13 @@ bool Init(const std::string& modDir) {
     }
     if (!nh) { Log("[itemctl] controller hook failed: controls stay vanilla\n"); return false; }
     // the HUD box and RT prompts go only while our controls are on (vanilla otherwise)
-    RegisterFilePatches();
+    {   // (research runs may keep the vanilla RT box: ITEMCTL_RESEARCH=...keepbox)
+        const char* r = getenv("ITEMCTL_RESEARCH");
+        if (!r || !strstr(r, "keepbox")) RegisterFilePatches();
+    }
     if (!vfs::Start()) Log("[itemctl] the vanilla RT box and prompts stay (file hooks failed)\n");
     std::thread(DecodeIcons).detach();
+    research::Start();
     g_On = true;
     std::thread([] {                                      // keep the GameData entries located (they appear with the save)
         for (;;) {
