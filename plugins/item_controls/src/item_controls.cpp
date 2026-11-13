@@ -256,6 +256,7 @@ static bool g_LastRtA = false;                 // (set by Transform: this sample
 // up a few frames after an RT press still took it. An RT press is therefore seen as a press for one frame only: from
 // the next poll on, the samples before it read as held (no press in the history, the hold goes on).
 static uint64_t g_RtEdgeN = 0, g_PrevOut = 0;
+static bool g_SprintGap = false;   // RT pressed during a latched sprint: one sample up, then a fresh press (a roll)
 static bool g_RtMove = false, g_RtPending = false, g_Sprint = false;
 static int64_t g_RtT0 = 0, g_SlowSince = 0, g_RtTapUntil = 0;
 static int g_StickX = 0, g_StickY = 0;   // left stick of the sample being transformed
@@ -319,6 +320,7 @@ static uint64_t Movement(uint64_t raw, uint64_t pressed, int64_t now, uint64_t o
             if (pressed & kBtnA) return out & ~kBtnA;     // (B: a fresh press on the next sample)
         }
     }
+    if (g_SprintGap) { g_SprintGap = false; return out & ~kBtnA; }   // (the next sample is the roll's press)
     if ((rt || g_Sprint) && !(out & kBtnA)) { out |= kBtnA; g_LastRtA = true; }
     return out;
 }
@@ -332,6 +334,7 @@ static uint64_t Transform(uint64_t raw) {
     uint64_t out = raw;
     if (pressed & kBtnZR) {
         g_RtMove = false, g_RtPending = !PromptShown(), g_RtTapUntil = 0, g_RtT0 = now;
+        if (g_Sprint && g_RtPending) g_SprintGap = true;
         static const bool rtLog = getenv("ITEMCTL_RTLOG") != nullptr;
         if (rtLog) {
             const char* gc = GameCommand();

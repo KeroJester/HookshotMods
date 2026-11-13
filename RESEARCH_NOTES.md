@@ -2038,3 +2038,10 @@ The user's report: spamming RT during a roll still talked or opened when the pro
 - **Cost:** an RT press made during a roll is no longer kept for a second roll; press again after it.
 - Research switches: ITEMCTL_RTLOG=1 (RT presses with the prompt state, the game's command as it changes),
   ITEMCTL_POLLLOG=1 (npad poll timing).
+
+### 0.9.2: rolling out of a latched sprint
+The user's report: RT could not roll during a latched sprint. The latch reports the action bit held, so a new RT press
+made no new press for the game. Fix: an RT press during a latched sprint (with no prompt offered) reports the bit up
+for one sample, then the latch's hold resumes. That makes a fresh press, which is seen for one frame as every RT press
+is, and the game rolls. The latch stays on. Verified headless: sprint latched, a second RT press rolled, the latch
+ended only when the stick was released.
