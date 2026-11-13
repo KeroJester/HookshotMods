@@ -1,7 +1,6 @@
 # hookshot-mods
 
-Mods and a cross-platform mod manager for the Ocarina of Time remake running under
-[Hookshot](https://github.com/NotRexed/Hookshot).
+Mods and a cross-platform mod manager for the Ocarina of Time remake running under Hookshot.
 
 **This repository contains no game files.** You need your own copy of the game, set up with Hookshot.
 
@@ -18,7 +17,9 @@ Mods go into that folder's `mods/` folder; drag a mod's zip onto the app or use 
 **Included mod: Item Controls.** The app comes with it and offers to install it on first start (or later via
 **Included Mods...**). It is also on the Releases page as `ItemControls.zip`: unzip it into your `mods/` folder.
 Hold LB or RB and press X, Y or B to use one of six items; on the pause menu's Items tab, hover an item and press the
-same combo to put it there. RT rolls. The mod carries no game files: it reads what it needs from your copy.
+same combo to put it there. The game draws the six item boxes in its own HUD and on the Items tab. RT is for movement
+only (roll, sprint, side hop), and a sprint keeps going once started. The mod carries no game files: it reads what it
+needs from your copy.
 **Code mods** (like Item Controls) load only when you start the game with the app's **Launch** button: Hookshot
 itself never loads code from mod folders. On Linux, `eval "$(./HookshotMods-x86_64.AppImage env)"` before
 starting the game another way does the same.
@@ -41,7 +42,7 @@ This repo is kept **outside** the game folder. The tools find the game folder th
 the game's files from there, and write built mods into its `mods/` folder.
 
 ```sh
-git submodule update --init          # imgui, Vulkan-Headers, Hookshot source (for the ASTC decoder)
+git submodule update --init          # imgui, Vulkan-Headers, zstd (suyu's ASTC decoder is in third_party/suyu)
 ./start_mod_manager.sh               # GUI; asks for the game folder the first time
 plugins/item_controls/build.sh       # builds the mod (Linux .so, Windows .dll, its files) into <game>/mods/050-ItemControls
 plugins/item_controls/package.sh     # or: the player zip, dist/bundled_mods/ItemControls.zip (the app bundles it)
@@ -56,7 +57,7 @@ python packaging/build_app.py        # Windows: dist/HookshotMods.exe · Linux: 
 ```
 
 GitHub Actions (`.github/workflows/build.yml`) builds the Item Controls mod, then the Windows app and the Linux
-AppImage with that mod inside, on every push; download them from the run's Artifacts. Pushing a tag like `v0.1.0` also
+AppImage with that mod inside, on every push; download them from the run's Artifacts. Pushing a tag like `v0.9.4` also
 creates a draft Release with those files attached.
 
 ## Rules for commits
