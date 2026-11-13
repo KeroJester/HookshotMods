@@ -58,6 +58,7 @@ static uint64_t Call(GuestCtx* c, const char* fn, uint64_t a0 = 0, uint64_t a1 =
     return r;
 }
 static uint64_t Q(uint64_t a) { return GuestPtrOk(a) ? GRead<uint64_t>(a) : 0; }
+template <class T> static void W(uint64_t a, T v) { GWrite<T>(a, v); }
 static uint64_t CallAt(GuestCtx* c, uint64_t addr, uint64_t a0 = 0, uint64_t a1 = 0, uint64_t a2 = 0, uint64_t a3 = 0) {
     char n[32];
     snprintf(n, sizeof n, "f_%llx", (unsigned long long)addr);
@@ -122,6 +123,44 @@ static void CopyHook(GuestCtx* c) {
 static GuestFn o_Build;
 static uint64_t g_BtnCtx[8], g_BtnDesc[8];   // the HUD's own build of its RT box (part PaItemBtn_00), for "build"
 static bool g_BtnCaptured;
+static uint64_t g_Early[6];                  // "early": the six boxes, built right after the RT box
+
+// Registers a built layout and its nested parts in the screen's layout list, as the generic builder f_8154f990 does
+// (f_8156aa50(list, layout + 0x40)); nested part layouts: part panes (flag 0x1800000) -> [[pane+8]+8] = the nested
+// root, whose +0xb0 is its layout (the open pass's walk, f_81515f20)
+static void RegisterTree(GuestCtx* c, uint64_t list, uint64_t lay, int depth = 0) {
+    if (Q(lay) != 0x84c41970 || depth > 3) return;
+    CallAt(c, 0x8156aa50, list, lay + 0x40);
+    const uint64_t root = Q(lay + 0x80);
+    const int np = GRead<uint16_t>(root + 0x13c);
+    for (int q = 0; q < np && q < 256; q++) {
+        const uint64_t pn = CallAt(c, 0x8045b1f0, root, q);
+        if (!pn || (GRead<uint32_t>(pn + 0xa8) & 0x3c00000) != 0x1800000) continue;
+        const uint64_t nroot = Q(Q(Q(pn + 8) + 8));
+        if (GuestPtrOk(nroot) && Q(nroot + 0xb0) != lay) RegisterTree(c, list, Q(nroot + 0xb0), depth + 1);
+    }
+}
+
+// "early": six more PaItemBtn_00 parts built with the RT box's own build call, while the HUD screen is being built
+// (before its open pass f_8045bac0 sizes every layout's draw data and makes the animation tables)
+static void BuildEarly(GuestCtx* c) {
+    const GuestCtx saved = *c;
+    const uint64_t heap = g_BtnCtx[2];
+    for (int i = 0; i < 6; i++) {
+        const uint64_t ctxm = Call(c, "f_8005ebe0", 0x40, heap, 8), descm = Call(c, "f_8005ebe0", 0x40, heap, 8);
+        if (!ctxm || !descm) break;
+        for (int k = 0; k < 8; k++) { W<uint64_t>(ctxm + 8 * k, g_BtnCtx[k]); W<uint64_t>(descm + 8 * k, g_BtnDesc[k]); }
+        W<uint64_t>(ctxm + 8, 0);
+        c->x[0] = ctxm, c->x[1] = descm, c->x[30] = 0;
+        o_Build(c);
+        const uint64_t lay = c->x[0] - 0x40;
+        *c = saved;
+        if (Q(lay) != 0x84c41970) { Log("[research] early build %d failed\n", i); break; }
+        RegisterTree(c, g_BtnDesc[4], lay);
+        g_Early[i] = lay;
+    }
+    Log("[research] early: six boxes built and registered (%#llx ..)\n", (unsigned long long)g_Early[0]);
+}
 static void BuildHook(GuestCtx* c) {
     const uint64_t ctx = c->x[0], desc = c->x[1], lr = c->x[30];
     uint64_t d[8], k[8];
@@ -130,6 +169,7 @@ static void BuildHook(GuestCtx* c) {
     const uint64_t lay = c->x[0] - 0x40;
     if (GStr(d[0], 40) == "PaItemBtn_00" && GStr(d[2], 40) == "Pa_SelectItem_00") {
         memcpy(g_BtnCtx, k, sizeof k); memcpy(g_BtnDesc, d, sizeof d); g_BtnCaptured = true;
+        if (strstr(getenv("ITEMCTL_RESEARCH"), "early") && !g_Early[0]) BuildEarly(c);
     }
     static int n;
     const bool itemBtn = strstr(PaneName(Q(lay + 0x80)).c_str(), "ItemBtn") || GStr(d[0], 40).find("ItemBtn") != std::string::npos;
@@ -168,7 +208,6 @@ static void WatchThread() {
     }
 }
 
-template <class T> static void W(uint64_t a, T v) { GWrite<T>(a, v); }
 
 // A layout's animation table, as the screen's open pass makes it for each of its layouts (f_8045bac0): the layout's
 // animation instances are [root+0x48] (0x20 each; root = [layout+0x80], count [[root+0x10]+0x158]); the table at
@@ -489,7 +528,13 @@ static void HudSetupHook(GuestCtx* c) {
         snprintf(nm, sizeof nm, "Pa_ItemSlot_%02d", i);
         memcpy(GPtr(name), nm, strlen(nm) + 1);
         uint64_t nroot;
-        if (strstr(getenv("ITEMCTL_RESEARCH"), "build")) {   // (the layout builder, as the HUD built the RT box)
+        if (strstr(getenv("ITEMCTL_RESEARCH"), "early")) {
+            if (!g_Early[i]) { Log("[research] no early box %d\n", i); return; }
+            lay = g_Early[i];
+            nroot = Q(lay + 0x80);
+            Log("[research] early box %d: layout %#llx, animations %u, root +0x90 %#llx +0x98 %#llx\n", i,
+                (unsigned long long)lay, GRead<uint32_t>(lay + 0x88), (unsigned long long)Q(nroot + 0x90), (unsigned long long)Q(nroot + 0x98));
+        } else if (strstr(getenv("ITEMCTL_RESEARCH"), "build")) {   // (the layout builder, as the HUD built the RT box)
             if (!g_BtnCaptured) { Log("[research] the RT box's build was not captured\n"); return; }
             const uint64_t ctxm = Call(c, "f_8005ebe0", 0x40, heap, 8), descm = Call(c, "f_8005ebe0", 0x40, heap, 8);
             for (int k = 0; k < 8; k++) { W<uint64_t>(ctxm + 8 * k, g_BtnCtx[k]); W<uint64_t>(descm + 8 * k, g_BtnDesc[k]); }
@@ -632,7 +677,7 @@ void Start() {
     Log("[research] mode %s\n", mode);
     g_Sym = ResolveSymbols({"f_8045c4a0", "f_83415d20", "f_80229650", "f_80229690", "f_8005ebe0", "f_80791f70",
                             "f_80235dc0", "f_8045efe0", "f_80a95770", "f_80a95ef0", "f_802efb20"});
-    if (strstr(mode, "builder") || strstr(mode, "build")) {
+    if (strstr(mode, "builder") || strstr(mode, "build") || strstr(mode, "early")) {
         auto bs = ResolveSymbols({"f_80459f90"});
         if (bs.count("f_80459f90")) o_Build = hook::Install(bs["f_80459f90"], BuildHook, "research: part builder f_80459f90");
     }
