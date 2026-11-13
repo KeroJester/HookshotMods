@@ -16,7 +16,7 @@
 //    PaItemMenu_00) with the names swapped, attached under the tab's layout after the pause menu's setup (f_80f99400)
 //    so they slide with the tab, updated every frame of the open menu (f_802f1380). Holding LB/RB dims the other row;
 //    a newly assigned item plays its box's press animation.
-// 5. In play the boxes rest at 40% and their labels are hidden; holding a bumper brings its row to full with labels
+// 5. In play the boxes rest at 60% and their labels are hidden; holding a bumper brings its row to full with labels
 //    (pane alpha, RESEARCH_NOTES.md section 75).
 // Guest functions are called from the hooks on the calling thread (save the context, set x0.., x30 = 0, run the
 // lifted function, restore), as Hookshot's host/oot_menu.c guest_call does.
@@ -452,9 +452,9 @@ static void UpdateBox(GuestCtx* c, BoxSet& set, int i, bool counts) {
     b.count = count, b.max = max;
 }
 
-// In play the boxes sit back: 40% while their bumper is up, full while it is held; the button labels only show
+// In play the boxes sit back: 60% while their bumper is up, full while it is held; the button labels only show
 // while their bumper is held. Eased over a few frames.
-constexpr float kRestAlpha = 0.4f, kFadeStep = 0.2f;
+constexpr float kRestAlpha = 0.6f, kFadeStep = 0.2f;
 static float Toward(float cur, float goal) {
     if (cur < 0.0f) return goal;
     return cur < goal ? std::min(goal, cur + kFadeStep) : std::max(goal, cur - kFadeStep);

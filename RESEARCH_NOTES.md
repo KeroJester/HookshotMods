@@ -2001,3 +2001,22 @@ are hidden (0%) unless their bumper is held. The pause menu boxes stay opaque.
 - Not alpha: f_8154b720 writes +0x7c (0 by default) and bit 0x200, so it is something else. No setter for +0x74
   was found among the small functions.
 - Eased by 0.2 a frame. Verified headless: rest 40% without labels; LB held: LB row full with labels; same for RB.
+
+## 76. RT for movement only, latched sprint (0.9.0, 2026-11-13)
+The user's request: RT only rolls, sprints and side hops, with no interactions; a sprint started with RT keeps going
+without the trigger (as in NieR: Automata) until the player stops moving. The boxes' resting opacity goes to 60%
+(40% faded in too abruptly).
+- **The interaction signal:** the action prompt is its own screen, DoCommand_00 (vt 0x84c05a50; ActionGuide_00 is
+  0x84c02d48, CtrlGuide_00 is 0x84c05318). u32 at +0x1a4: byte +0x1a6 = 1 appearing, 2 shown, 3 gone (with +0x1a5
+  = 0xff while leaving); 0x10000 or 0x20000 means a prompt is offered. +0x2e8 = the command (0 Talk, 3 Open), with
+  hashes at +0x2d0/+0x2d4. Seen in the shop: Talk at the counter, Open at the door, nothing in between (stays 0x3ff00).
+- The interaction-or-roll choice is made in code (action verbs), not in the player AINBs (Player.scheduler.rolling
+  only sets ActionVerb). The input masks (ControllerTrigMask...) are not in the player modules.
+- **Mod:** an RT press counts for movement only if no prompt is offered when it starts. Then RT reports the action
+  bit, as before, which gives roll, dash and side hop. Near an interactable, RT does nothing: the game would take
+  the press as Talk or Open.
+- **Latch:** RT held 0.3 s with the left stick at 45% or more (and no Z-target) latches the action bit held. Released
+  when the stick stays under 45% for 0.15 s, on Z-target, on item use, when play stops, or on a B press (that sample
+  reports B up, so B gives a fresh press). Sticks come from the NpadState (+0x10 lx, +0x14 ly).
+- Verified headless: no Talk on RT at the counter; latch on, then off when the stick was released.
+- Untested: open-field sprint length, side hop, walls (the latch holds while the stick pushes into a wall).

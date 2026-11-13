@@ -10,6 +10,7 @@
 //                            and log its callers when the destination is inside the RT box controller
 //   ITEMCTL_RESEARCH=builder log the layout builder's part creations (f_80459f90, a virtual: x0 builder context,
 //                            x1 part description; returns the new layout + 0x40): caller, name, the description
+//   ITEMCTL_RESEARCH=docmd   log every change in the action prompt screen (DoCommand_00, vt 0x84c05a50), +0x180..0x400
 //   ITEMCTL_RESEARCH=allbuild log every part build: part, instance, screen and its vtable, parent layout
 //   ITEMCTL_RESEARCH=clone   after the HUD's setup (f_83415d20), clone the RT box part as the dungeon map clones its
 //                            icons (f_80f9b1d0): f_80791f70(new layout, template, name, 0, 0), then
@@ -722,6 +723,26 @@ static void StartTrace() {
     }).detach();
 }
 
+// "docmd": every change in the action prompt screen's (DoCommand_00, vt 0x84c05a50) fields 0x180..0x400, per frame
+static GuestFn o_ScrFrame;
+static void DoCmdFrame(GuestCtx* c) {
+    const uint64_t s = c->x[0];
+    if (GuestPtrOk(s) && Q(s) == 0x84c05a50) {
+        static std::vector<uint32_t> prev;
+        static int n;
+        std::vector<uint32_t> cur;
+        for (uint64_t o = 0x180; o < 0x400; o += 4) cur.push_back(GRead<uint32_t>(s + o));
+        if (prev.size() == cur.size() && n < 400) {
+            std::string line; char b[48];
+            for (size_t i = 0; i < cur.size(); i++)
+                if (cur[i] != prev[i] && 0x180 + 4 * i != 0x250) { snprintf(b, sizeof b, " +%zx:%x->%x", 0x180 + 4 * i, prev[i], cur[i]); line += b; }
+            if (!line.empty() && line.size() < 600) { Log("[research] docmd%s\n", line.c_str()); n++; }
+        }
+        prev = cur;
+    }
+    o_ScrFrame(c);
+}
+
 void Start() {
     const char* mode = getenv("ITEMCTL_RESEARCH");
     if (!mode || !*mode) return;
@@ -735,6 +756,10 @@ void Start() {
     if (strstr(mode, "items") && g_Sym.count("f_80a95770"))
         o_RtUpdate = hook::Install(g_Sym["f_80a95770"], RtUpdateHook, "research: RT box update f_80a95770");
     if (strstr(mode, "trace")) StartTrace();
+    if (strstr(mode, "docmd")) {
+        auto fs = ResolveSymbols({"f_802f1380"});
+        if (fs.count("f_802f1380")) o_ScrFrame = hook::Install(fs["f_802f1380"], DoCmdFrame, "research: screen frame (docmd)");
+    }
     if ((strstr(mode, "clone") || strstr(mode, "watch") || strstr(mode, "copy")) && g_Sym.count("f_83415d20"))
         o_HudSetup = hook::Install(g_Sym["f_83415d20"], HudSetupHook, "research: HUD setup f_83415d20");
     if (strstr(mode, "panes")) {

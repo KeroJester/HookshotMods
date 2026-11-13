@@ -6,7 +6,8 @@
 //   gameplay: LB/RB + X/Y/B uses one of 6 slots: the slot's item is written to the game's RT item (GameData Enum
 //             PlayerStatus.AssignableItem.Child/.Adult) and RT is reported held for the game, so its own item use
 //             runs. Aimed items (aim.txt) latch RT until the bumper is released or the face button pressed again.
-//             LB/RB alone are hidden (no Quick Select wheel). RT is reported as the action bit (roll/dash).
+//             LB/RB alone are hidden (no Quick Select wheel). RT is the action bit for movement only (roll, sprint,
+//             side hop; never with an interaction prompt up), and a sprint started with it latches (see Movement).
 //   pause menu, Items tab: LB/RB + X/Y/B assigns the hovered item (RT item cleared, Select pressed for the game, the
 //             item it writes goes to the slot). LB/RB never switch tabs.
 //   anything else (dialogue, ocarina, cutscenes, map): buttons pass through.
@@ -24,6 +25,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cfloat>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <cstdio>
@@ -40,7 +42,10 @@ constexpr uint32_t kEnumHeader = 0x84c40898, kHashEmpty = 0xbe69de49;
 // HUD option (option.sav): Enum 0x4e767f10 {Normal, Pro, ProMaster}; only its default is needed to validate the entry
 constexpr uint64_t kPauseScreenVt = 0x84c0baa8, kHudScreenVt = 0x84c0afe0, kHudScreen2Vt = 0x84c0b710;
 constexpr int kTabItems = 4;
-constexpr uint64_t kBtnA = 1 << 0, kBtnX = 1 << 2, kBtnY = 1 << 3, kBtnL = 1 << 6, kBtnR = 1 << 7, kBtnZR = 1 << 9;
+constexpr uint64_t kBtnA = 1 << 0, kBtnX = 1 << 2, kBtnY = 1 << 3, kBtnL = 1 << 6, kBtnR = 1 << 7, kBtnZL = 1 << 8,
+                   kBtnZR = 1 << 9;
+// the action prompt screen (DoCommand_00: "Talk", "Open", ...): u32 +0x1a4 = 0x10000 appearing, 0x20000 shown
+constexpr uint64_t kDoCommandVt = 0x84c05a50;
 // slot order: LB+X, LB+Y, LB+B, RB+X, RB+Y, RB+B  (face bits: Xbox X = Y, Xbox Y = X, Xbox B = A)
 constexpr uint64_t kFace[3] = {kBtnY, kBtnX, kBtnA};
 static const char* kSlotName[6] = {"LB+X", "LB+Y", "LB+B", "RB+X", "RB+Y", "RB+B"};
@@ -158,7 +163,7 @@ static void WriteEntry(uint64_t e, uint32_t v) { GWrite<uint32_t>(e + 0x1C, v); 
 //   HUD in play (also mid-air, throwing): 84c0afe0 (player status), 84c0b710; pause: 84c0baa8 (+ 84c04fb0, 84c08aa0);
 //   map: 84c04fb0, 84c08aa0; dialogue: 84c091f8, 84c09a10. f_832b4df0 runs while the ocarina is out.
 static GuestFn o_ScreenFrame = nullptr, o_Ocarina = nullptr;
-static std::atomic<uint64_t> g_Screen{0}, g_HudScr{0};
+static std::atomic<uint64_t> g_Screen{0}, g_HudScr{0}, g_DoCmd{0};
 static std::atomic<int64_t> g_PauseSeen{0}, g_HudSeen{0}, g_MenuSeen{0}, g_OcarinaSeen{0};
 
 static void ScreenFrameHook(GuestCtx* c) {
@@ -168,6 +173,7 @@ static void ScreenFrameHook(GuestCtx* c) {
         if (vt == kPauseScreenVt) { g_Screen = s; g_PauseSeen = NowNs(); }
         else if (vt == kHudScreenVt) { g_HudScr = s; g_HudSeen = NowNs(); }
         else if (vt == kHudScreen2Vt) g_HudSeen = NowNs();
+        else if (vt == kDoCommandVt) g_DoCmd = s;
         else if (vt == 0x84c04fb0 || vt == 0x84c08aa0 || vt == 0x84c091f8 || vt == 0x84c09a10) g_MenuSeen = NowNs();
     }
     o_ScreenFrame(c);
@@ -176,6 +182,13 @@ static void OcarinaHook(GuestCtx* c) { g_OcarinaSeen = NowNs(); o_Ocarina(c); }
 static bool Recent(const std::atomic<int64_t>& t) { return NowNs() - t.load() < 100000000; }
 static bool PauseOpen() { return Recent(g_PauseSeen); }
 static bool InGameplay() { return !PauseOpen() && !Recent(g_OcarinaSeen) && !Recent(g_MenuSeen) && Recent(g_HudSeen); }
+// Whether the game offers an interaction on the action button now (its prompt is showing or appearing)
+static bool PromptShown() {
+    const uint64_t s = g_DoCmd;
+    if (!GuestPtrOk(s)) return false;
+    const uint32_t st = GRead<uint32_t>(s + 0x1a4);
+    return st == 0x10000 || st == 0x20000;
+}
 static int PauseTab() {
     uint64_t s = g_Screen;
     uint64_t t = GuestPtrOk(s) ? GRead<uint64_t>(s + 0x198) : 0;
@@ -199,6 +212,14 @@ static uint64_t g_ModeFace = 0, g_ModeShoulder = 0, g_SwallowFace = 0;
 static int64_t g_ModeT0 = 0, g_AimEnd = 0;
 static uint32_t g_PrevChild = 0, g_PrevAdult = 0;
 constexpr int64_t kPickUpNs = 34000000, kMinPressNs = 50000000;
+// RT: roll / sprint / side hop only. A press that starts while the game offers an interaction does nothing (B is for
+// those). Held 0.3 s while moving, the sprint latches (as NieR: Automata): it keeps going without RT until the stick
+// drops below 45% for 0.15 s, Z-targeting starts, an item is used, B is pressed, or play stops.
+constexpr int64_t kSprintHoldNs = 300000000, kSprintStopNs = 150000000;
+constexpr float kSprintStick = 0.45f;
+static bool g_RtMove = false, g_Sprint = false;
+static int64_t g_RtT0 = 0, g_SlowSince = 0;
+static int g_StickX = 0, g_StickY = 0;   // left stick of the sample being transformed
 
 static int SlotFor(uint64_t raw, uint64_t pressed) {
     int sh = (raw & kBtnL) ? 0 : (raw & kBtnR) ? 3 : -1;
@@ -209,6 +230,7 @@ static int SlotFor(uint64_t raw, uint64_t pressed) {
 
 static void StartUse(int slot) {
     uint32_t v = g_Slot[slot];
+    g_Sprint = false;
     g_ModeFace = kFace[slot % 3]; g_ModeShoulder = slot < 3 ? kBtnL : kBtnR;
     g_Mode = g_Aim.count(v) ? kAim : kUse; g_ModeSlot = -1; g_AimEnd = 0;
     uint64_t c, a;
@@ -227,6 +249,27 @@ static void StartAssign(int slot) {
     g_Mode = kAssign; g_ModeSlot = slot; g_ModeT0 = NowNs();
 }
 
+static uint64_t Movement(uint64_t raw, uint64_t pressed, int64_t now, uint64_t out) {
+    const float mag = std::sqrt((float)g_StickX * g_StickX + (float)g_StickY * g_StickY) / 32767.0f;
+    const bool moving = mag >= kSprintStick, rt = (raw & kBtnZR) && g_RtMove;
+    if (rt && moving && !(raw & kBtnZL) && now - g_RtT0 > kSprintHoldNs && !g_Sprint) {
+        g_Sprint = true, g_SlowSince = 0;
+        Log("[itemctl] sprint latched\n");
+    }
+    if (g_Sprint) {
+        if (moving) g_SlowSince = 0;
+        else if (!g_SlowSince) g_SlowSince = now;
+        const bool stop = (g_SlowSince && now - g_SlowSince > kSprintStopNs) || (raw & kBtnZL);
+        if (stop || (pressed & kBtnA)) {
+            g_Sprint = false;
+            Log("[itemctl] sprint released (%s)\n", stop ? "stopped" : "B");
+            if (pressed & kBtnA) return out & ~kBtnA;     // (B: a fresh press on the next sample)
+        }
+    }
+    if (rt || g_Sprint) out |= kBtnA;
+    return out;
+}
+
 static uint64_t Transform(uint64_t raw) {
     const bool play = InGameplay(), pause = PauseOpen();
     const uint64_t pressed = raw & ~g_PrevRaw;
@@ -234,6 +277,9 @@ static uint64_t Transform(uint64_t raw) {
     g_Bumper = (raw & kBtnL) ? 0 : (raw & kBtnR) ? 1 : -1;
     const int64_t now = NowNs();
     uint64_t out = raw;
+    if (pressed & kBtnZR) { g_RtMove = !PromptShown(); g_RtT0 = now; }
+    if (!(raw & kBtnZR)) g_RtMove = false;
+    if (!play) g_Sprint = false;
     if (g_SwallowFace && !(raw & g_SwallowFace)) g_SwallowFace = 0;
     out &= ~g_SwallowFace;                                // a face press that ended an aim does nothing else
 
@@ -242,7 +288,7 @@ static uint64_t Transform(uint64_t raw) {
         else {
             out &= ~(g_ModeFace | kBtnL | kBtnR | kBtnZR);
             if (g_ModeSlot >= 0 && now - g_ModeT0 > kPickUpNs) out |= kBtnZR;
-            if (raw & kBtnZR) out |= kBtnA;
+            if ((raw & kBtnZR) && g_RtMove) out |= kBtnA;
             return out;
         }
     }
@@ -253,7 +299,7 @@ static uint64_t Transform(uint64_t raw) {
             if (pressed & g_ModeFace) g_SwallowFace = g_ModeFace;
         }
         out &= ~(kBtnL | kBtnR | kBtnZR | ((raw & (kBtnL | kBtnR)) ? (kBtnX | kBtnY | kBtnA) : 0) | g_ModeFace);
-        if (raw & kBtnZR) out |= kBtnA;
+        if ((raw & kBtnZR) && g_RtMove) out |= kBtnA;
         if (g_AimEnd && now >= g_AimEnd) g_Mode = kIdle;  // RT up; (this sample's face press is not a new combo)
         else if (g_ModeSlot >= 0 && now > zrOn) out |= kBtnZR;
         return out;
@@ -289,7 +335,7 @@ static uint64_t Transform(uint64_t raw) {
     }
     if (play) {
         out &= ~(kBtnL | kBtnR | kBtnZR);                 // bumpers never reach the game (no Quick Select wheel)
-        if (raw & kBtnZR) out |= kBtnA;                   // RT = roll / dash
+        out = Movement(raw, pressed, now, out);           // RT = roll / sprint / side hop
         if (raw & (kBtnL | kBtnR)) {
             int slot = SlotFor(raw, pressed);
             if (slot >= 0) { StartUse(slot); return out & ~(kBtnX | kBtnY | kBtnA); }
@@ -314,7 +360,11 @@ static void FilterNpad(GuestCtx* c, GuestFn orig) {
         uint64_t n = GRead<uint64_t>(e), raw = GRead<uint64_t>(e + 8), out = 0;
         bool hit = false;
         for (auto& k : g_Cache) if (k.n == n && n) { out = k.out; hit = true; break; }
-        if (!hit) { out = Transform(raw); g_Cache[g_CacheHead++ & 63] = {n, out}; }
+        if (!hit) {
+            g_StickX = GRead<int32_t>(e + 0x10), g_StickY = GRead<int32_t>(e + 0x14);
+            out = Transform(raw);
+            g_Cache[g_CacheHead++ & 63] = {n, out};
+        }
         GWrite<uint64_t>(e + 8, out);
     }
 }

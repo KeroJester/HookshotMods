@@ -1,8 +1,8 @@
 {
   "name": "Item Controls",
   "author": "KeroJester",
-  "version": "0.8.0",
-  "description": "N64-style item buttons: hold LB or RB and press X, Y or B to use one of six items (assign them on the pause menu's Items tab the same way). RT rolls. Start the game from Hookshot Mods for it to load.",
+  "version": "0.9.0",
+  "description": "N64-style item buttons: hold LB or RB and press X, Y or B to use one of six items (assign them on the pause menu's Items tab the same way). RT is movement only: roll, sprint (latches once started, like NieR: Automata) and side hop. Start the game from Hookshot Mods for it to load.",
   "category": "Gameplay",
   "homepage": "https://github.com/KeroJester/HookshotMods",
   "code": {
