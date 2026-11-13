@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - run: git submodule update --init --depth 1 imgui_src vulkan_headers_src third_party/zstd
+      - run: git submodule update --init --depth 1 vulkan_headers_src third_party/zstd
       - name: Compilers
         run: |
           sudo apt-get update -q

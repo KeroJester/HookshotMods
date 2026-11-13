@@ -324,14 +324,14 @@ static void SetupHook(GuestCtx* c) {
     uint64_t built[kBoxes];
     {
         std::lock_guard<std::mutex> lk(g_Mu);
-        if (g_Hud.builtScreen != hud) {                   // (not this screen's: overlay)
+        if (g_Hud.builtScreen != hud) {                   // (not this screen's: no boxes on it)
             Log("[hud] setup of screen %#llx without new boxes (ours: %#llx)\n", (unsigned long long)hud, (unsigned long long)g_Hud.screen);
             return;
         }
         memcpy(built, g_Hud.built, sizeof built);
         g_Hud.builtScreen = 0;
     }
-    // everything checked before anything is changed: on a surprise the RT box stays hidden and the overlay is used
+    // everything checked before anything is changed: on a surprise the RT box stays hidden and no boxes are added
     const uint64_t rt = Q(hud + 0x328), tmpl = Q(rt + 0x20);
     if (Q(tmpl) != kLayoutVt) { Log("[hud] native boxes: the RT box's layout not found\n"); return; }
     const uint64_t tnode = Call(c, fNode, tmpl + 0x40), holder = Call(c, fParent, tnode);
@@ -523,13 +523,10 @@ static void ScreenFrameHook(GuestCtx* c) {
 }
 
 // ---- start ------------------------------------------------------------------------------------------------------------
-bool Active() { return g_Hud.ready && NowNs() - g_Hud.lastFrame.load() < 500000000ll; }
-bool Ready() { return g_Hud.ready; }
-bool PauseReady() { return g_Pause.ready; }
 
 bool Start() {
     const char* off = getenv("ITEMCTL_NATIVE");
-    if (off && !strcmp(off, "0")) { Log("[hud] native boxes off (ITEMCTL_NATIVE=0): overlay HUD\n"); return false; }
+    if (off && !strcmp(off, "0")) { Log("[hud] native boxes off (ITEMCTL_NATIVE=0): no item boxes\n"); return false; }
     const char* r = getenv("ITEMCTL_RESEARCH");             // (the research probes hook the same functions)
     if (r && (strstr(r, "clone") || strstr(r, "build") || strstr(r, "early"))) return false;
     std::vector<std::string> names;
@@ -537,7 +534,7 @@ bool Start() {
     for (uint64_t a : kFns) { snprintf(n, sizeof n, "f_%llx", (unsigned long long)a); names.push_back(n); }
     auto sym = ResolveSymbols(names);
     for (size_t i = 0; i < names.size(); i++) {
-        if (!sym.count(names[i])) { Log("[hud] %s not found: overlay HUD\n", names[i].c_str()); return false; }
+        if (!sym.count(names[i])) { Log("[hud] %s not found: no item boxes\n", names[i].c_str()); return false; }
         g_Fn[kFns[i]] = sym[names[i]];
     }
     // the frame and setup hooks first, the builder last: boxes are only built once everything that uses them is in
@@ -546,7 +543,7 @@ bool Start() {
     o_PauseSetup = o_ScreenFrame ? hook::Install(g_Fn[fPauseSetup], PauseSetupHook, "pause menu setup f_80f99400") : nullptr;
     o_Setup = o_PauseSetup ? hook::Install(g_Fn[fSetup], SetupHook, "HUD setup f_83415d20") : nullptr;
     o_Build = o_Setup ? hook::Install(g_Fn[fBuild], BuildHook, "layout builder f_80459f90") : nullptr;
-    if (!o_Build) { Log("[hud] hooks failed: overlay HUD\n"); return false; }
+    if (!o_Build) { Log("[hud] hooks failed: no item boxes\n"); return false; }
     Log("[hud] native item boxes on\n");
     return true;
 }

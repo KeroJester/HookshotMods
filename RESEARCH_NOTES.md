@@ -2082,3 +2082,18 @@ The user's report: sometimes after booting and loading, RT used the game's own R
   and (movement step seen, or no menu and HUD seen).
 - Verified headless (two boots, intermittent bug not hit): play recognised from the movement step as soon as the
   player can move (before the HUD screen's first update); pause clears it.
+
+## 77. ImGui overlay removed (Item Controls 0.9.5, 2026-11-13)
+The user found the old overlay boxes on screen during a tutorial tip (Kokiri Forest, "Target", clean Longshot
+install). The game-drawn boxes were set up (log), but the HUD screen stops updating while such a tip shows. Since
+0.9.4 play is also recognised from the movement step, so the fallback check "a HUD frame in the last 0.5 s" failed and
+the overlay was drawn. The fallback only helped if the controls worked while the game-drawn boxes failed, and both
+depend on the same symbols. The user chose to remove it.
+- **The layer only loads the mod:** it steps down the chain for instance and device creation; no swapchain or present
+  hooks, no rendering.
+- **Removed:** item_controls.cpp DrawHud/HudVisible and the icon textures; gamefiles BntxIconRgba (ASTC/BNTX
+  decoding); third_party/suyu; the Boost static_vector shim; the mod's ImGui sources; nativehud Active/Ready/PauseReady.
+  icons.txt stays: the game-drawn boxes take the icon names.
+- **Size:** Linux layer 1.86 MB to 0.61 MB.
+- **CI:** no longer fetches imgui_src (the Linux dev overlay in overlay/ still uses it).
+- **Verified headless (Hookshot):** boxes in the HUD and the pause menu, LB+X use, pause assignment, no crash.

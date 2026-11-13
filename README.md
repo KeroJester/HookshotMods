@@ -34,7 +34,7 @@ Installing `.rar` mods needs [7-Zip](https://www.7-zip.org) on Windows (or `unra
 | Folder | What it is |
 | --- | --- |
 | `mod_manager/` | The mod manager (PyQt6 GUI + CLI). It enables, orders and installs mods, and loads code mods (their Vulkan layers) when it starts the game. Also holds the mod builders (`build_*.py`). |
-| `plugins/item_controls/` | The **Item Controls** code mod: six item slots on LB/RB + X/Y/B, roll on RT, an in-game HUD. `src/` is its Vulkan layer (Linux `.so`, Windows `.dll`), `mod/` its other files; `package.sh` makes the mod zip. |
+| `plugins/item_controls/` | The **Item Controls** code mod: six item slots on LB/RB + X/Y/B, roll and sprint on RT, item boxes drawn by the game itself. `src/` is its Vulkan layer (Linux `.so`, Windows `.dll`; the layer only loads the mod), `mod/` its other files; `package.sh` makes the mod zip. |
 | `overlay/` | Linux-only developer overlay (LD_PRELOAD), used for research. Not shipped to players. |
 | `re/` | Small reverse-engineering helper scripts. |
 | `RESEARCH_NOTES.md` | Everything learned about the game and Hookshot so far. |
@@ -46,7 +46,7 @@ This repo is kept **outside** the game folder. The tools find the game folder th
 the game's files from there, and write built mods into its `mods/` folder.
 
 ```sh
-git submodule update --init          # imgui, Vulkan-Headers, zstd (suyu's ASTC decoder is in third_party/suyu)
+git submodule update --init          # Vulkan-Headers, zstd (imgui: only for the Linux dev overlay)
 ./start_mod_manager.sh               # GUI; asks for the game folder the first time
 plugins/item_controls/build.sh       # builds the mod (Linux .so, Windows .dll, its files) into <game>/mods/050-ItemControls
 plugins/item_controls/package.sh     # or: the player zip, dist/bundled_mods/ItemControls.zip (the app bundles it)

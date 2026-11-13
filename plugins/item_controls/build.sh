@@ -5,8 +5,7 @@
 #   mods/050-ItemControls/layer/linux/libVkLayer_hookshot_item_controls.so  + VkLayer_hookshot_item_controls.json
 #   mods/050-ItemControls/layer/windows/VkLayer_hookshot_item_controls.dll  + VkLayer_hookshot_item_controls.json
 # Needs g++/gcc and the mingw-w64 cross compilers (posix threads). Usage: plugins/item_controls/build.sh [linux|windows]
-# Sources besides src/: imgui, Vulkan-Headers and zstd's decoder (third_party/zstd): git submodule update --init;
-# suyu's ASTC decoder is in the repo (third_party/suyu)
+# Sources besides src/: Vulkan-Headers and zstd's decoder (third_party/zstd): git submodule update --init
 set -eu
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 ROOT=$(CDPATH= cd -- "$HERE/../.." && pwd)
@@ -15,17 +14,14 @@ if [ -z "${ITEMCTL_MOD_DIR:-}" ]; then
     ITEMCTL_MOD_DIR=$GAME/mods/050-ItemControls
 fi
 MOD=$ITEMCTL_MOD_DIR
-IMGUI=$ROOT/imgui_src
-SUYU=$ROOT/third_party/suyu
 ZSTD=$ROOT/third_party/zstd/lib
 SRCS="$HERE/src/layer.cpp $HERE/src/item_controls.cpp $HERE/src/hook.cpp $HERE/src/platform.cpp
-      $HERE/src/gamefiles.cpp $HERE/src/vfs.cpp $HERE/src/item_files.cpp $HERE/src/native_hud.cpp $HERE/src/research.cpp $SUYU/video_core/textures/astc.cpp
-      $IMGUI/imgui.cpp $IMGUI/imgui_draw.cpp $IMGUI/imgui_tables.cpp $IMGUI/imgui_widgets.cpp $IMGUI/backends/imgui_impl_vulkan.cpp"
+      $HERE/src/gamefiles.cpp $HERE/src/vfs.cpp $HERE/src/item_files.cpp $HERE/src/native_hud.cpp $HERE/src/research.cpp"
 CSRCS="$ZSTD/common/entropy_common.c $ZSTD/common/error_private.c $ZSTD/common/fse_decompress.c
        $ZSTD/common/xxhash.c $ZSTD/common/zstd_common.c $ZSTD/decompress/huf_decompress.c
        $ZSTD/decompress/zstd_ddict.c $ZSTD/decompress/zstd_decompress.c $ZSTD/decompress/zstd_decompress_block.c"
 CFLAGS="-O2 -DZSTD_DISABLE_ASM -DZSTD_LEGACY_SUPPORT=0 -I$ZSTD -I$ZSTD/common"
-for f in "$SUYU/video_core/textures/astc.cpp" "$ZSTD/zstd.h" "$IMGUI/imgui.cpp"; do
+for f in "$ZSTD/zstd.h" "$ROOT/vulkan_headers_src/include/vulkan/vk_layer.h"; do
     [ -f "$f" ] || { echo "missing $f: run git submodule update --init" >&2; exit 1; }
 done
 OBJ=$(mktemp -d)
@@ -39,7 +35,7 @@ cobjs() {   # $1 C compiler, $2 extra flags: zstd's decoder as objects (C, not C
     done
     echo "$objs"
 }
-FLAGS="-O2 -std=c++20 -DVK_NO_PROTOTYPES -DIMGUI_DISABLE_DEFAULT_SHELL_FUNCTIONS -I$ROOT/vulkan_headers_src/include -I$IMGUI -I$IMGUI/backends -I$HERE/src -I$HERE/shim -I$SUYU -I$ZSTD"
+FLAGS="-O2 -std=c++20 -DVK_NO_PROTOTYPES -I$ROOT/vulkan_headers_src/include -I$HERE/src -I$ZSTD"
 NAME=VkLayer_hookshot_item_controls
 manifest() {   # $1 library path relative to the manifest
     cat <<JSON

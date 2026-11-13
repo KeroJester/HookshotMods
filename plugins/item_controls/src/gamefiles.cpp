@@ -1,4 +1,4 @@
-// See gamefiles.h. Formats as the project's Python tools read them (mod_manager/zstd_helper.py, bntx.py).
+// See gamefiles.h. Formats as the project's Python tools read them (mod_manager/zstd_helper.py).
 #include "gamefiles.h"
 #include "platform.h"
 #include <algorithm>
@@ -6,7 +6,6 @@
 #include <cstring>
 #include <mutex>
 #include <span>
-#include "video_core/textures/astc.h"   // suyu's ASTC decoder as Hookshot bundles it (GPL-2.0-or-later)
 #define ZSTD_STATIC_LINKING_ONLY
 #include "zstd.h"
 
@@ -134,55 +133,6 @@ std::vector<SarcEntry> SarcList(const Bytes& s) {
         if (data + (size_t)e <= s.size() && b <= e) out.push_back({name, data + (size_t)b, (size_t)(e - b)});
     }
     return out;
-}
-
-// ---- BNTX icons -------------------------------------------------------------------------------------------------
-bool BntxIconRgba(const Bytes& d, int size, Bytes& rgba) {
-    if (d.size() < 0x100 || memcmp(d.data(), "BNTX", 4) != 0) return false;
-    auto it = std::search(d.begin(), d.end(), (const uint8_t*)"BRTI", (const uint8_t*)"BRTI" + 4);
-    if (it == d.end()) return false;
-    size_t o = (size_t)(it - d.begin());
-    uint16_t tile = Rd<uint16_t>(d, o + 0x12), mips = Rd<uint16_t>(d, o + 0x16);
-    uint32_t format = Rd<uint32_t>(d, o + 0x1C);
-    int w = Rd<int32_t>(d, o + 0x24), h = Rd<int32_t>(d, o + 0x28), depth = Rd<int32_t>(d, o + 0x2C);
-    int array = Rd<int32_t>(d, o + 0x30), layout = Rd<int32_t>(d, o + 0x34);
-    uint64_t mip0 = Rd<uint64_t>(d, (size_t)Rd<uint64_t>(d, o + 0x70));
-    if ((format >> 8) != 0x2D || tile != 0 || depth != 1 || array != 1 || !mips || w <= 0 || h <= 0 || w > 4096 || h > 4096)
-        return false;                                     // (only ASTC 4x4, plain 2D block-linear, as the icons are)
-    const int bpb = 16, wb = (w + 3) / 4, hb = (h + 3) / 4;
-    int bh = 1 << (layout & 7);
-    while (bh > 1 && (hb + 7) / 8 <= bh / 2) bh /= 2;     // (block height shrinks for small textures)
-    const int gobsPerRow = (wb * bpb + 63) / 64;
-    Bytes blocks((size_t)wb * hb * bpb);
-    for (int y = 0; y < hb; y++)
-        for (int bx = 0; bx < wb; bx++) {
-            const int x = bx * bpb;   // Switch 2 GOB layout (bntx.py, from Hookshot's vk_texture.cpp)
-            const size_t gob = (((x & 63) >> 5) << 8) | (((y & 7) >> 2) << 7) | (((x & 31) >> 4) << 6) |
-                               (((y >> 1) & 1) << 5) | ((y & 1) << 4) | (x & 15);
-            const size_t blk = (size_t)(y / (8 * bh)) * gobsPerRow * bh + (x / 64) * bh + (y % (8 * bh)) / 8;
-            const size_t src = mip0 + blk * 512 + gob;
-            if (src + bpb > d.size()) return false;
-            memcpy(&blocks[((size_t)y * wb + bx) * bpb], &d[src], bpb);
-        }
-    Bytes full((size_t)w * h * 4);
-    Tegra::Texture::ASTC::DecompressSerial(std::span<const uint8_t>(blocks), (uint32_t)w, (uint32_t)h, 1, 4, 4,
-                                           std::span<uint8_t>(full));
-    rgba.assign((size_t)size * size * 4, 0);              // box filter to size x size
-    for (int ty = 0; ty < size; ty++)
-        for (int tx = 0; tx < size; tx++) {
-            int x0 = tx * w / size, x1 = std::max(x0 + 1, (tx + 1) * w / size);
-            int y0 = ty * h / size, y1 = std::max(y0 + 1, (ty + 1) * h / size);
-            uint32_t acc[4] = {0, 0, 0, 0}, n = 0;
-            for (int y = y0; y < y1; y++)
-                for (int x = x0; x < x1; x++, n++) {
-                    const uint8_t* p = &full[((size_t)y * w + x) * 4];
-                    acc[0] += p[0] * p[3]; acc[1] += p[1] * p[3]; acc[2] += p[2] * p[3]; acc[3] += p[3];
-                }
-            uint8_t* q = &rgba[((size_t)ty * size + tx) * 4];
-            q[3] = (uint8_t)(acc[3] / n);
-            for (int c = 0; c < 3; c++) q[c] = acc[3] ? (uint8_t)std::min<uint32_t>(255, acc[c] / acc[3]) : 0;   // (alpha-weighted)
-        }
-    return true;
 }
 
 }  // namespace gamefiles

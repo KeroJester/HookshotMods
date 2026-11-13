@@ -20,11 +20,8 @@
 #include "research.h"
 #include "vfs.h"
 #include "platform.h"
-#include "imgui.h"
-#include "imgui_internal.h"   // RegisterUserTexture
 #include <algorithm>
 #include <atomic>
-#include <cfloat>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -528,65 +525,7 @@ static GuestFn o_Npad[5];
 template <int I> static void NpadHook(GuestCtx* c) { FilterNpad(c, o_Npad[I]); }
 static GuestFn kNpadHooks[5] = {NpadHook<0>, NpadHook<1>, NpadHook<2>, NpadHook<3>, NpadHook<4>};
 
-// ---- HUD: two rows of three boxes (top LB, bottom RB), the game's pouch icons --------------------------------------
-// icons: the game's own (UI/Tex/Icon/<name>.bntx.zs), decoded on a worker thread at the start, made into textures on
-// the render thread when first drawn
-constexpr int kIconPx = 64;
-static std::mutex g_IconMu;
-static std::unordered_map<std::string, gamefiles::Bytes> g_IconPixels;   // name -> kIconPx^2 RGBA (empty: failed)
-static std::unordered_map<std::string, ImTextureData*> g_Tex;
-
-static void DecodeIcons() {
-    std::unordered_set<std::string> names;
-    for (auto& kv : g_IconFile) names.insert(kv.second);
-    int ok = 0;
-    for (auto& name : names) {
-        gamefiles::Bytes zs, bntx, rgba;
-        std::string path = gamefiles::RomfsPath("UI/Tex/Icon/" + name + ".bntx.zs");
-        bool good = !path.empty() && gamefiles::ReadFile(path, zs) && gamefiles::Unzstd(zs, bntx) &&
-                    gamefiles::BntxIconRgba(bntx, kIconPx, rgba);
-        if (!good) { Log("[itemctl] icon %s: not decodable\n", name.c_str()); rgba.clear(); }
-        ok += good;
-        std::lock_guard<std::mutex> lk(g_IconMu);
-        g_IconPixels[name] = std::move(rgba);
-    }
-    Log("[itemctl] %d of %zu icons decoded from the game's files\n", ok, names.size());
-}
-
-static ImTextureData* Texture(const std::string& name) {
-    auto it = g_Tex.find(name);
-    if (it != g_Tex.end()) return it->second;
-    gamefiles::Bytes px;
-    {
-        std::lock_guard<std::mutex> lk(g_IconMu);
-        auto p = g_IconPixels.find(name);
-        if (p == g_IconPixels.end()) return nullptr;      // (not decoded yet: asked again next frame)
-        px = p->second;
-    }
-    ImTextureData* t = nullptr;
-    if (px.size() == (size_t)kIconPx * kIconPx * 4) {
-        t = IM_NEW(ImTextureData)();
-        t->Create(ImTextureFormat_RGBA32, kIconPx, kIconPx);
-        memcpy(t->GetPixels(), px.data(), px.size());
-        t->UseColors = true;
-        ImGui::RegisterUserTexture(t);
-    }
-    return g_Tex[name] = t;
-}
-static ImTextureData* IconFor(uint32_t item) {
-    if (item == kHashEmpty) return nullptr;
-    auto b = g_BottleItem.find(item);
-    if (b != g_BottleItem.end()) {                        // a bottle shows its contents
-        uint64_t e = g_BottleEntry[b->second];
-        if (EntryValid(e)) {
-            auto it = g_IconFile.find(GRead<uint32_t>(e + 0x1C) ^ 0x80000000u);
-            if (it != g_IconFile.end()) return Texture(it->second);
-        }
-    }
-    auto it = g_IconFile.find(item);
-    return it == g_IconFile.end() ? nullptr : Texture(it->second);
-}
-
+// ---- slots for the game-drawn boxes (native_hud.cpp) ----------------------------------------------------------------
 int HeldBumper() { return g_Bumper.load(); }
 
 int ActiveSlot() {
@@ -610,68 +549,6 @@ std::string SlotIcon(int slot) {
     }
     auto it = g_IconFile.find(item);
     return it == g_IconFile.end() ? "" : it->second;
-}
-
-// Shown on the pause menu's Items tab, and in play while the game shows its player-status HUD (screen 84c0afe0,
-// +0x1a8 = 1 while shown; cleared by the HUD option Pro outside combat / Hero always, in cutscenes, while paused).
-bool HudVisible() {
-    if (!g_On) return false;
-    if (PauseOpen()) return PauseTab() == kTabItems;
-    uint64_t a = g_HudScr;
-    return InGameplay() && GuestPtrOk(a) && GRead<uint32_t>(a + 0x1a8) != 0;
-}
-
-void DrawHud() {
-    if (!HudVisible()) return;
-    // the game draws the boxes itself when it can (native_hud.cpp): in play under its HUD, on the pause menu's Items tab
-    if (PauseOpen() ? nativehud::PauseReady() : nativehud::Active()) return;
-    if (!PauseOpen()) {   // (research runs: their own boxes, overlay to compare)
-        static const char* r = getenv("ITEMCTL_RESEARCH");
-        if (r && strstr(r, "clone") && !strstr(r, "overlay")) return;
-    }
-    ImGuiIO& io = ImGui::GetIO();
-    ImDrawList* dl = ImGui::GetForegroundDrawList();
-    const float S = io.DisplaySize.y / 1080.0f;
-    const float box = 58 * S, gap = 7 * S, pad = 4.5f * S, round = 10 * S, label = 38 * S;
-    const float x1 = io.DisplaySize.x - 52 * S;                        // right edge, in line with the minimap
-    const float x0 = x1 - 3 * box - 2 * gap, y0 = 48 * S;              // where the game's RT item box was
-    ImFont* font = ImGui::GetFont();
-    static const char* face[3] = {"X", "Y", "B"};
-    static const ImU32 faceCol[3] = {IM_COL32(64, 132, 255, 255), IM_COL32(255, 196, 36, 255), IM_COL32(236, 64, 52, 255)};
-    const int active = (g_Mode == kUse || g_Mode == kAim) ? g_ModeSlot : -1;
-    for (int row = 0; row < 2; row++) {
-        const float y = y0 + row * (box + gap);
-        ImVec2 lp0(x0 - gap - label, y + box * 0.5f - 12.5f * S), lp1(x0 - gap, y + box * 0.5f + 12.5f * S);
-        dl->AddRectFilled(lp0, lp1, IM_COL32(20, 16, 10, 170), 12.5f * S);
-        const char* lb = row ? "RB" : "LB";
-        float fs = 18 * S;
-        ImVec2 ts = font->CalcTextSizeA(fs, FLT_MAX, 0, lb);
-        dl->AddText(font, fs, ImVec2((lp0.x + lp1.x - ts.x) * 0.5f, (lp0.y + lp1.y - ts.y) * 0.5f), IM_COL32(240, 220, 170, 255), lb);
-        for (int f = 0; f < 3; f++) {
-            const int slot = row * 3 + f;
-            ImVec2 p0(x0 + f * (box + gap), y), p1(p0.x + box, p0.y + box);
-            const bool on = slot == active;
-            dl->AddRectFilled(p0, p1, on ? IM_COL32(70, 56, 24, 200) : IM_COL32(20, 16, 10, 165), round);
-            dl->AddRect(p0, p1, on ? IM_COL32(255, 226, 120, 255) : IM_COL32(196, 164, 92, 190), round, 0, (on ? 2.5f : 1.5f) * S);
-            if (ImTextureData* t = IconFor(g_Slot[slot]))
-                dl->AddImage(t->GetTexRef(), ImVec2(p0.x + pad, p0.y + pad), ImVec2(p1.x - pad, p1.y - pad));
-            const float r = 10 * S;
-            ImVec2 c(p1.x - r * 0.7f, p1.y - r * 0.7f);
-            dl->AddCircleFilled(c, r + 1.2f * S, IM_COL32(0, 0, 0, 200));
-            dl->AddCircleFilled(c, r, faceCol[f]);
-            float bs = 15 * S;
-            ImVec2 bt = font->CalcTextSizeA(bs, FLT_MAX, 0, face[f]);
-            dl->AddText(font, bs, ImVec2(c.x - bt.x * 0.5f, c.y - bt.y * 0.5f), IM_COL32(255, 255, 255, 255), face[f]);
-        }
-    }
-    if (PauseOpen()) {
-        const char* hint = "Hold LB/RB + X/Y/B on an item to assign";
-        float fs = 15 * S;
-        ImVec2 ts = font->CalcTextSizeA(fs, FLT_MAX, 0, hint);
-        ImVec2 tp(x1 - ts.x, y0 + 2 * box + gap + 8 * S);
-        dl->AddRectFilled(ImVec2(tp.x - 8 * S, tp.y - 4 * S), ImVec2(x1 + 4 * S, tp.y + ts.y + 4 * S), IM_COL32(20, 16, 10, 170), 6 * S);
-        dl->AddText(font, fs, tp, IM_COL32(240, 220, 170, 255), hint);
-    }
 }
 
 // ---- start -------------------------------------------------------------------------------------------------------
@@ -719,8 +596,7 @@ bool Init(const std::string& modDir) {
         if (!r || !strstr(r, "keepbox")) RegisterFilePatches();
     }
     if (!vfs::Start()) Log("[itemctl] the vanilla RT box and prompts stay (file hooks failed)\n");
-    nativehud::Start();                                   // (false: the overlay HUD draws the boxes)
-    std::thread(DecodeIcons).detach();
+    nativehud::Start();                                   // (the item boxes, drawn by the game)
     research::Start();
     g_On = true;
     std::thread([] {                                      // keep the GameData entries located (they appear with the save)

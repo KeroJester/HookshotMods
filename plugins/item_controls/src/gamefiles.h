@@ -2,7 +2,6 @@
 //   - the file the game would load for a RomFS path: a mod's copy (Hookshot's mod index) or the game's own
 //   - .zs files: zstd, with the game's dictionaries (Pack/ZsDic.pack.zs)
 //   - SARC archives (.blarc, .pack): where each file's bytes are
-//   - BNTX textures (ASTC 4x4, Switch 2 block-linear): an icon as RGBA
 #pragma once
 #include <cstdint>
 #include <string>
@@ -30,8 +29,5 @@ struct SarcEntry {
     size_t offset, size;      // within the archive
 };
 std::vector<SarcEntry> SarcList(const Bytes& sarc);
-
-// A BNTX's first texture (ASTC) decoded and box-filtered to size x size RGBA. False if not decodable.
-bool BntxIconRgba(const Bytes& bntx, int size, Bytes& rgba);
 
 }  // namespace gamefiles
