@@ -2045,3 +2045,27 @@ made no new press for the game. Fix: an RT press during a latched sprint (with n
 for one sample, then the latch's hold resumes. That makes a fresh press, which is seen for one frame as every RT press
 is, and the game rolls. The latch stays on. Verified headless: sprint latched, a second RT press rolled, the latch
 ended only when the stick was released.
+
+### 0.9.3: rolls out of a running dash, presses during a roll held back
+The user's report: in a latched sprint, RT rolled only if the stick moved a little; with the stick fixed in the same
+direction it did not.
+- **Roll events:** the rolling node (AINB ExecutePlayerRolling, vtable 0x849e9500, name getter f_828258f0) has enter
+  f_806d9a30 and exit f_809590b0 (each only in that vtable); f_80953a70 and f_80953e80 run every frame of the roll.
+  Found with trace on the vtable's own methods. Research switch: ITEMCTL_RESEARCH=rolllog.
+- **Vanilla:** in the market (out of the shop door), B held 1.5 s to dash, then B again with the stick fixed: a roll;
+  a second one 0.8 s later rolled too.
+- **Failed fix:** rewriting the sample before an RT press as up, to make the press in one sample, gave no roll. The
+  game does not read samples it has already taken again.
+- **The bit is up 50 ms** before the new press, for RT during a latched sprint and for B ending the latch (was one
+  frame). 17 ms and 50 ms both rolled headless; 50 ms covers slower logic.
+- **Facing:** headless, the mid-sprint RT press was blocked twice because the game offered Talk for an NPC Link ran
+  toward. Prompts depend on facing, so nudging the stick turns Link away and RT rolls again. This is probably the
+  user's case. To roll even then, RT presses would have to be kept out of the game's interaction choice (an action verb
+  chosen in code; "Rolling" is referenced from about 15 functions near 0x80d60000, not researched yet).
+- **Presses during a roll:** the 4-offset spam test was noisy (one-frame press: 0/4 once, 1/4 and 4/4 later). The game
+  keeps an action press made during a roll and spends it at the roll's end, so rewriting the history cannot cover it.
+  Now RT presses made during a roll (between enter and exit) are held. Once the roll is over plus 50 ms (time for a
+  prompt to show), the press goes through if nothing is offered, else it is dropped (after 1 s at most). Verified:
+  4 of 4 offsets with no dialogue, chained rolls still happen (1 or 2 per run).
+- **RT log line:** an RT press blocked by an offer now logs "RT blocked: the game offers '<command>' on B".
+- Two-frame press visibility (a test) let interactions in again (3 of 4), so presses stay one frame.

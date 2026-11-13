@@ -179,6 +179,14 @@ static void ScreenFrameHook(GuestCtx* c) {
     o_ScreenFrame(c);
 }
 static void OcarinaHook(GuestCtx* c) { g_OcarinaSeen = NowNs(); o_Ocarina(c); }
+// The player's rolling node (AINB ExecutePlayerRolling, vtable 0x849e9500): its enter f_806d9a30 and exit f_809590b0
+// (each only in that vtable). While a roll runs, the game keeps an action press for its end and spends it on whatever
+// is offered then (a Talk that turns up at the roll's end took it), so RT presses made during a roll are held here.
+static GuestFn o_RollEnter = nullptr, o_RollExit = nullptr;
+static std::atomic<bool> g_Rolling{false};
+static std::atomic<int64_t> g_RollEnd{0};
+static void RollEnterHook(GuestCtx* c) { g_Rolling = true; o_RollEnter(c); }
+static void RollExitHook(GuestCtx* c) { o_RollExit(c); g_Rolling = false; g_RollEnd = NowNs(); }
 static bool Recent(const std::atomic<int64_t>& t) { return NowNs() - t.load() < 100000000; }
 static bool PauseOpen() { return Recent(g_PauseSeen); }
 static bool InGameplay() { return !PauseOpen() && !Recent(g_OcarinaSeen) && !Recent(g_MenuSeen) && Recent(g_HudSeen); }
@@ -256,7 +264,18 @@ static bool g_LastRtA = false;                 // (set by Transform: this sample
 // up a few frames after an RT press still took it. An RT press is therefore seen as a press for one frame only: from
 // the next poll on, the samples before it read as held (no press in the history, the hold goes on).
 static uint64_t g_RtEdgeN = 0, g_PrevOut = 0;
-static bool g_SprintGap = false;   // RT pressed during a latched sprint: one sample up, then a fresh press (a roll)
+static int64_t g_RtEdgeT = 0;
+constexpr int64_t kRtPressSeenNs = 0;   // (two frames let interactions take it again: 3 of 4 runs talked)
+// A fresh press while the bit is already held (RT during a latched sprint: a roll; B ending the latch): the bit is
+// reported up for kGapNs, then down. One frame up was not enough once a dash was under way (no roll); the game does not
+// read samples it has already taken again, so rewriting the one before does not work either.
+static int64_t kGapNs = 50000000, g_GapUntil = 0;
+// An RT press during a roll waits for its end, then kRollSettleNs more (a prompt shows a frame after the game offers
+// it); it goes through only if nothing is offered then, and is dropped after kRollQueueNs.
+constexpr int64_t kRollSettleNs = 50000000, kRollQueueNs = 1000000000;
+static bool g_RtQueued = false;
+static int64_t g_RtQueuedT = 0;
+static bool g_SprintGap = false;
 static bool g_RtMove = false, g_RtPending = false, g_Sprint = false;
 static int64_t g_RtT0 = 0, g_SlowSince = 0, g_RtTapUntil = 0;
 static int g_StickX = 0, g_StickY = 0;   // left stick of the sample being transformed
@@ -317,10 +336,14 @@ static uint64_t Movement(uint64_t raw, uint64_t pressed, int64_t now, uint64_t o
         if (stop || (pressed & kBtnA)) {
             g_Sprint = false;
             Log("[itemctl] sprint released (%s)\n", stop ? "stopped" : "B");
-            if (pressed & kBtnA) return out & ~kBtnA;     // (B: a fresh press on the next sample)
+            if (pressed & kBtnA) { g_GapUntil = now + kGapNs; return out & ~kBtnA; }   // (B: its press after a gap)
         }
     }
-    if (g_SprintGap) { g_SprintGap = false; return out & ~kBtnA; }   // (the next sample is the roll's press)
+    if (g_SprintGap) { g_SprintGap = false; g_GapUntil = now + kGapNs; }   // (the roll's press after a gap)
+    if (g_GapUntil) {
+        if (now < g_GapUntil) return out & ~kBtnA;
+        g_GapUntil = 0;
+    }
     if ((rt || g_Sprint) && !(out & kBtnA)) { out |= kBtnA; g_LastRtA = true; }
     return out;
 }
@@ -334,6 +357,11 @@ static uint64_t Transform(uint64_t raw) {
     uint64_t out = raw;
     if (pressed & kBtnZR) {
         g_RtMove = false, g_RtPending = !PromptShown(), g_RtTapUntil = 0, g_RtT0 = now;
+        if (g_RtPending && g_Rolling && o_RollEnter) g_RtPending = false, g_RtQueued = true, g_RtQueuedT = now;
+        if (!g_RtPending && !g_RtQueued && play) {   // (kept in the log: why an RT press did nothing)
+            const char* gc = GameCommand();
+            Log("[itemctl] RT blocked: the game offers '%s' on B\n", gc ? gc : "?");
+        }
         if (g_Sprint && g_RtPending) g_SprintGap = true;
         static const bool rtLog = getenv("ITEMCTL_RTLOG") != nullptr;
         if (rtLog) {
@@ -345,6 +373,14 @@ static uint64_t Transform(uint64_t raw) {
         }
     }
     if (!(raw & kBtnZR)) g_RtMove = false;
+    if (g_RtQueued && !g_Rolling && now - g_RollEnd.load() >= kRollSettleNs) {   // the roll is over: its queued press
+        g_RtQueued = false;
+        if (now - g_RtQueuedT < kRollQueueNs && !PromptShown()) {
+            g_RtPending = true, g_RtT0 = now;
+            if (g_Sprint) g_SprintGap = true;
+        }
+    }
+    if (!play) g_RtQueued = false;
     if (!play) g_Sprint = false;
     if (g_SwallowFace && !(raw & g_SwallowFace)) g_SwallowFace = 0;
     out &= ~g_SwallowFace;                                // a face press that ended an aim does nothing else
@@ -432,7 +468,8 @@ static void FilterNpad(GuestCtx* c, GuestFn orig) {
         if (n) Log("[itemctl] prompt: %d RT samples taken back\n", n);
     }
     promptWas = prompt;
-    if (g_RtEdgeN && GRead<uint64_t>(outp) > g_RtEdgeN) {   // RT's press seen once: older samples read as held
+    if (g_RtEdgeN && GRead<uint64_t>(outp) > g_RtEdgeN && NowNs() - g_RtEdgeT >= kRtPressSeenNs) {   // RT's press seen:
+        // older samples read as held
         for (auto& k : g_Cache)
             if (k.n && k.n < g_RtEdgeN && g_RtEdgeN - k.n <= 16) k.out |= kBtnA;
         g_RtEdgeN = 0;
@@ -450,20 +487,22 @@ static void FilterNpad(GuestCtx* c, GuestFn orig) {
         std::string cur = gc ? std::string(gc, strnlen(gc, 64)) : "?";
         if (cur != last) { Log("[itemctl] command %.3f '%s'\n", NowNs() / 1e9, cur.c_str()); last = cur; }
     }
-    for (int i = got - 1; i >= 0; i--) {                  // oldest first
+    for (int i = got - 1; i >= 0; i--) {                  // oldest first: new samples transformed into the cache
         uint64_t e = outp + 0x28 * i;
-        uint64_t n = GRead<uint64_t>(e), raw = GRead<uint64_t>(e + 8), out = 0;
+        uint64_t n = GRead<uint64_t>(e), raw = GRead<uint64_t>(e + 8);
         bool hit = false;
-        for (auto& k : g_Cache) if (k.n == n && n) { out = k.out; hit = true; break; }
-        if (!hit) {
-            g_StickX = GRead<int32_t>(e + 0x10), g_StickY = GRead<int32_t>(e + 0x14);
-            g_LastRtA = false;
-            out = Transform(raw);
-            if (g_LastRtA && !(g_PrevOut & kBtnA)) g_RtEdgeN = n;   // (an RT press starts here)
-            g_PrevOut = out;
-            g_Cache[g_CacheHead++ & 63] = {n, out, NowNs(), g_LastRtA};
-        }
-        GWrite<uint64_t>(e + 8, out);
+        for (auto& k : g_Cache) if (k.n == n && n) { hit = true; break; }
+        if (hit) continue;
+        g_StickX = GRead<int32_t>(e + 0x10), g_StickY = GRead<int32_t>(e + 0x14);
+        g_LastRtA = false;
+        const uint64_t out = Transform(raw);
+        if (g_LastRtA && !(g_PrevOut & kBtnA)) g_RtEdgeN = n, g_RtEdgeT = NowNs();   // (an RT press starts here)
+        g_PrevOut = out;
+        g_Cache[g_CacheHead++ & 63] = {n, out, NowNs(), g_LastRtA};
+    }
+    for (int i = got - 1; i >= 0; i--) {                  // the history as the game is to see it
+        uint64_t e = outp + 0x28 * i, n = GRead<uint64_t>(e);
+        for (auto& k : g_Cache) if (k.n == n && n) { GWrite<uint64_t>(e + 8, k.out); break; }
     }
 }
 // one hook per distinct function behind the five GetNpadStates entries (on Linux they all jump to npad_states)
@@ -619,6 +658,7 @@ void DrawHud() {
 
 // ---- start -------------------------------------------------------------------------------------------------------
 bool Init(const std::string& modDir) {
+    if (const char* g = getenv("ITEMCTL_GAPMS")) kGapNs = (int64_t)atoi(g) * 1000000;   // (research)
     g_Dir = modDir + PathSep() + "item_controls";
     LoadFiles();
     if (g_ItemName.empty()) { Log("[itemctl] %s/items.txt missing: the mod folder is incomplete\n", g_Dir.c_str()); return false; }
@@ -631,12 +671,18 @@ bool Init(const std::string& modDir) {
     std::vector<std::string> names(kNpad, kNpad + 5);
     names.push_back("f_802f1380");
     names.push_back("f_832b4df0");
+    names.push_back("f_806d9a30");
+    names.push_back("f_809590b0");
     auto sym = ResolveSymbols(names);
     for (auto& n : names) if (!sym.count(n)) Log("[itemctl] symbol %s not found\n", n.c_str());
     // context hooks first: without them the controls must stay vanilla
     o_ScreenFrame = hook::Install(sym.count("f_802f1380") ? sym["f_802f1380"] : 0, ScreenFrameHook, "screen frame f_802f1380");
     o_Ocarina = hook::Install(sym.count("f_832b4df0") ? sym["f_832b4df0"] : 0, OcarinaHook, "ocarina update f_832b4df0");
     if (!o_ScreenFrame || !o_Ocarina) { Log("[itemctl] context hooks failed: controls stay vanilla\n"); return false; }
+    if (sym.count("f_806d9a30") && sym.count("f_809590b0")) {   // (without them RT presses during a roll pass as before)
+        o_RollExit = hook::Install(sym["f_809590b0"], RollExitHook, "roll exit f_809590b0");
+        if (o_RollExit) o_RollEnter = hook::Install(sym["f_806d9a30"], RollEnterHook, "roll enter f_806d9a30");
+    }
     std::vector<uintptr_t> done;
     int nh = 0;
     for (int i = 0; i < 5; i++) {

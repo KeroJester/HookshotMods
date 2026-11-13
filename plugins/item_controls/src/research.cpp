@@ -10,6 +10,7 @@
 //                            and log its callers when the destination is inside the RT box controller
 //   ITEMCTL_RESEARCH=builder log the layout builder's part creations (f_80459f90, a virtual: x0 builder context,
 //                            x1 part description; returns the new layout + 0x40): caller, name, the description
+//   ITEMCTL_RESEARCH=rolllog log each roll's start (f_806d9a30, the rolling node's enter)
 //   ITEMCTL_RESEARCH=docmd   log every change in the action prompt screen (DoCommand_00, vt 0x84c05a50), +0x180..0x400
 //   ITEMCTL_RESEARCH=allbuild log every part build: part, instance, screen and its vtable, parent layout
 //   ITEMCTL_RESEARCH=clone   after the HUD's setup (f_83415d20), clone the RT box part as the dungeon map clones its
@@ -746,6 +747,14 @@ static void DoCmdFrame(GuestCtx* c) {
     o_ScrFrame(c);
 }
 
+// "rolllog": each roll's start (the rolling node's enter f_806d9a30, found with trace) with the time
+static GuestFn o_RollEnter;
+static void RollEnter(GuestCtx* c) {
+    Log("[research] roll start %.3f node %#llx vt %#llx\n", std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(),
+        (unsigned long long)c->x[0], (unsigned long long)Q(c->x[0]));
+    o_RollEnter(c);
+}
+
 void Start() {
     const char* mode = getenv("ITEMCTL_RESEARCH");
     if (!mode || !*mode) return;
@@ -759,6 +768,10 @@ void Start() {
     if (strstr(mode, "items") && g_Sym.count("f_80a95770"))
         o_RtUpdate = hook::Install(g_Sym["f_80a95770"], RtUpdateHook, "research: RT box update f_80a95770");
     if (strstr(mode, "trace")) StartTrace();
+    if (strstr(mode, "rolllog")) {
+        auto fs = ResolveSymbols({"f_806d9a30"});
+        if (fs.count("f_806d9a30")) o_RollEnter = hook::Install(fs["f_806d9a30"], RollEnter, "research: roll enter f_806d9a30");
+    }
     if (strstr(mode, "docmd")) {
         auto fs = ResolveSymbols({"f_802f1380"});
         if (fs.count("f_802f1380")) o_ScrFrame = hook::Install(fs["f_802f1380"], DoCmdFrame, "research: screen frame (docmd)");
