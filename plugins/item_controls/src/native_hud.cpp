@@ -12,6 +12,10 @@
 // 3. Every frame of the HUD (f_802ef010, x0 = HUD screen), each box follows its slot: the item through the button's
 //    setter f_80a95ef0 (as the Quick Select list), the ammo count as the RT box's update f_80a95770 shows it, and the
 //    labels (LB/RB + X/Y/B glyphs from the game's button names, in T_Assign_00).
+// 4. The pause menu's Items tab gets six more (RESEARCH_NOTES.md section 74): built with the tab's own build call (part
+//    PaItemMenu_00) with the names swapped, attached under the tab's layout after the pause menu's setup (f_80f99400)
+//    so they slide with the tab, updated every frame of the open menu (f_802f1380). Holding LB/RB dims the other row;
+//    a newly assigned item plays its box's press animation.
 // Guest functions are called from the hooks on the calling thread (save the context, set x0.., x30 = 0, run the
 // lifted function, restore), as Hookshot's host/oot_menu.c guest_call does.
 #include "native_hud.h"
@@ -35,6 +39,7 @@ using namespace plat;
 // ---- game addresses (OoT remake, Hookshot v2.0.14 image) -------------------------------------------------------------
 constexpr uint64_t kLayoutVt = 0x84c41970;          // a part layout
 constexpr uint64_t kItemDb = 0x84c9e0d0;            // ** item database
+constexpr uint64_t kPauseVt = 0x84c0baa8;           // the pause menu screen (UIPlusMenuScreen)
 constexpr uint64_t kCtrlBaseVt = 0x84cb73b0, kCtrlItemVt = 0x84cacb78;   // item-button controller vtables (+0x10)
 enum : uint64_t {
     fAlloc = 0x8005ebe0,        // operator new(size, heap, align)
@@ -58,14 +63,18 @@ enum : uint64_t {
     fSetText = 0x80459520,      // (text pane, &str, 0): the text box keeps the POINTER to the string
     fAnim = 0x8045c7a0,         // (layout, name): a layout animation's table entry (missing: the shared default)
     fVisible = 0x8022aea0,      // (pane, bool): pane SetVisible (flag bit 0 at +0xa8, marks it for redraw)
+    fPauseSetup = 0x80f99400,   // pause menu screen setup (x0 screen, x1 heap; the HUD's f_83415d20 in the same slot)
+    fScreenFrame = 0x802f1380,  // a UI screen's per-frame method (x0 screen; the pause menu's only while it is open)
 };
 constexpr uint64_t kStrDecide = 0x83f368f6;          // "Decide" (the item button's press: the icon wiggles)
+constexpr uint64_t kStrInvalid = 0x83f342b8;         // "IsInvalid" (the icon dimmed)
+constexpr uint64_t kStrSelect = 0x83f34e3a, kStrUnSelect = 0x83f34e42;   // "Select" / "UnSelect" (cursor on the box)
 constexpr uint64_t kAnimDefault = 0x84c9e068;          // * the entry f_8045c7a0 gives for a missing name
 static const uint64_t kFns[] = {fAlloc, fBuild, fSetup, fFrame, fRegister, fPaneAt, fNode, fParent, fAttach, fBind,
                                 fKind, fSetItem, fItemRec, fCount, fMax, fCountFlag, fShowCount, fPlay, fRewind,
-                                fStrInit, fButtonGlyph, fSetText, fAnim, fVisible};
+                                fStrInit, fButtonGlyph, fSetText, fAnim, fVisible, fPauseSetup, fScreenFrame};
 static std::unordered_map<uint64_t, uintptr_t> g_Fn;   // (filled once in Start, read-only after)
-static GuestFn o_Build, o_Setup, o_Frame;
+static GuestFn o_Build, o_Setup, o_Frame, o_ScreenFrame, o_PauseSetup;
 
 // ---- the boxes ------------------------------------------------------------------------------------------------------
 constexpr int kBoxes = 6;
@@ -76,21 +85,34 @@ constexpr float kRight = -155.5f - 190.0f * kBoxScale, kTop = -94.7f - 246.0f * 
 static const int kFace[3] = {4, 3, 1};   // Xbox X, Y, B (the game shows Switch Y, X, A with Xbox labels)
 static const int kBumper[2] = {5, 7};    // LB, RB (Switch L, R)
 
+// pause menu: the grid's top-right corner in the Items tab's units (its layout PaItemMenu_00 is laid out as the
+// 3840 x 2160 screen, centre origin, while the tab is shown): in the dark corner right of the item's turning preview,
+// below the header's ornament, clear of the rupee counter
+constexpr float kPauseScale = 0.48f, kPauseStep = 230.0f * kPauseScale / 0.55f;
+constexpr float kPauseRight = 1840.0f - 190.0f * kPauseScale, kPauseTop = 700.0f - 246.0f * kPauseScale;
+
 static std::mutex g_Mu;                  // (the build may run on a loading thread, the frames on the game's)
-static uint64_t g_BuiltScreen, g_Built[kBoxes];   // made during the screen's build, waiting for its setup
-static std::atomic<bool> g_Ready{false};
-static std::atomic<int64_t> g_LastFrame{0};
-static uint64_t g_Screen;                // the HUD screen the boxes belong to (game thread only from here down)
 struct Box {
-    uint64_t ctrl = 0, name = 0, label = 0;   // controller; {char*, s32 cap} + buffer; the joined label glyphs
-    uint64_t decide = 0;                      // its Decide animation (0: missing)
+    uint64_t lay = 0, ctrl = 0, name = 0, label = 0;   // layout; controller; {char*, s32 cap} + buffer; label glyphs
+    uint64_t decide = 0, invalid = 0, select = 0, unselect = 0;   // its animations (0: missing)
     uint32_t item = 0xffffffff;
     std::string icon;
     int count = -2, max = -2;                 // (-1: no count shown)
     bool labelled = false;
 };
-static Box g_Box[kBoxes];
-static int g_Frames, g_Active = -1;
+// One set of six boxes: the HUD's (under its RT box) and the pause menu's (on the Items tab)
+struct BoxSet {
+    const char* what;
+    uint64_t builtScreen = 0, built[kBoxes] = {};   // made during the screen's build, waiting for its setup
+    uint64_t parentLay = 0;                         // (pause: the Items tab's layout they go under)
+    std::atomic<bool> ready{false};
+    std::atomic<int64_t> lastFrame{0};
+    uint64_t screen = 0;                            // the screen the boxes belong to (game thread only from here down)
+    Box box[kBoxes];
+    int frames = 0, active = -1, bumper = -1;
+    explicit BoxSet(const char* w) : what(w) {}
+};
+static BoxSet g_Hud("HUD"), g_Pause("pause menu");
 
 static int64_t NowNs() {
     return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -132,17 +154,10 @@ static void RegisterTree(GuestCtx* c, uint64_t list, uint64_t lay, int depth = 0
     }
 }
 
-static void BuildHook(GuestCtx* c) {
-    const uint64_t ctx = c->x[0], desc = c->x[1];
-    uint64_t k[8], d[8];
-    for (int i = 0; i < 8; i++) k[i] = Q(ctx + 8 * i), d[i] = Q(desc + 8 * i);
-    o_Build(c);
-    // the HUD's RT box: part PaItemBtn_00 for the pane Pa_SelectItem_00 (ctx: vt, layout, heap, screen, parent layout,
-    // resource; description: part name, len, instance name, len, layout list, 0, 0, 1)
-    if (GStr(d[0]) != "PaItemBtn_00" || GStr(d[2]) != "Pa_SelectItem_00" || !GuestPtrOk(d[4])) return;
-    g_Ready = false;
+// Six PaItemBtn_00 parts made with a copy of a build call (ctx: vt, layout, heap, screen, parent layout, resource;
+// description: part name, len, instance name, len, layout list, 0, 0, 1), each added to the screen's layout list
+static int BuildSix(GuestCtx* c, const uint64_t k[8], const uint64_t d[8], uint64_t out[kBoxes]) {
     const GuestCtx saved = *c;
-    uint64_t built[kBoxes] = {};
     int n = 0;
     for (; n < kBoxes; n++) {
         const uint64_t ctxm = Call(c, fAlloc, 0x40, k[2], 8), descm = Call(c, fAlloc, 0x40, k[2], 8);
@@ -155,12 +170,55 @@ static void BuildHook(GuestCtx* c) {
         *c = saved;
         if (Q(lay) != kLayoutVt || !GuestPtrOk(Q(lay + 0x80))) break;
         RegisterTree(c, d[4], lay);
-        built[n] = lay;
+        out[n] = lay;
     }
-    std::lock_guard<std::mutex> lk(g_Mu);
-    g_BuiltScreen = n == kBoxes ? k[3] : 0;
-    memcpy(g_Built, built, sizeof built);
-    Log("[hud] native item boxes: %d of %d built with the HUD\n", n, kBoxes);
+    return n;
+}
+
+// A guest copy of a string (the builder's names: pointer + length)
+static uint64_t GuestString(GuestCtx* c, uint64_t heap, const char* str) {
+    const size_t n = strlen(str);
+    const uint64_t p = Call(c, fAlloc, (n + 16) & ~7ull, heap, 8);
+    if (p) { memcpy(GPtr(p), str, n); W<uint8_t>(p + n, 0); }
+    return p;
+}
+
+static void BuildHook(GuestCtx* c) {
+    const uint64_t ctx = c->x[0], desc = c->x[1];
+    uint64_t k[8], d[8];
+    for (int i = 0; i < 8; i++) k[i] = Q(ctx + 8 * i), d[i] = Q(desc + 8 * i);
+    o_Build(c);
+    if (!GuestPtrOk(d[4])) return;
+    const std::string part = GStr(d[0]), inst = GStr(d[2]);
+    // the HUD's RT box: part PaItemBtn_00 for the pane Pa_SelectItem_00: six more with the same call
+    if (part == "PaItemBtn_00" && inst == "Pa_SelectItem_00") {
+        g_Hud.ready = false;
+        uint64_t built[kBoxes] = {};
+        const int n = BuildSix(c, k, d, built);
+        std::lock_guard<std::mutex> lk(g_Mu);
+        g_Hud.builtScreen = n == kBoxes ? k[3] : 0;
+        memcpy(g_Hud.built, built, sizeof built);
+        Log("[hud] native item boxes: %d of %d built with the HUD\n", n, kBoxes);
+        return;
+    }
+    // the pause menu's Items tab (part PaItemMenu_00 as Pa_Item_00): six PaItemBtn_00 parts with its build call, the
+    // part and instance names swapped for the RT box's (the parts all come from the same layout archive)
+    if (part == "PaItemMenu_00" && inst == "Pa_Item_00" && Q(k[3]) == kPauseVt) {
+        const uint64_t lay = c->x[0] - 0x40;
+        g_Pause.ready = false;
+        const uint64_t pn = GuestString(c, k[2], "PaItemBtn_00"), in = GuestString(c, k[2], "Pa_SelectItem_00");
+        if (Q(lay) != kLayoutVt || !pn || !in) { Log("[hud] pause menu boxes: the Items tab is not a layout\n"); return; }
+        uint64_t dd[8];
+        memcpy(dd, d, sizeof dd);
+        dd[0] = pn, dd[1] = 12, dd[2] = in, dd[3] = 16, dd[5] = 0, dd[6] = 0, dd[7] = 1;
+        uint64_t built[kBoxes] = {};
+        const int n = BuildSix(c, k, dd, built);
+        std::lock_guard<std::mutex> lk(g_Mu);
+        g_Pause.builtScreen = n == kBoxes ? k[3] : 0;
+        g_Pause.parentLay = lay;
+        memcpy(g_Pause.built, built, sizeof built);
+        Log("[hud] native item boxes: %d of %d built with the pause menu (resource %#llx)\n", n, kBoxes, (unsigned long long)k[5]);
+    }
 }
 
 // ---- 2. after the HUD's setup -----------------------------------------------------------------------------------------
@@ -200,19 +258,58 @@ static bool IsIdentity(uint64_t n) {
            GRead<float>(n + 0x6c) == 0.0f && GRead<float>(n + 0x70) == 0.0f;
 }
 
+// Attaches a set's six boxes under a pane node (its container at +0x18) in a 2x3 grid (top-right corner right, top;
+// in the parent's units after its own offset ox, oy and scale ps), and makes their controllers
+static bool AttachSet(GuestCtx* c, BoxSet& set, const uint64_t built[kBoxes], uint64_t holder, uint64_t heap, float ps,
+                      float ox, float oy, float scale, float step, float right, float top) {
+    for (int i = 0; i < kBoxes; i++)
+        if (Q(built[i]) != kLayoutVt || !GuestPtrOk(Q(built[i] + 0x80))) { Log("[hud] %s boxes: a box went missing\n", set.what); return false; }
+    for (int i = 0; i < kBoxes; i++) {
+        const uint64_t lay = built[i];
+        Call(c, fAttach, Q(holder + 0x18), Q(lay + 0x80), holder);
+        const uint64_t node = Call(c, fNode, lay + 0x40);
+        if (IsIdentity(node)) {
+            const float x = right - (2 - i % 3) * step, y = top - (i / 3) * step;
+            W<float>(node + 0x60, scale / ps); W<float>(node + 0x64, scale / ps);
+            W<float>(node + 0x6c, (x - ox) / ps); W<float>(node + 0x70, (y - oy) / ps);
+        }
+        Box& b = set.box[i];
+        b = Box();
+        b.lay = lay;
+        b.ctrl = MakeController(c, heap, lay);
+        b.name = Call(c, fAlloc, 0x50, heap, 8);
+        b.label = Call(c, fAlloc, 0x20, heap, 8);
+        if (b.name) { W<uint64_t>(b.name, b.name + 0x10); W<int32_t>(b.name + 8, 0x40); W<uint8_t>(b.name + 0x10, 0); }
+        auto anim = [&](uint64_t str, const char* name) -> uint64_t {   // (the game's own copy of the name)
+            if (GStr(str) != name) return 0;
+            const uint64_t e = Call(c, fAnim, lay, str);
+            return GuestPtrOk(e) && e != Q(kAnimDefault) ? e : 0;
+        };
+        b.decide = anim(kStrDecide, "Decide");   // (played when the slot's item is used; "Select" shows nothing in the HUD)
+        b.invalid = anim(kStrInvalid, "IsInvalid");
+        b.select = anim(kStrSelect, "Select");
+        b.unselect = anim(kStrUnSelect, "UnSelect");
+    }
+    for (auto& b : set.box) if (!b.ctrl || !b.name || !b.label) { Log("[hud] %s boxes: allocation failed\n", set.what); return false; }
+    set.frames = 0;
+    set.active = -1;
+    set.bumper = -1;
+    return true;
+}
+
 static void SetupHook(GuestCtx* c) {
     const uint64_t hud = c->x[0], heap = c->x[1];
-    g_Ready = false;
+    g_Hud.ready = false;
     o_Setup(c);
     uint64_t built[kBoxes];
     {
         std::lock_guard<std::mutex> lk(g_Mu);
-        if (g_BuiltScreen != hud) {                       // (not this screen's: overlay)
-            Log("[hud] setup of screen %#llx without new boxes (ours: %#llx)\n", (unsigned long long)hud, (unsigned long long)g_Screen);
+        if (g_Hud.builtScreen != hud) {                   // (not this screen's: overlay)
+            Log("[hud] setup of screen %#llx without new boxes (ours: %#llx)\n", (unsigned long long)hud, (unsigned long long)g_Hud.screen);
             return;
         }
-        memcpy(built, g_Built, sizeof built);
-        g_BuiltScreen = 0;
+        memcpy(built, g_Hud.built, sizeof built);
+        g_Hud.builtScreen = 0;
     }
     // everything checked before anything is changed: on a surprise the RT box stays hidden and the overlay is used
     const uint64_t rt = Q(hud + 0x328), tmpl = Q(rt + 0x20);
@@ -222,37 +319,42 @@ static void SetupHook(GuestCtx* c) {
     float hs = GRead<float>(holder + 0x60);
     if (hs == 0.0f) hs = itemctl::OriginalBoxScale();     // (hidden by the HUD file patch: its own scale comes back)
     if (!(hs > 0.05f && hs < 10.0f)) { Log("[hud] native boxes: RT box scale %g unknown\n", hs); return; }
-    for (uint64_t lay : built)
-        if (Q(lay) != kLayoutVt || !GuestPtrOk(Q(lay + 0x80))) { Log("[hud] native boxes: a box went missing\n"); return; }
-    const float hx = GRead<float>(holder + 0x6c), hy = GRead<float>(holder + 0x70);
-    for (int i = 0; i < kBoxes; i++) {
-        const uint64_t lay = built[i];
-        Call(c, fAttach, Q(holder + 0x18), Q(lay + 0x80), holder);
-        const uint64_t node = Call(c, fNode, lay + 0x40);
-        if (IsIdentity(node)) {   // (in the RT box pane's units)
-            const float x = kRight - (2 - i % 3) * kStep, y = kTop - (i / 3) * kStep;
-            W<float>(node + 0x60, kBoxScale / hs); W<float>(node + 0x64, kBoxScale / hs);
-            W<float>(node + 0x6c, (x - hx) / hs); W<float>(node + 0x70, (y - hy) / hs);
-        }
-        Box& b = g_Box[i];
-        b = Box();
-        b.ctrl = MakeController(c, heap, lay);
-        b.name = Call(c, fAlloc, 0x50, heap, 8);
-        b.label = Call(c, fAlloc, 0x20, heap, 8);
-        if (b.name) { W<uint64_t>(b.name, b.name + 0x10); W<int32_t>(b.name + 8, 0x40); W<uint8_t>(b.name + 0x10, 0); }
-        if (GStr(kStrDecide) == "Decide") {   // (played when the slot's item is used; "Select" shows nothing in the HUD)
-            const uint64_t e = Call(c, fAnim, lay, kStrDecide);
-            if (GuestPtrOk(e) && e != Q(kAnimDefault)) b.decide = e;
-        }
-    }
+    // (in the RT box pane's units)
+    if (!AttachSet(c, g_Hud, built, holder, heap, hs, GRead<float>(holder + 0x6c), GRead<float>(holder + 0x70), kBoxScale,
+                   kStep, kRight, kTop)) return;
     W<float>(tnode + 0x60, 0.0f); W<float>(tnode + 0x64, 0.0f);   // the RT box's own content hidden
     W<float>(holder + 0x60, hs); W<float>(holder + 0x64, hs);     // its pane shown: the six live under it
-    for (auto& b : g_Box) if (!b.ctrl || !b.name || !b.label) { Log("[hud] native boxes: allocation failed\n"); return; }
-    g_Screen = hud;
-    g_Frames = 0;
-    g_Active = -1;
-    g_Ready = true;
+    g_Hud.screen = hud;
+    g_Hud.ready = true;
     Log("[hud] native item boxes set up (RT box scale %g)\n", hs);
+}
+
+// After the pause menu's setup, its boxes go under the Items tab's own layout node: they slide in and out with the tab
+static void PauseSetupHook(GuestCtx* c) {
+    const uint64_t screen = c->x[0], heap = c->x[1];
+    g_Pause.ready = false;
+    o_PauseSetup(c);
+    uint64_t built[kBoxes], parent;
+    {
+        std::lock_guard<std::mutex> lk(g_Mu);
+        if (g_Pause.builtScreen != screen) {
+            Log("[hud] pause menu setup of %#llx (vt %#llx) without new boxes (built for %#llx)\n", (unsigned long long)screen,
+                (unsigned long long)Q(screen), (unsigned long long)g_Pause.builtScreen);
+            return;
+        }
+        memcpy(built, g_Pause.built, sizeof built);
+        parent = g_Pause.parentLay;
+        g_Pause.builtScreen = 0;
+    }
+    if (Q(parent) != kLayoutVt) { Log("[hud] pause menu boxes: the Items tab went missing\n"); return; }
+    const uint64_t holder = Call(c, fNode, parent + 0x40);
+    if (!GuestPtrOk(holder) || !GuestPtrOk(Q(holder + 0x18))) { Log("[hud] pause menu boxes: unexpected Items tab tree\n"); return; }
+    if (!IsIdentity(holder)) Log("[hud] pause menu boxes: the Items tab node is not identity (%g, %g %g)\n",
+                                 GRead<float>(holder + 0x60), GRead<float>(holder + 0x6c), GRead<float>(holder + 0x70));
+    if (!AttachSet(c, g_Pause, built, holder, heap, 1.0f, 0.0f, 0.0f, kPauseScale, kPauseStep, kPauseRight, kPauseTop)) return;
+    g_Pause.screen = screen;
+    g_Pause.ready = true;
+    Log("[hud] pause menu item boxes set up\n");
 }
 
 // ---- 3. every HUD frame -----------------------------------------------------------------------------------------------
@@ -287,8 +389,8 @@ static void SetLabel(GuestCtx* c, Box& b, int bumper, int face) {
     }
 }
 
-static void UpdateBox(GuestCtx* c, int i, bool counts) {
-    Box& b = g_Box[i];
+static void UpdateBox(GuestCtx* c, BoxSet& set, int i, bool counts) {
+    Box& b = set.box[i];
     const uint32_t item = itemctl::SlotItem(i);
     const std::string icon = itemctl::SlotIcon(i);
     const uint64_t db = Q(Q(kItemDb));
@@ -306,7 +408,9 @@ static void UpdateBox(GuestCtx* c, int i, bool counts) {
             const uint64_t pane = Q(Q(sub + o) + 0x18);
             if (GuestPtrOk(pane)) Call(c, fVisible, pane, icon.empty() ? 0 : 1);
         }
-        Log("[hud] box %d: %s\n", i, icon.empty() ? "empty" : icon.c_str());
+        Log("[hud] %s box %d: %s\n", set.what, i, icon.empty() ? "empty" : icon.c_str());
+        // on the pause menu a newly assigned item gets the press animation (its box answers the assignment)
+        if (&set == &g_Pause && set.frames > 1 && !icon.empty() && b.decide) Call(c, fPlay, b.decide);
         b.item = item, b.icon = icon;
     }
     if (!changed && !counts) return;
@@ -328,26 +432,53 @@ static void UpdateBox(GuestCtx* c, int i, bool counts) {
     b.count = count, b.max = max;
 }
 
-static void FrameHook(GuestCtx* c) {
-    const uint64_t screen = c->x[0];
-    o_Frame(c);
-    if (!g_Ready || screen != g_Screen) return;
-    g_LastFrame = NowNs();
-    const bool counts = (g_Frames++ % 10) == 0;            // (counts checked six times a second, items every frame)
+static void UpdateSet(GuestCtx* c, BoxSet& set) {
+    set.lastFrame = NowNs();
+    const bool counts = (set.frames++ % 10) == 0;          // (counts checked six times a second, items every frame)
     for (int i = 0; i < kBoxes; i++) {
-        if (!g_Box[i].labelled) SetLabel(c, g_Box[i], kBumper[i / 3], kFace[i % 3]);
-        UpdateBox(c, i, counts);
+        if (!set.box[i].labelled) SetLabel(c, set.box[i], kBumper[i / 3], kFace[i % 3]);
+        UpdateBox(c, set, i, counts);
     }
-    const int active = itemctl::ActiveSlot();   // a slot's item just used: its box's press animation
-    if (active != g_Active) {
-        if (active >= 0 && g_Box[active].decide) Call(c, fPlay, g_Box[active].decide);
-        g_Active = active;
+    if (&set == &g_Pause) {   // a bumper held on the pause menu: its row picked out, the other row dimmed
+        const int bumper = itemctl::HeldBumper();
+        if (bumper != set.bumper) {
+            for (int i = 0; i < kBoxes; i++) {
+                Box& b = set.box[i];
+                const bool row = i / 3 == bumper, other = bumper >= 0 && !row, wasRow = i / 3 == set.bumper,
+                           wasOther = set.bumper >= 0 && !wasRow;
+                if (other != wasOther && b.invalid) Call(c, other ? fPlay : fRewind, b.invalid);
+                if (row != wasRow) {
+                    if (row && b.select) Call(c, fPlay, b.select);
+                    else if (!row && b.unselect) Call(c, fPlay, b.unselect);
+                }
+            }
+            set.bumper = bumper;
+        }
+    }
+    const int active = itemctl::ActiveSlot();   // a slot's item just used (or assigned): its box's press animation
+    if (active != set.active) {
+        if (active >= 0 && set.box[active].decide) Call(c, fPlay, set.box[active].decide);
+        set.active = active;
     }
 }
 
+static void FrameHook(GuestCtx* c) {
+    const uint64_t screen = c->x[0];
+    o_Frame(c);
+    if (g_Hud.ready && screen == g_Hud.screen) UpdateSet(c, g_Hud);
+}
+
+static void ScreenFrameHook(GuestCtx* c) {
+    const uint64_t screen = c->x[0];
+    const bool pause = GuestPtrOk(screen) && Q(screen) == kPauseVt;
+    if (pause && g_Pause.ready && screen == g_Pause.screen) UpdateSet(c, g_Pause);
+    o_ScreenFrame(c);
+}
+
 // ---- start ------------------------------------------------------------------------------------------------------------
-bool Active() { return g_Ready && NowNs() - g_LastFrame.load() < 500000000ll; }
-bool Ready() { return g_Ready; }
+bool Active() { return g_Hud.ready && NowNs() - g_Hud.lastFrame.load() < 500000000ll; }
+bool Ready() { return g_Hud.ready; }
+bool PauseReady() { return g_Pause.ready; }
 
 bool Start() {
     const char* off = getenv("ITEMCTL_NATIVE");
@@ -364,7 +495,9 @@ bool Start() {
     }
     // the frame and setup hooks first, the builder last: boxes are only built once everything that uses them is in
     o_Frame = hook::Install(g_Fn[fFrame], FrameHook, "HUD frame f_802ef010");
-    o_Setup = o_Frame ? hook::Install(g_Fn[fSetup], SetupHook, "HUD setup f_83415d20") : nullptr;
+    o_ScreenFrame = o_Frame ? hook::Install(g_Fn[fScreenFrame], ScreenFrameHook, "screen frame f_802f1380 (boxes)") : nullptr;
+    o_PauseSetup = o_ScreenFrame ? hook::Install(g_Fn[fPauseSetup], PauseSetupHook, "pause menu setup f_80f99400") : nullptr;
+    o_Setup = o_PauseSetup ? hook::Install(g_Fn[fSetup], SetupHook, "HUD setup f_83415d20") : nullptr;
     o_Build = o_Setup ? hook::Install(g_Fn[fBuild], BuildHook, "layout builder f_80459f90") : nullptr;
     if (!o_Build) { Log("[hud] hooks failed: overlay HUD\n"); return false; }
     Log("[hud] native item boxes on\n");

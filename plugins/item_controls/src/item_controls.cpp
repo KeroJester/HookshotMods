@@ -187,6 +187,7 @@ static int PauseTab() {
 // samples, so each sample is transformed once, in order, and re-reported identically from a cache.
 struct Cached { uint64_t n, out; };
 static Cached g_Cache[64];
+static std::atomic<int> g_Bumper{-1};   // the bumper held in the newest sample (0 LB, 1 RB, -1 none)
 static int g_CacheHead = 0;
 static uint64_t g_PrevRaw = 0;
 static std::mutex g_InMu;
@@ -230,6 +231,7 @@ static uint64_t Transform(uint64_t raw) {
     const bool play = InGameplay(), pause = PauseOpen();
     const uint64_t pressed = raw & ~g_PrevRaw;
     g_PrevRaw = raw;
+    g_Bumper = (raw & kBtnL) ? 0 : (raw & kBtnR) ? 1 : -1;
     const int64_t now = NowNs();
     uint64_t out = raw;
     if (g_SwallowFace && !(raw & g_SwallowFace)) g_SwallowFace = 0;
@@ -380,6 +382,8 @@ static ImTextureData* IconFor(uint32_t item) {
     return it == g_IconFile.end() ? nullptr : Texture(it->second);
 }
 
+int HeldBumper() { return g_Bumper.load(); }
+
 int ActiveSlot() {
     const Mode m = g_Mode;
     const int s = g_ModeSlot;
@@ -414,9 +418,8 @@ bool HudVisible() {
 
 void DrawHud() {
     if (!HudVisible()) return;
-    // the game draws the boxes itself when it can (native_hud.cpp): no overlay in play, nor on the pause menu (where
-    // the HUD is not drawn, the boxes show the new assignment when it closes)
-    if (PauseOpen() ? nativehud::Ready() : nativehud::Active()) return;
+    // the game draws the boxes itself when it can (native_hud.cpp): in play under its HUD, on the pause menu's Items tab
+    if (PauseOpen() ? nativehud::PauseReady() : nativehud::Active()) return;
     if (!PauseOpen()) {   // (research runs: their own boxes, overlay to compare)
         static const char* r = getenv("ITEMCTL_RESEARCH");
         if (r && strstr(r, "clone") && !strstr(r, "overlay")) return;

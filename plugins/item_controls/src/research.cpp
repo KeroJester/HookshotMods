@@ -10,6 +10,7 @@
 //                            and log its callers when the destination is inside the RT box controller
 //   ITEMCTL_RESEARCH=builder log the layout builder's part creations (f_80459f90, a virtual: x0 builder context,
 //                            x1 part description; returns the new layout + 0x40): caller, name, the description
+//   ITEMCTL_RESEARCH=allbuild log every part build: part, instance, screen and its vtable, parent layout
 //   ITEMCTL_RESEARCH=clone   after the HUD's setup (f_83415d20), clone the RT box part as the dungeon map clones its
 //                            icons (f_80f9b1d0): f_80791f70(new layout, template, name, 0, 0), then
 //                            f_80235dc0(parent's container, new root pane, parent pane); logs what it finds
@@ -171,6 +172,11 @@ static void BuildHook(GuestCtx* c) {
         memcpy(g_BtnCtx, k, sizeof k); memcpy(g_BtnDesc, d, sizeof d); g_BtnCaptured = true;
         if (strstr(getenv("ITEMCTL_RESEARCH"), "early") && !g_Early[0]) BuildEarly(c);
     }
+    static int na;
+    if (strstr(getenv("ITEMCTL_RESEARCH"), "allbuild") && na++ < 3000)
+        Log("[research] allbuild '%s' as '%s' screen %#llx (vt %#llx) parent '%s' lay %#llx\n", GStr(d[0], 60).c_str(),
+            GStr(d[2], 60).c_str(), (unsigned long long)k[3], (unsigned long long)Q(k[3]), PaneName(Q(k[4] + 0x80)).c_str(),
+            (unsigned long long)lay);
     static int n;
     const bool itemBtn = strstr(PaneName(Q(lay + 0x80)).c_str(), "ItemBtn") || GStr(d[0], 40).find("ItemBtn") != std::string::npos;
     if (itemBtn && n++ < 400)

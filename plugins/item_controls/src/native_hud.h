@@ -7,4 +7,6 @@ bool Start();
 bool Active();
 // Whether the game-drawn boxes are set up for the current HUD (also while the HUD is not drawn, as in the pause menu)
 bool Ready();
+// Whether the boxes on the pause menu's Items tab are set up (the overlay is not needed in the pause menu then)
+bool PauseReady();
 }

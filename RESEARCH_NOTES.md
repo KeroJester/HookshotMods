@@ -1954,3 +1954,36 @@ In the mod: src/native_hud.cpp (hooks f_80459f90, f_83415d20, f_802ef010). The H
 pane (scale 0, its original scale recorded by item_files.cpp); the native setup gives it back and hides the RT box's
 own content (its node at scale 0), so when anything is missing the old overlay HUD takes over unchanged.
 ITEMCTL_NATIVE=0 forces the overlay.
+
+### Later in 0.6.0: smaller boxes, empty slots, no overlay on the pause menu
+- Boxes at scale 0.42 (from 0.55), the grid's top-right corner kept where the RT box's was.
+- An emptied slot kept its old picture: the item setter with kind -1 leaves it, and f_80a93920 with an empty name does
+  not clear it; plain scale writes to a drawn pane are ignored (no dirty flag). Fix: pane SetVisible f_8022aea0(pane,
+  bool) (bit 0 of +0xa8, marks the pane dirty) on [[icon sub +0x30/+0x38] + 0x18].
+- Opening and closing the pause menu re-runs neither the HUD setup nor the box build.
+
+## 74. Item boxes on the pause menu's Items tab (0.7.0, 2026-11-13)
+Goal: show where an item is going while assigning, in the game's own style, without covering the rupee counter.
+- **Screens:** pause menu UIPlusMenuScreen vt 0x84c0baa8 (layout PlusMenu_00); its header with hearts and rupees is
+  a separate screen, vt 0x84c08aa0 (MenuOverlay_00: A_Rupee_00 at 1652, 986 in 3840 x 2160 screen units, centre
+  origin). The HUD screen with the RT box is vt 0x84c0b710 (not 0x84c0afe0).
+- **The Items tab** is the part PaItemMenu_00 as Pa_Item_00 (built through f_80459f90 with the pause screen as
+  ctx[3]); it sits at x 8560 under N_MenuChange_01, which slides by whole tabs, so while the tab is shown its layout
+  is laid out as the screen. Anything attached under its layout node slides in and out with the tab by itself.
+- **Building:** the same build call as the Items tab's with the description's names swapped (part "PaItemBtn_00",
+  len 12; instance "Pa_SelectItem_00", len 16; desc[5..7] = 0, 0, 1) builds PaItemBtn_00 parts: every layout comes
+  from the same resource (ctx[5] the same object for the HUD, the pause menu and Quick Select). Registered in the
+  description's layout list as for the HUD, they get draw data and animations in the open pass.
+- **Setup:** the screen setup virtual, f_83415d20 for the HUD, is at vt + 0x2e8 relative to the HUD screen's vt
+  0x84c0b710; the same slot of the pause vt holds f_80f99400 (x0 screen, x1 heap). (f_80dc4fd0, in the slot found by
+  matching table runs, belongs to another class, vt 0x84c0c238.) The build's heap (ctx[2]) cannot allocate there
+  (the controllers failed): use the setup's x1.
+- **Per frame:** f_802f1380 (generic screen frame, the pause screen only while open) updates items, counts, labels.
+- **Feedback:** while LB/RB is held, the other row plays IsInvalid (dimmed, rewound on release); a newly assigned
+  item plays Decide. "Select"/"UnSelect" show nothing visible on these boxes. Strings used from the image: IsInvalid
+  0x83f342b8, Select 0x83f34e3a, UnSelect 0x83f34e42.
+- **Placement:** scale 0.48, top-right corner at (1840, 700) in the tab's units: the dark corner of the preview panel
+  under the header's ornament. Large preview models (the bow) still turn behind the left column at times.
+- Verified headless: built and set up in the pause menu; assignment updates live (Deku Stick LB+X -> RB+X); row
+  dimming; hidden on Equipment, back on Items; HUD boxes after closing; boxes again on reopening; no crash.
+- Research switch: ITEMCTL_RESEARCH=allbuild logs every part build (part, instance, screen and its vt, parent).
