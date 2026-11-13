@@ -380,6 +380,12 @@ static ImTextureData* IconFor(uint32_t item) {
     return it == g_IconFile.end() ? nullptr : Texture(it->second);
 }
 
+int ActiveSlot() {
+    const Mode m = g_Mode;
+    const int s = g_ModeSlot;
+    return (m == kUse || m == kAim) && s >= 0 && s < 6 ? s : -1;
+}
+
 uint32_t SlotItem(int slot) { return slot >= 0 && slot < 6 ? g_Slot[slot].load() : kHashEmpty; }
 
 std::string SlotIcon(int slot) {

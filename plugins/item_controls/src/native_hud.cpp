@@ -56,10 +56,13 @@ enum : uint64_t {
     fStrInit = 0x80a86f70,      // message string {ptr, s32 len, s64 -1}
     fButtonGlyph = 0x80a8ae50,  // (&str, button): the glyph of a button (Switch names: A 1, B 2, X 3, Y 4, L 5, R 7)
     fSetText = 0x80459520,      // (text pane, &str, 0): the text box keeps the POINTER to the string
+    fAnim = 0x8045c7a0,         // (layout, name): a layout animation's table entry (missing: the shared default)
 };
+constexpr uint64_t kStrDecide = 0x83f368f6;          // "Decide" (the item button's press: the icon wiggles)
+constexpr uint64_t kAnimDefault = 0x84c9e068;          // * the entry f_8045c7a0 gives for a missing name
 static const uint64_t kFns[] = {fAlloc, fBuild, fSetup, fFrame, fRegister, fPaneAt, fNode, fParent, fAttach, fBind,
                                 fKind, fSetItem, fItemRec, fCount, fMax, fCountFlag, fShowCount, fPlay, fRewind,
-                                fStrInit, fButtonGlyph, fSetText};
+                                fStrInit, fButtonGlyph, fSetText, fAnim};
 static std::unordered_map<uint64_t, uintptr_t> g_Fn;   // (filled once in Start, read-only after)
 static GuestFn o_Build, o_Setup, o_Frame;
 
@@ -76,13 +79,14 @@ static std::atomic<int64_t> g_LastFrame{0};
 static uint64_t g_Screen;                // the HUD screen the boxes belong to (game thread only from here down)
 struct Box {
     uint64_t ctrl = 0, name = 0, label = 0;   // controller; {char*, s32 cap} + buffer; the joined label glyphs
+    uint64_t decide = 0;                      // its Decide animation (0: missing)
     uint32_t item = 0xffffffff;
     std::string icon;
     int count = -2, max = -2;                 // (-1: no count shown)
     bool labelled = false;
 };
 static Box g_Box[kBoxes];
-static int g_Frames;
+static int g_Frames, g_Active = -1;
 
 static int64_t NowNs() {
     return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -229,12 +233,17 @@ static void SetupHook(GuestCtx* c) {
         b.name = Call(c, fAlloc, 0x50, heap, 8);
         b.label = Call(c, fAlloc, 0x20, heap, 8);
         if (b.name) { W<uint64_t>(b.name, b.name + 0x10); W<int32_t>(b.name + 8, 0x40); W<uint8_t>(b.name + 0x10, 0); }
+        if (GStr(kStrDecide) == "Decide") {   // (played when the slot's item is used; "Select" shows nothing in the HUD)
+            const uint64_t e = Call(c, fAnim, lay, kStrDecide);
+            if (GuestPtrOk(e) && e != Q(kAnimDefault)) b.decide = e;
+        }
     }
     W<float>(tnode + 0x60, 0.0f); W<float>(tnode + 0x64, 0.0f);   // the RT box's own content hidden
     W<float>(holder + 0x60, hs); W<float>(holder + 0x64, hs);     // its pane shown: the six live under it
     for (auto& b : g_Box) if (!b.ctrl || !b.name || !b.label) { Log("[hud] native boxes: allocation failed\n"); return; }
     g_Screen = hud;
     g_Frames = 0;
+    g_Active = -1;
     g_Ready = true;
     Log("[hud] native item boxes set up (RT box scale %g)\n", hs);
 }
@@ -311,6 +320,11 @@ static void FrameHook(GuestCtx* c) {
     for (int i = 0; i < kBoxes; i++) {
         if (!g_Box[i].labelled) SetLabel(c, g_Box[i], kBumper[i / 3], kFace[i % 3]);
         UpdateBox(c, i, counts);
+    }
+    const int active = itemctl::ActiveSlot();   // a slot's item just used: its box's press animation
+    if (active != g_Active) {
+        if (active >= 0 && g_Box[active].decide) Call(c, fPlay, g_Box[active].decide);
+        g_Active = active;
     }
 }
 
