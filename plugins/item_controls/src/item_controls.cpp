@@ -377,6 +377,23 @@ static ImTextureData* IconFor(uint32_t item) {
     return it == g_IconFile.end() ? nullptr : Texture(it->second);
 }
 
+uint32_t SlotItem(int slot) { return slot >= 0 && slot < 6 ? g_Slot[slot].load() : kHashEmpty; }
+
+std::string SlotIcon(int slot) {
+    const uint32_t item = SlotItem(slot);
+    if (item == kHashEmpty) return "";
+    auto b = g_BottleItem.find(item);
+    if (b != g_BottleItem.end()) {
+        uint64_t e = g_BottleEntry[b->second];
+        if (EntryValid(e)) {
+            auto it = g_IconFile.find(GRead<uint32_t>(e + 0x1C) ^ 0x80000000u);
+            if (it != g_IconFile.end()) return it->second;
+        }
+    }
+    auto it = g_IconFile.find(item);
+    return it == g_IconFile.end() ? "" : it->second;
+}
+
 // Shown on the pause menu's Items tab, and in play while the game shows its player-status HUD (screen 84c0afe0,
 // +0x1a8 = 1 while shown; cleared by the HUD option Pro outside combat / Hero always, in cutscenes, while paused).
 bool HudVisible() {

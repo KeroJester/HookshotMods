@@ -1856,3 +1856,33 @@ Working recipe, after the HUD's setup (f_83415d20, a vtable method of HUD screen
   never call it.
 Result: six empty item frames in a 2x3 grid (scale 0.55, step 230, from (-260,-230) in N_ScaleR_00 units), drawn by
 the game, no crash over a full headless run. Next: each box's item (icon, ammo count) and its button label.
+
+## 71. Native HUD boxes: the item-button controller and the icon (in progress, 2026-11-12)
+
+Probes (research.cpp): `trace` (call counts over ITEMCTL_TRACE ranges; skip functions < 16 guest instructions or
+< 32 host bytes: a 14-byte hook spills out of tiny functions and crashed the game), `watch` (diff the RT box
+controller every 100 ms), `copy` (callers of f_8575cdc0, the copy that writes it), `builder` (f_80459f90 calls),
+`items` (set the boxes' items), `shareanims` (experiment). HOS_WATCH data breakpoints (run_headless watch.txt:
+4 s reads+writes, then 4 s writes, then watch.txt.out "addr w hookshot+off count") found the writer.
+
+- RT box controller (0x110, vt 0x84c01400, [HUD screen+0x328], same address every run 0x107ef01528):
+  +0x20 its part layout, +0x30..+0x78 ten animation states (f_8045c7a0(layout, name); default object 0x84df2270
+  when missing), +0x80 icon sub-controller (0x40, vt 0x84c022a8, built by f_80a57320 around P_ReplaceIcon_00 and
+  P_ReplaceIconSh_00), +0x88 -> +0x94 icon name buffer (cap +0x90 = 0x40, "Item_DekuStick"), +0xd8 item kind,
+  +0xe0 the layout system's entry for this layout (searched in [sys+0x38]), +0xf0 -> +0x100 count text ("27").
+- The item setter: f_80a95ef0(ctrl, &name{char*, s32 cap}, kind, 1, 0, w5, w6) — the Quick Select list calls it with
+  w5 = -1, w6 = 0; the HUD's RT update f_80a95770 (x0 = HUD screen; runs only on changes) with [screen+0x384],
+  [screen+0x394]. It copies the name, calls the icon sub-controller f_80a93480(icon, name, kind, ...) and the count
+  f_80a96170(ctrl, kind, ...). Kind = f_802efb20(**0x84c9e0d0 item database, item hash): DekuStick 0, DekuNut 1,
+  Bomb 2, Boomerang 3, Bombchu 9. Name from kind: f_80a945f0(db, &str, kind, 1).
+- Controllers for clones made like the HUD's (MakeItemButton in research.cpp) take items without crashing, but the
+  icons do not show yet. Clones from f_80791f70 have NO animation table (layout +0x88 count / +0x90 array zeroed;
+  the builder attaches animations in a later pass: f_804597f0 -> f_8045bac0 "ResetAnimAtOpen"/"OpenWithScreen"),
+  and no +0xe0 entry. Sharing the template's table fixes the state lookups but not the icon; the nested icon part
+  (Pa_ReplaceIcon_00 inside each clone) has no animations either — next suspect.
+- The layout builder's part creation: f_80459f90 (virtual slot 0x10 of builder vt 0x84c419b8; x0 builder context
+  [vt, 0, heap?, sys?, parent layout, resource ptr, 0], x1 description [part name, len, instance name, len, archive,
+  ?, previous, 2]) -> f_8045a0e0 (builds from the resource). Generic builder f_8154f990 calls it for every part; the
+  Quick Select list (f_8151eb00) builds its 16 PaItemBtn_00 entries with it at run time.
+Options next: (a) give clones (and their nested icon part) animations through f_804597f0/f_8045bac0; (b) build the
+boxes with the builder path (f_80459f90 + description) as the Quick Select list does, which may bring everything.
