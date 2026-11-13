@@ -57,18 +57,22 @@ enum : uint64_t {
     fButtonGlyph = 0x80a8ae50,  // (&str, button): the glyph of a button (Switch names: A 1, B 2, X 3, Y 4, L 5, R 7)
     fSetText = 0x80459520,      // (text pane, &str, 0): the text box keeps the POINTER to the string
     fAnim = 0x8045c7a0,         // (layout, name): a layout animation's table entry (missing: the shared default)
+    fVisible = 0x8022aea0,      // (pane, bool): pane SetVisible (flag bit 0 at +0xa8, marks it for redraw)
 };
 constexpr uint64_t kStrDecide = 0x83f368f6;          // "Decide" (the item button's press: the icon wiggles)
 constexpr uint64_t kAnimDefault = 0x84c9e068;          // * the entry f_8045c7a0 gives for a missing name
 static const uint64_t kFns[] = {fAlloc, fBuild, fSetup, fFrame, fRegister, fPaneAt, fNode, fParent, fAttach, fBind,
                                 fKind, fSetItem, fItemRec, fCount, fMax, fCountFlag, fShowCount, fPlay, fRewind,
-                                fStrInit, fButtonGlyph, fSetText, fAnim};
+                                fStrInit, fButtonGlyph, fSetText, fAnim, fVisible};
 static std::unordered_map<uint64_t, uintptr_t> g_Fn;   // (filled once in Start, read-only after)
 static GuestFn o_Build, o_Setup, o_Frame;
 
 // ---- the boxes ------------------------------------------------------------------------------------------------------
 constexpr int kBoxes = 6;
-constexpr float kBoxScale = 0.55f, kStep = 230.0f, kRight = -260.0f, kTop = -230.0f;   // in N_ScaleR_00's units
+// box size and grid, in N_ScaleR_00's units: a PaItemBtn_00 is 380 x 492 around its centre; the grid's top-right
+// corner stays where the vanilla RT box's was (right edge -155.5, top edge -94.7), the boxes shrink towards it
+constexpr float kBoxScale = 0.42f, kStep = 230.0f * kBoxScale / 0.55f;
+constexpr float kRight = -155.5f - 190.0f * kBoxScale, kTop = -94.7f - 246.0f * kBoxScale;
 static const int kFace[3] = {4, 3, 1};   // Xbox X, Y, B (the game shows Switch Y, X, A with Xbox labels)
 static const int kBumper[2] = {5, 7};    // LB, RB (Switch L, R)
 
@@ -203,7 +207,10 @@ static void SetupHook(GuestCtx* c) {
     uint64_t built[kBoxes];
     {
         std::lock_guard<std::mutex> lk(g_Mu);
-        if (g_BuiltScreen != hud) return;                 // (not this screen's: overlay)
+        if (g_BuiltScreen != hud) {                       // (not this screen's: overlay)
+            Log("[hud] setup of screen %#llx without new boxes (ours: %#llx)\n", (unsigned long long)hud, (unsigned long long)g_Screen);
+            return;
+        }
         memcpy(built, g_Built, sizeof built);
         g_BuiltScreen = 0;
     }
@@ -290,6 +297,16 @@ static void UpdateBox(GuestCtx* c, int i, bool counts) {
         snprintf((char*)GPtr(b.name + 0x10), 0x40, "%s", icon.c_str());
         const uint64_t kind = Call(c, fKind, db, item);
         Call(c, fSetItem, b.ctrl, b.name, kind, 1, 0, (uint64_t)(int64_t)-1, 0);
+        // the setter leaves the old picture for "no item" (an empty texture name does not clear it either): the
+        // picture panes of the icon sub-controller's two replace-icon objects (+0x30 icon, +0x38 shadow; pane at
+        // +0x18) are hidden while the slot is empty, with the pane's SetVisible (it marks the pane for redraw; plain
+        // writes to a drawn pane's transform are not picked up)
+        const uint64_t sub = Q(b.ctrl + 0x80);
+        for (uint64_t o : {0x30, 0x38}) {
+            const uint64_t pane = Q(Q(sub + o) + 0x18);
+            if (GuestPtrOk(pane)) Call(c, fVisible, pane, icon.empty() ? 0 : 1);
+        }
+        Log("[hud] box %d: %s\n", i, icon.empty() ? "empty" : icon.c_str());
         b.item = item, b.icon = icon;
     }
     if (!changed && !counts) return;
@@ -330,6 +347,7 @@ static void FrameHook(GuestCtx* c) {
 
 // ---- start ------------------------------------------------------------------------------------------------------------
 bool Active() { return g_Ready && NowNs() - g_LastFrame.load() < 500000000ll; }
+bool Ready() { return g_Ready; }
 
 bool Start() {
     const char* off = getenv("ITEMCTL_NATIVE");

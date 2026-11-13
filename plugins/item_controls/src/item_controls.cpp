@@ -414,9 +414,12 @@ bool HudVisible() {
 
 void DrawHud() {
     if (!HudVisible()) return;
-    if (!PauseOpen()) {   // during play the game draws the boxes itself when it can (native_hud.cpp)
-        static const char* r = getenv("ITEMCTL_RESEARCH");   // (research runs: their own boxes, overlay to compare)
-        if (nativehud::Active() || (r && strstr(r, "clone") && !strstr(r, "overlay"))) return;
+    // the game draws the boxes itself when it can (native_hud.cpp): no overlay in play, nor on the pause menu (where
+    // the HUD is not drawn, the boxes show the new assignment when it closes)
+    if (PauseOpen() ? nativehud::Ready() : nativehud::Active()) return;
+    if (!PauseOpen()) {   // (research runs: their own boxes, overlay to compare)
+        static const char* r = getenv("ITEMCTL_RESEARCH");
+        if (r && strstr(r, "clone") && !strstr(r, "overlay")) return;
     }
     ImGuiIO& io = ImGui::GetIO();
     ImDrawList* dl = ImGui::GetForegroundDrawList();
