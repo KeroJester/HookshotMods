@@ -735,8 +735,11 @@ static void DoCmdFrame(GuestCtx* c) {
         if (prev.size() == cur.size() && n < 400) {
             std::string line; char b[48];
             for (size_t i = 0; i < cur.size(); i++)
-                if (cur[i] != prev[i] && 0x180 + 4 * i != 0x250) { snprintf(b, sizeof b, " +%zx:%x->%x", 0x180 + 4 * i, prev[i], cur[i]); line += b; }
-            if (!line.empty() && line.size() < 600) { Log("[research] docmd%s\n", line.c_str()); n++; }
+                if (cur[i] != prev[i] && 0x180 + 4 * i != 0x250 && 0x180 + 4 * i != 0x2f0) { snprintf(b, sizeof b, " +%zx:%x->%x", 0x180 + 4 * i, prev[i], cur[i]); line += b; }
+            if (!line.empty() && line.size() < 600) {
+                Log("[research] docmd %.3f%s\n", std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(), line.c_str());
+                n++;
+            }
         }
         prev = cur;
     }

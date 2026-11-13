@@ -2020,3 +2020,21 @@ without the trigger (as in NieR: Automata) until the player stops moving. The bo
   reports B up, so B gives a fresh press). Sticks come from the NpadState (+0x10 lx, +0x14 ly).
 - Verified headless: no Talk on RT at the counter; latch on, then off when the stick was released.
 - Untested: open-field sprint length, side hop, walls (the latch holds while the stick pushes into a wall).
+
+### 0.9.1: RT presses taken into interactions by the input history
+The user's report: spamming RT during a roll still talked or opened when the prompt appeared mid-roll.
+- **Reproduced headless:** roll toward the shopkeeper with RT every 120 ms. The last RT press, 37 ms before the
+  prompt appeared, opened the dialogue.
+- **No earlier signal:** the game's own command (GameData struct 0xca62c947, string member 0xd7e9ac3a naming a String
+  entry: "Empty", "Talk", ...; read by DoCommand's update f_80a8b620) changes in the same frame as the prompt.
+- **Input history:** the game reads 16 samples a frame (one new sample per frame, about 16.7 ms, so about 0.27 s)
+  and finds presses inside them. A press up to a few frames old is spent on an interaction that turns up later.
+- **Failed fixes:** waiting 70 ms before passing RT on still talked 2 of 4 times (the delayed press is just as
+  fresh). Taking back RT's samples when a prompt appears still talked 1 of 4 times.
+- **Fix:** an RT press is a press for one frame only. From the next poll on, the 16 samples before it read as held
+  (bit set in the cache the game re-reads), so the history shows a hold and no press, and dash goes on. The take-back
+  on a prompt stays.
+- **Verified:** 4 of 4 timing offsets with no dialogue; rolls still happen; the latched sprint still works.
+- **Cost:** an RT press made during a roll is no longer kept for a second roll; press again after it.
+- Research switches: ITEMCTL_RTLOG=1 (RT presses with the prompt state, the game's command as it changes),
+  ITEMCTL_POLLLOG=1 (npad poll timing).

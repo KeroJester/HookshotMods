@@ -182,12 +182,42 @@ static void OcarinaHook(GuestCtx* c) { g_OcarinaSeen = NowNs(); o_Ocarina(c); }
 static bool Recent(const std::atomic<int64_t>& t) { return NowNs() - t.load() < 100000000; }
 static bool PauseOpen() { return Recent(g_PauseSeen); }
 static bool InGameplay() { return !PauseOpen() && !Recent(g_OcarinaSeen) && !Recent(g_MenuSeen) && Recent(g_HudSeen); }
+// The action command the game logic sets for the prompt (DoCommand_00's update f_80a8b620 reads it): GameData struct
+// 0xca62c947, its string member 0xd7e9ac3a naming a String entry; "Empty" when nothing is offered. Read with the
+// game's own tables (GameData manager [0x84ea42a8]: structs +0xc10 count, +0xc18 entries of 0x20, +0xc20 {hash, index}
+// open-addressed table of +0xc2c slots; a struct entry's member table at +8 (+0x14 slots); strings +0x610/+0x618 (0x108
+// each, text at +0x68)/+0x620/+0x62c).
+static int64_t FindIndex(uint64_t table, uint32_t cap, uint32_t key) {
+    if (!GuestPtrOk(table) || !cap || cap > (1u << 20)) return -1;
+    for (uint32_t i = key % cap, n = 0; n < cap; i = (i + 1) % cap, n++) {
+        const uint32_t k = GRead<uint32_t>(table + 8ull * i);
+        if (k == key) return GRead<uint32_t>(table + 8ull * i + 4);
+        if (!k) return -1;
+    }
+    return -1;
+}
+static const char* GameCommand() {
+    const uint64_t gd = GuestPtrOk(0x84ea42a8) ? GRead<uint64_t>(0x84ea42a8) : 0;
+    if (!GuestPtrOk(gd)) return nullptr;
+    const int64_t si = FindIndex(GRead<uint64_t>(gd + 0xc20), GRead<uint32_t>(gd + 0xc2c), 0xca62c947u);
+    if (si < 0 || si >= GRead<uint32_t>(gd + 0xc10)) return nullptr;
+    const uint64_t entry = GRead<uint64_t>(gd + 0xc18) + 0x20ull * si;
+    const uint64_t members = entry;                       // (its member table at +8, +0x14 slots)
+    if (!GuestPtrOk(members)) return nullptr;
+    const int64_t val = FindIndex(GRead<uint64_t>(members + 8), GRead<uint32_t>(members + 0x14), 0xd7e9ac3au);
+    if (val <= 0) return nullptr;
+    const int64_t ti = FindIndex(GRead<uint64_t>(gd + 0x620), GRead<uint32_t>(gd + 0x62c), (uint32_t)val);
+    if (ti < 0 || ti >= GRead<uint32_t>(gd + 0x610)) return nullptr;
+    const uint64_t text = GRead<uint64_t>(GRead<uint64_t>(gd + 0x618) + 0x108ull * ti + 0x68);
+    return GuestPtrOk(text) ? (const char*)GPtr(text) : nullptr;
+}
+
 // Whether the game offers an interaction on the action button now (its prompt is showing or appearing)
 static bool PromptShown() {
     const uint64_t s = g_DoCmd;
     if (!GuestPtrOk(s)) return false;
-    const uint32_t st = GRead<uint32_t>(s + 0x1a4);
-    return st == 0x10000 || st == 0x20000;
+    const uint32_t st = GRead<uint32_t>(s + 0x1a4);   // (0x100 with +0x2dd = 1: a command set, shown next frame)
+    return st == 0x10000 || st == 0x20000 || (st == 0x100 && GRead<uint8_t>(s + 0x2dd) == 1 && GRead<int32_t>(s + 0x2e8) >= 0);
 }
 static int PauseTab() {
     uint64_t s = g_Screen;
@@ -198,7 +228,7 @@ static int PauseTab() {
 // ---- input --------------------------------------------------------------------------------------------------------
 // The game reads a 16-sample history (newest first, keyed by sampling number) and derives presses from consecutive
 // samples, so each sample is transformed once, in order, and re-reported identically from a cache.
-struct Cached { uint64_t n, out; };
+struct Cached { uint64_t n, out; int64_t t; bool rtA; };   // rtA: its action bit came from RT, not from B
 static Cached g_Cache[64];
 static std::atomic<int> g_Bumper{-1};   // the bumper held in the newest sample (0 LB, 1 RB, -1 none)
 static int g_CacheHead = 0;
@@ -217,8 +247,17 @@ constexpr int64_t kPickUpNs = 34000000, kMinPressNs = 50000000;
 // drops below 45% for 0.15 s, Z-targeting starts, an item is used, B is pressed, or play stops.
 constexpr int64_t kSprintHoldNs = 300000000, kSprintStopNs = 150000000;
 constexpr float kSprintStick = 0.45f;
-static bool g_RtMove = false, g_Sprint = false;
-static int64_t g_RtT0 = 0, g_SlowSince = 0;
+// The game keeps a recent action press and spends it on an interaction that becomes available a moment later (its
+// prompt appears up to ~60 ms after the press), so when a prompt appears the RT presses of the last kRtTakeBackNs are
+// taken back from the input history the game re-reads (FilterNpad); a latched sprint is left alone (no new press).
+constexpr int64_t kRtWaitNs = 0, kRtTakeBackNs = 400000000;
+static bool g_LastRtA = false;                 // (set by Transform: this sample's action bit is RT's)
+// The game reads the last 16 samples (one per frame) and finds presses anywhere in them, so an interaction that turns
+// up a few frames after an RT press still took it. An RT press is therefore seen as a press for one frame only: from
+// the next poll on, the samples before it read as held (no press in the history, the hold goes on).
+static uint64_t g_RtEdgeN = 0, g_PrevOut = 0;
+static bool g_RtMove = false, g_RtPending = false, g_Sprint = false;
+static int64_t g_RtT0 = 0, g_SlowSince = 0, g_RtTapUntil = 0;
 static int g_StickX = 0, g_StickY = 0;   // left stick of the sample being transformed
 
 static int SlotFor(uint64_t raw, uint64_t pressed) {
@@ -249,9 +288,23 @@ static void StartAssign(int slot) {
     g_Mode = kAssign; g_ModeSlot = slot; g_ModeT0 = NowNs();
 }
 
+// Whether RT reports the action bit in this sample (see kRtWaitNs)
+static bool RtAction(uint64_t raw, int64_t now) {
+    if (g_RtPending) {
+        if (PromptShown()) g_RtPending = false;
+        else if (now - g_RtT0 >= kRtWaitNs) {
+            g_RtPending = false;
+            g_RtMove = (raw & kBtnZR) != 0;
+            if (!g_RtMove) g_RtTapUntil = now + kMinPressNs;   // (already let go: a short press)
+        }
+    }
+    if (g_RtTapUntil && now >= g_RtTapUntil) g_RtTapUntil = 0;
+    return ((raw & kBtnZR) && g_RtMove) || g_RtTapUntil;
+}
+
 static uint64_t Movement(uint64_t raw, uint64_t pressed, int64_t now, uint64_t out) {
     const float mag = std::sqrt((float)g_StickX * g_StickX + (float)g_StickY * g_StickY) / 32767.0f;
-    const bool moving = mag >= kSprintStick, rt = (raw & kBtnZR) && g_RtMove;
+    const bool moving = mag >= kSprintStick, rt = RtAction(raw, now);
     if (rt && moving && !(raw & kBtnZL) && now - g_RtT0 > kSprintHoldNs && !g_Sprint) {
         g_Sprint = true, g_SlowSince = 0;
         Log("[itemctl] sprint latched\n");
@@ -266,7 +319,7 @@ static uint64_t Movement(uint64_t raw, uint64_t pressed, int64_t now, uint64_t o
             if (pressed & kBtnA) return out & ~kBtnA;     // (B: a fresh press on the next sample)
         }
     }
-    if (rt || g_Sprint) out |= kBtnA;
+    if ((rt || g_Sprint) && !(out & kBtnA)) { out |= kBtnA; g_LastRtA = true; }
     return out;
 }
 
@@ -277,7 +330,17 @@ static uint64_t Transform(uint64_t raw) {
     g_Bumper = (raw & kBtnL) ? 0 : (raw & kBtnR) ? 1 : -1;
     const int64_t now = NowNs();
     uint64_t out = raw;
-    if (pressed & kBtnZR) { g_RtMove = !PromptShown(); g_RtT0 = now; }
+    if (pressed & kBtnZR) {
+        g_RtMove = false, g_RtPending = !PromptShown(), g_RtTapUntil = 0, g_RtT0 = now;
+        static const bool rtLog = getenv("ITEMCTL_RTLOG") != nullptr;
+        if (rtLog) {
+            const char* gc = GameCommand();
+            Log("[itemctl] RT command '%s'\n", gc ? gc : "?");
+            const uint64_t d = g_DoCmd;
+            Log("[itemctl] RT press %.3f prompt %08x cmd %d -> %s\n", now / 1e9, GuestPtrOk(d) ? GRead<uint32_t>(d + 0x1a4) : 0,
+                GuestPtrOk(d) ? GRead<int32_t>(d + 0x2e8) : -9, g_RtPending ? "wait" : "blocked");
+        }
+    }
     if (!(raw & kBtnZR)) g_RtMove = false;
     if (!play) g_Sprint = false;
     if (g_SwallowFace && !(raw & g_SwallowFace)) g_SwallowFace = 0;
@@ -288,7 +351,7 @@ static uint64_t Transform(uint64_t raw) {
         else {
             out &= ~(g_ModeFace | kBtnL | kBtnR | kBtnZR);
             if (g_ModeSlot >= 0 && now - g_ModeT0 > kPickUpNs) out |= kBtnZR;
-            if ((raw & kBtnZR) && g_RtMove) out |= kBtnA;
+            if (RtAction(raw, now) && !(out & kBtnA)) { out |= kBtnA; g_LastRtA = true; }
             return out;
         }
     }
@@ -299,7 +362,7 @@ static uint64_t Transform(uint64_t raw) {
             if (pressed & g_ModeFace) g_SwallowFace = g_ModeFace;
         }
         out &= ~(kBtnL | kBtnR | kBtnZR | ((raw & (kBtnL | kBtnR)) ? (kBtnX | kBtnY | kBtnA) : 0) | g_ModeFace);
-        if ((raw & kBtnZR) && g_RtMove) out |= kBtnA;
+        if (RtAction(raw, now) && !(out & kBtnA)) { out |= kBtnA; g_LastRtA = true; }
         if (g_AimEnd && now >= g_AimEnd) g_Mode = kIdle;  // RT up; (this sample's face press is not a new combo)
         else if (g_ModeSlot >= 0 && now > zrOn) out |= kBtnZR;
         return out;
@@ -355,6 +418,35 @@ static void FilterNpad(GuestCtx* c, GuestFn orig) {
     int got = (int)c->x[0];
     if (!g_On || got <= 0 || got > count || got > 64) return;
     std::lock_guard<std::mutex> lk(g_InMu);
+    static bool promptWas = false;
+    const bool prompt = PromptShown();
+    if (prompt && !promptWas && !g_Sprint) {              // an interaction offered: RT's recent presses taken back
+        const int64_t now = NowNs();
+        int n = 0;
+        for (auto& k : g_Cache)
+            if (k.rtA && now - k.t < kRtTakeBackNs) { k.out &= ~kBtnA; k.rtA = false; n++; }
+        g_RtMove = false, g_RtPending = false, g_RtTapUntil = 0;
+        if (n) Log("[itemctl] prompt: %d RT samples taken back\n", n);
+    }
+    promptWas = prompt;
+    if (g_RtEdgeN && GRead<uint64_t>(outp) > g_RtEdgeN) {   // RT's press seen once: older samples read as held
+        for (auto& k : g_Cache)
+            if (k.n && k.n < g_RtEdgeN && g_RtEdgeN - k.n <= 16) k.out |= kBtnA;
+        g_RtEdgeN = 0;
+    }
+    static const bool pollLog = getenv("ITEMCTL_POLLLOG") != nullptr;
+    if (pollLog) {
+        static int np;
+        if (np++ < 40) Log("[itemctl] poll %.4f count %d got %d newest %llu oldest %llu\n", NowNs() / 1e9, count, got,
+                           (unsigned long long)GRead<uint64_t>(outp), (unsigned long long)GRead<uint64_t>(outp + 0x28ull * (got - 1)));
+    }
+    static const bool rtLog = getenv("ITEMCTL_RTLOG") != nullptr;   // (research: RT presses and the game's command)
+    if (rtLog) {
+        static std::string last;
+        const char* gc = GameCommand();
+        std::string cur = gc ? std::string(gc, strnlen(gc, 64)) : "?";
+        if (cur != last) { Log("[itemctl] command %.3f '%s'\n", NowNs() / 1e9, cur.c_str()); last = cur; }
+    }
     for (int i = got - 1; i >= 0; i--) {                  // oldest first
         uint64_t e = outp + 0x28 * i;
         uint64_t n = GRead<uint64_t>(e), raw = GRead<uint64_t>(e + 8), out = 0;
@@ -362,8 +454,11 @@ static void FilterNpad(GuestCtx* c, GuestFn orig) {
         for (auto& k : g_Cache) if (k.n == n && n) { out = k.out; hit = true; break; }
         if (!hit) {
             g_StickX = GRead<int32_t>(e + 0x10), g_StickY = GRead<int32_t>(e + 0x14);
+            g_LastRtA = false;
             out = Transform(raw);
-            g_Cache[g_CacheHead++ & 63] = {n, out};
+            if (g_LastRtA && !(g_PrevOut & kBtnA)) g_RtEdgeN = n;   // (an RT press starts here)
+            g_PrevOut = out;
+            g_Cache[g_CacheHead++ & 63] = {n, out, NowNs(), g_LastRtA};
         }
         GWrite<uint64_t>(e + 8, out);
     }
