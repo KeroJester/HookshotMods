@@ -18,15 +18,18 @@ REPO = os.path.dirname(HERE)
 DIST = os.path.join(REPO, "dist")
 WIN = sys.platform.startswith("win")
 NAME = "HookshotMods"
+BUNDLED = os.path.join(DIST, "bundled_mods")   # the mods that come with the app (plugins/*/package.sh)
 
 
 def pyinstaller():
+    print("included mods:", ", ".join(os.listdir(BUNDLED)) if os.path.isdir(BUNDLED) else "none")
     sep = ";" if WIN else ":"
     args = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--windowed", "--name", NAME,
             "--distpath", DIST, "--workpath", os.path.join(REPO, "build", "pyinstaller"),
             "--specpath", os.path.join(REPO, "build"),
             "--paths", REPO,
             "--add-data", f"{os.path.join(HERE, 'icon.png')}{sep}packaging",
+            *(["--add-data", f"{BUNDLED}{sep}bundled_mods"] if os.path.isdir(BUNDLED) else []),
             "--icon", os.path.join(HERE, "icon.ico" if WIN else "icon.png"),
             # the mod builders' heavy dependencies are not part of the app
             "--exclude-module", "numpy", "--exclude-module", "PIL", "--exclude-module", "tkinter",

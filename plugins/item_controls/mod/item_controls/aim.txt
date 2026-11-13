@@ -1,0 +1,8 @@
+d1b7e25f Boomerang
+e59d9053 SlingShot
+53711589 Bow
+85eb6e5a FireArrow
+deeee4ba IceArrow
+864a10fd LightArrow
+b369259b Hookshot
+de6256fb Longshot

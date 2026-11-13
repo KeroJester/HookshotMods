@@ -39,10 +39,10 @@ from PyQt6.QtWidgets import (
 )
 
 try:
-    from .core import GameDirNotFound, HookshotModManager, child_env, dev_overlay_lib
+    from .core import GameDirNotFound, HookshotModManager, child_env, dev_overlay_lib, load_config, save_config
     from .models import Mod
 except (ImportError, ValueError):
-    from core import GameDirNotFound, HookshotModManager, child_env, dev_overlay_lib
+    from core import GameDirNotFound, HookshotModManager, child_env, dev_overlay_lib, load_config, save_config
     from models import Mod
 
 DARK_STYLE = """
@@ -236,6 +236,7 @@ class MainWindow(QMainWindow):
 
         self.init_ui()
         self.refresh_mods()
+        QTimer.singleShot(400, self.offer_included)      # (after the window shows)
 
     def init_ui(self):
         central = QWidget()
@@ -300,6 +301,12 @@ class MainWindow(QMainWindow):
         self.create_btn = QPushButton("+ New Mod Template")
         self.create_btn.clicked.connect(self.on_create_mod)
 
+        # the mods that come with Hookshot Mods (only shown when the app carries some)
+        self.included_btn = QPushButton("Included Mods...")
+        self.included_btn.setToolTip("Mods that come with Hookshot Mods: install or update them")
+        self.included_btn.clicked.connect(lambda: self.offer_included(always=True))
+        self.included_btn.setVisible(bool(self.mgr.bundled_status()))
+
         self.enable_all_btn = QPushButton("Enable All")
         self.enable_all_btn.clicked.connect(self.on_enable_all)
 
@@ -320,6 +327,7 @@ class MainWindow(QMainWindow):
         self.delete_btn.clicked.connect(self.on_delete_mod)
 
         t_layout.addWidget(self.install_btn)
+        t_layout.addWidget(self.included_btn)
         t_layout.addWidget(self.create_btn)
         t_layout.addWidget(self.enable_all_btn)
         t_layout.addWidget(self.disable_all_btn)
@@ -694,6 +702,52 @@ class MainWindow(QMainWindow):
         self.mgr.reorder_mods(folder_order)
         self.refresh_mods()
         self.mod_table.selectRow(target_row)
+
+    def offer_included(self, always: bool = False):
+        """Offers to install (or update) the mods that come with Hookshot Mods. At start (always=False) a mod is
+        offered once per version: saying no is remembered."""
+        status = [b for b in self.mgr.bundled_status() if b["action"] or always]
+        cfg = load_config()
+        declined = cfg.get("included_declined", {})
+        if not always:
+            status = [b for b in status if declined.get(b["name"]) != b["version"]]
+        todo = [b for b in status if b["action"]]
+        if not status:
+            return
+        if not todo:
+            QMessageBox.information(self, "Included Mods", "\n".join(
+                f"{b['name']} {b['version']}: installed" for b in status))
+            return
+        lines = []
+        for b in todo:
+            what = f"update {b['installed']} → {b['version']}" if b["action"] == "update" else f"version {b['version']}"
+            lines.append(f"• {b['name']} ({what})\n   {b['description']}")
+        reply = QMessageBox.question(
+            self, "Included Mods",
+            "Hookshot Mods comes with these mods:\n\n" + "\n\n".join(lines) +
+            "\n\nInstall them into your mods folder now? You can enable, disable or delete them like any other mod.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply != QMessageBox.StandardButton.Yes:
+            for b in todo:
+                declined[b["name"]] = b["version"]
+            cfg["included_declined"] = declined
+            try:
+                save_config(cfg)
+            except OSError:
+                pass
+            return
+        done, last = [], None
+        for b in todo:
+            try:
+                last = self.mgr.install_mod(b["path"])
+                done.append(f"{b['name']} {b['version']}")
+            except Exception as e:
+                QMessageBox.critical(self, "Included Mods", f"{b['name']}: {e}")
+        self.refresh_mods()
+        if last:
+            self.select_mod_by_folder(last)
+        if done:
+            self.status.showMessage("Installed: " + ", ".join(done))
 
     def on_install_mod(self):
         file_path, _ = QFileDialog.getOpenFileName(

@@ -13,7 +13,7 @@ if __package__ in (None, ""):                    # (run as a script or frozen: m
 
 
 COMMANDS = {"list", "enable", "disable", "toggle", "install", "create", "delete", "conflicts", "search", "dump",
-            "play", "code", "env", "gamedir", "gui", "help", "--help", "-h"}
+            "play", "code", "env", "included", "gamedir", "gui", "help", "--help", "-h"}
 
 
 def main() -> int:

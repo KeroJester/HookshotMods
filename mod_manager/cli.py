@@ -302,6 +302,24 @@ def cmd_play(args) -> int:
     return 0
 
 
+def cmd_included(args) -> int:
+    """The mods that come with Hookshot Mods; --install installs or updates them."""
+    mgr = get_manager(args.game_dir)
+    status = mgr.bundled_status()
+    if not status:
+        print("No included mods (this copy of Hookshot Mods carries none).")
+        return 0
+    for b in status:
+        if getattr(args, "install", False) and b["action"]:
+            folder = mgr.install_mod(b["path"])
+            print(f"  {b['name']} {b['version']}: {'updated' if b['action'] == 'update' else 'installed'} ({folder})")
+        else:
+            state = {"install": "not installed", "update": f"installed {b['installed']}, update available"}.get(
+                b["action"], f"installed {b['installed']}")
+            print(f"  {b['name']} {b['version']}: {state}")
+    return 0
+
+
 def cmd_env(args) -> int:
     """The environment lines that load the enabled code mods, for starting the game another way
     (Linux: eval "$(hookshot-mods env)" before starting bin/hookshot)."""
@@ -400,6 +418,11 @@ def main():
     # code mods
     p_code = subparsers.add_parser("code", help="Show code mods (Vulkan layers) and whether they can load")
     p_code.set_defaults(func=cmd_code)
+
+    # included mods
+    p_inc = subparsers.add_parser("included", help="Show the mods that come with Hookshot Mods")
+    p_inc.add_argument("--install", action="store_true", help="Install or update them")
+    p_inc.set_defaults(func=cmd_included)
 
     # code-mod environment (for scripts)
     p_env = subparsers.add_parser("env", help="Print the environment lines that load the enabled code mods")

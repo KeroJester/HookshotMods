@@ -1759,3 +1759,29 @@ The user wants the mod distributable, drag-and-drop on Linux and Windows. Hooksh
 - The local reference/hookshot-src submodule is pinned at v2.0.10+55; `git fetch --tags` there has v2.0.14..v2.2.0-rc.1.
   Hookshot v2.1.0 is out; the game folder's own launcher (`./hookshot`) starts the Builder, which offers the update.
 - Launched games are reaped by a daemon thread (an old manager window left `[hookshot] <defunct>` processes).
+
+## 68. Item Controls 0.5.0: a code-only mod, game files changed in memory, bundled with the app (2026-11-12)
+
+- The mod ships no game data: `info.json`, `layer/{linux,windows}`, `item_controls/{items,aim,icons}.txt` (names and
+  murmur3 hashes only). Template in `plugins/item_controls/mod/`; `build.sh` builds into a mod folder, `package.sh`
+  makes `dist/bundled_mods/ItemControls.zip`.
+- Hookshot indexes mod RomFS files once at start (host/mods.c `hos_mods_init`), so a mod cannot create RomFS files
+  while the game runs. Instead the layer hooks Hookshot's nn::fs HLE functions (`vfs.cpp`): `OpenFile` (after the
+  original succeeds, a registered path's FileHandle is remembered), the three `ReadFile`s, `GetFileSize` and
+  `CloseFile` serve a patched in-memory copy for those handles; reads call `hos_mark_written` like Hookshot's own.
+  The copy is made from `hos_mods_romfs(rel)` (another mod's file, or Hookshot's own prompts/ copy) else
+  `*hos_romfs_dir + rel`, on a worker thread started at layer init (before the game opens them).
+- HUD archive: `prompts/Common.blarc.zs` (Hookshot's button-prompt version) is what the game reads; 4 copies of
+  PlayerStatus_00.buil in it. zstd dictionary ID 1 (from Pack/ZsDic.pack.zs); the served copy is a raw-block zstd
+  frame (no dictionary, no compressor needed). Byte-identical to the old Python patch.
+- Prompt table: BYML stores equal nodes once — GuideSetArray[6], [14], [18] share one GuideArray, and [14] keeps RT
+  (fishing/carrying). So changed arrays are appended as new nodes and only that set's entry is repointed; never
+  edit a shared node in place. Result identical to the Python patch (13 RT entries).
+- Icons: `UI/Tex/Icon/<name>.bntx.zs` decoded in the layer (BNTX Switch 2 block-linear deswizzle, suyu ASTC
+  `DecompressSerial`, alpha-weighted box filter to 64x64), 60 of 60.
+- The ELF symbol reader now accepts STT_OBJECT too (`hos_romfs_dir` is a variable).
+- Verified headless (re/testuser_shop): vanilla RT box gone, LB+Y raises the Boomerang with no RT prompt.
+- The app carries the mod (`bundled_mods/` in the PyInstaller bundle) and offers it on first start, once per version
+  ("included_declined" in the manager config); **Included Mods...** button; `hookshot-mods included [--install]`.
+  Names match ignoring case/spaces ("ItemControls" = "Item Controls"); an update keeps `slots.txt`.
+- `mod_manager/build_item_controls.py` is now only a developer tool regenerating the three lists.

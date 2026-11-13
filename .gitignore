@@ -11,7 +11,6 @@ __pycache__/
 
 # Build outputs and caches
 /mod_manager/cache/
-/mod_manager/tools/astc_decode
 
 # Dev overlay runtime files (memory dumps of the running game)
 /overlay/*.bin

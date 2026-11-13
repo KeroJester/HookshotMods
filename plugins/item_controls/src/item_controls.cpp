@@ -12,7 +12,10 @@
 //   anything else (dialogue, ocarina, cutscenes, map): buttons pass through.
 // The research behind every constant is in RESEARCH_NOTES.md section 63 of the project.
 #include "item_controls.h"
+#include "gamefiles.h"
 #include "hook.h"
+#include "item_files.h"
+#include "vfs.h"
 #include "platform.h"
 #include "imgui.h"
 #include "imgui_internal.h"   // RegisterUserTexture
@@ -74,8 +77,9 @@ static void LoadFiles() {
         int nb = 0;
         while (fgets(line, sizeof line, f)) {
             char file[128]; unsigned h, k;
-            if (sscanf(line, "item %x %127s", &h, file) == 2) g_IconFile[h] = file;
-            else if (sscanf(line, "content %x %127s", &h, file) == 2) g_IconFile[h ^ 0x80000000u] = file;
+            auto base = [](const char* f) { std::string b = f; size_t d = b.rfind(".rgba"); return d == std::string::npos ? b : b.substr(0, d); };
+            if (sscanf(line, "item %x %127s", &h, file) == 2) g_IconFile[h] = base(file);
+            else if (sscanf(line, "content %x %127s", &h, file) == 2) g_IconFile[h ^ 0x80000000u] = base(file);
             else if (sscanf(line, "bottle %x %x", &h, &k) == 2 && nb < 5) { g_BottleItem[h] = nb; g_BottleKey[nb++] = k; }
         }
         fclose(f);
@@ -314,20 +318,49 @@ template <int I> static void NpadHook(GuestCtx* c) { FilterNpad(c, o_Npad[I]); }
 static GuestFn kNpadHooks[5] = {NpadHook<0>, NpadHook<1>, NpadHook<2>, NpadHook<3>, NpadHook<4>};
 
 // ---- HUD: two rows of three boxes (top LB, bottom RB), the game's pouch icons --------------------------------------
+// icons: the game's own (UI/Tex/Icon/<name>.bntx.zs), decoded on a worker thread at the start, made into textures on
+// the render thread when first drawn
+constexpr int kIconPx = 64;
+static std::mutex g_IconMu;
+static std::unordered_map<std::string, gamefiles::Bytes> g_IconPixels;   // name -> kIconPx^2 RGBA (empty: failed)
 static std::unordered_map<std::string, ImTextureData*> g_Tex;
-static ImTextureData* Texture(const std::string& file) {
-    auto it = g_Tex.find(file);
-    if (it != g_Tex.end()) return it->second;
-    ImTextureData* t = nullptr;
-    std::string path = g_Dir + PathSep() + "icons" + PathSep() + file;
-    if (FILE* f = fopen(path.c_str(), "rb")) {
-        t = IM_NEW(ImTextureData)();
-        t->Create(ImTextureFormat_RGBA32, 64, 64);
-        if (fread(t->GetPixels(), 1, 64 * 64 * 4, f) == 64 * 64 * 4) { t->UseColors = true; ImGui::RegisterUserTexture(t); }
-        else { IM_DELETE(t); t = nullptr; }
-        fclose(f);
+
+static void DecodeIcons() {
+    std::unordered_set<std::string> names;
+    for (auto& kv : g_IconFile) names.insert(kv.second);
+    int ok = 0;
+    for (auto& name : names) {
+        gamefiles::Bytes zs, bntx, rgba;
+        std::string path = gamefiles::RomfsPath("UI/Tex/Icon/" + name + ".bntx.zs");
+        bool good = !path.empty() && gamefiles::ReadFile(path, zs) && gamefiles::Unzstd(zs, bntx) &&
+                    gamefiles::BntxIconRgba(bntx, kIconPx, rgba);
+        if (!good) { Log("[itemctl] icon %s: not decodable\n", name.c_str()); rgba.clear(); }
+        ok += good;
+        std::lock_guard<std::mutex> lk(g_IconMu);
+        g_IconPixels[name] = std::move(rgba);
     }
-    return g_Tex[file] = t;
+    Log("[itemctl] %d of %zu icons decoded from the game's files\n", ok, names.size());
+}
+
+static ImTextureData* Texture(const std::string& name) {
+    auto it = g_Tex.find(name);
+    if (it != g_Tex.end()) return it->second;
+    gamefiles::Bytes px;
+    {
+        std::lock_guard<std::mutex> lk(g_IconMu);
+        auto p = g_IconPixels.find(name);
+        if (p == g_IconPixels.end()) return nullptr;      // (not decoded yet: asked again next frame)
+        px = p->second;
+    }
+    ImTextureData* t = nullptr;
+    if (px.size() == (size_t)kIconPx * kIconPx * 4) {
+        t = IM_NEW(ImTextureData)();
+        t->Create(ImTextureFormat_RGBA32, kIconPx, kIconPx);
+        memcpy(t->GetPixels(), px.data(), px.size());
+        t->UseColors = true;
+        ImGui::RegisterUserTexture(t);
+    }
+    return g_Tex[name] = t;
 }
 static ImTextureData* IconFor(uint32_t item) {
     if (item == kHashEmpty) return nullptr;
@@ -403,7 +436,8 @@ void DrawHud() {
 bool Init(const std::string& modDir) {
     g_Dir = modDir + PathSep() + "item_controls";
     LoadFiles();
-    if (g_ItemName.empty()) { Log("[itemctl] %s/items.txt missing: run the mod manager's setup for this mod\n", g_Dir.c_str()); return false; }
+    if (g_ItemName.empty()) { Log("[itemctl] %s/items.txt missing: the mod folder is incomplete\n", g_Dir.c_str()); return false; }
+    if (!gamefiles::Init()) { Log("[itemctl] the game's files cannot be read: controls stay vanilla\n"); return false; }
     static const char* kNpad[5] = {"imp__ZN2nn3hid13GetNpadStatesEPNS0_16NpadFullKeyStateEiRKj",
                                    "imp__ZN2nn3hid13GetNpadStatesEPNS0_17NpadHandheldStateEiRKj",
                                    "imp__ZN2nn3hid13GetNpadStatesEPNS0_16NpadJoyDualStateEiRKj",
@@ -428,6 +462,10 @@ bool Init(const std::string& modDir) {
         if ((o_Npad[nh] = hook::Install(t, kNpadHooks[nh], kNpad[i]))) nh++;
     }
     if (!nh) { Log("[itemctl] controller hook failed: controls stay vanilla\n"); return false; }
+    // the HUD box and RT prompts go only while our controls are on (vanilla otherwise)
+    RegisterFilePatches();
+    if (!vfs::Start()) Log("[itemctl] the vanilla RT box and prompts stay (file hooks failed)\n");
+    std::thread(DecodeIcons).detach();
     g_On = true;
     std::thread([] {                                      // keep the GameData entries located (they appear with the save)
         for (;;) {

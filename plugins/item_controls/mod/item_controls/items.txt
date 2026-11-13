@@ -1,0 +1,55 @@
+be69de49 -
+f9e54315 Deku Stick
+83d2e406 Deku Nut
+c0f40041 Bomb
+d1b7e25f Boomerang
+e59d9053 Slingshot
+b369259b Hookshot
+de6256fb Longshot
+051677d4 Megaton Hammer
+e283de79 Lens of Truth
+98eecbdf Bombchu
+16870ea0 Din's Fire
+cd4fc0e3 Farore's Wind
+33d5d675 Nayru's Love
+c51a84d9 Magic Bean
+22c7238c Bottle 1
+ac889fd5 Bottle 2
+a7d94611 Bottle 3
+b55ee4e3 Bottle 4
+9607a5ad Fishing Rod
+88ff029a Lure
+a0d31259 Keaton Mask
+f7469fce Skull Mask
+04427794 Spooky Mask
+6adf66bf Bunny Mask
+5a4f9388 Truth Mask
+27a5b0b4 Goron Mask
+081f0856 Zora Mask
+271eef30 Gerudo Mask
+ffad4bb9 Iron Boots
+3118cf3d Hover Boots
+53711589 Bow
+bf9564da Weird Egg
+6b20e6de Alarm Cucco
+b1caeee1 Zelda's Letter
+27f82799 Pocket Egg
+b239ae0e Pocket Cucco
+06015ccf Cojiro Cucco
+7aa43b67 Odd Mushroom
+b386c0e6 Odd Powder
+275ebffe Poacher Saw
+544ca520 Broken Sword
+4c922ea3 Prescription
+fcae10b1 Eyeball Frog
+5d91cd98 Eye Drop
+f992f8ee Claim Check
+17ed7e4e Sheikah Warp
+85eb6e5a Fire Arrow
+deeee4ba Ice Arrow
+864a10fd Light Arrow
+93bc91ea Scrub Seed
+d8cc3008 Bottle 5
+fca5a851 Amiibo
+80c8163d Sink Lure
+ed604064 Normal Lure

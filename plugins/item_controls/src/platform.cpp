@@ -103,7 +103,7 @@ std::unordered_map<std::string, uintptr_t> ResolveSymbols(const std::vector<std:
             if (pread(fd, syms.data(), k * sizeof(Elf64_Sym), s.sh_offset + i * sizeof(Elf64_Sym)) <= 0) break;
             for (size_t j = 0; j < k; j++) {
                 const Elf64_Sym& y = syms[j];
-                if (ELF64_ST_TYPE(y.st_info) != STT_FUNC || y.st_name >= str.size() || !y.st_value) continue;
+                if ((ELF64_ST_TYPE(y.st_info) != STT_FUNC && ELF64_ST_TYPE(y.st_info) != STT_OBJECT) || y.st_name >= str.size() || !y.st_value) continue;   // (functions and variables)
                 auto it = want.find(&str[y.st_name]);
                 if (it != want.end()) out[it->first] = base + y.st_value;
             }

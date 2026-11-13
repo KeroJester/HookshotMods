@@ -1,6 +1,6 @@
-# Builds the Hookshot Mods app for Windows and Linux, and the Item Controls layer for both.
-# Every push and pull request: the builds are downloadable from the run's "Artifacts".
-# A pushed tag like v0.1.0: the same files are also attached to a GitHub Release.
+# Builds the Item Controls mod (Linux + Windows layers), then the Hookshot Mods app for Windows and Linux with that mod
+# inside it ("Included Mods"). Every push and pull request: the builds are downloadable from the run's "Artifacts".
+# A pushed tag like v0.1.0: the same files are also attached to a draft GitHub Release.
 name: Build
 
 on:
@@ -14,13 +14,36 @@ permissions:
   contents: read
 
 jobs:
+  item-controls:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: git submodule update --init --depth 1 imgui_src vulkan_headers_src third_party/zstd reference/hookshot-src
+      - name: Compilers
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q g++ mingw-w64
+          # std::thread needs the posix thread model of mingw-w64
+          sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+          sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
+      - run: sh plugins/item_controls/package.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ItemControls
+          path: dist/bundled_mods/ItemControls.zip
+
   app-windows:
+    needs: item-controls
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: ItemControls
+          path: dist/bundled_mods
       - run: pip install -r packaging/requirements-app.txt
       - run: python packaging/build_app.py
       - uses: actions/upload-artifact@v4
@@ -29,12 +52,17 @@ jobs:
           path: dist/HookshotMods.exe
 
   app-linux:
+    needs: item-controls
     runs-on: ubuntu-22.04          # (older glibc: the AppImage runs on more distributions)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: ItemControls
+          path: dist/bundled_mods
       - run: pip install -r packaging/requirements-app.txt
       - run: python packaging/build_app.py
       - name: Make the AppImage
@@ -47,27 +75,9 @@ jobs:
           name: HookshotMods-linux
           path: dist/HookshotMods-x86_64.AppImage
 
-  item-controls-layer:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - run: git submodule update --init --depth 1 imgui_src vulkan_headers_src
-      - name: Compilers
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -y -q g++ mingw-w64
-          # std::thread needs the posix thread model of mingw-w64
-          sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
-          sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
-      - run: ITEMCTL_MOD_DIR="$PWD/dist/050-ItemControls" sh plugins/item_controls/build.sh
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ItemControls-layer
-          path: dist/050-ItemControls/layer
-
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [app-windows, app-linux, item-controls-layer]
+    needs: [app-windows, app-linux, item-controls]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -75,11 +85,10 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
-      - run: cd artifacts && zip -qr ../ItemControls-layer.zip ItemControls-layer
       - uses: softprops/action-gh-release@v2
         with:
           draft: true
           files: |
             artifacts/HookshotMods-windows/HookshotMods.exe
             artifacts/HookshotMods-linux/HookshotMods-x86_64.AppImage
-            ItemControls-layer.zip
+            artifacts/ItemControls/ItemControls.zip

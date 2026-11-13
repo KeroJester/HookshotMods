@@ -14,6 +14,11 @@ Get the app from the [Releases](https://github.com/KeroJester/HookshotMods/relea
 
 The first time, it asks for your Hookshot game folder (the one with `hookshot.exe` or `bin/hookshot`).
 Mods go into that folder's `mods/` folder; drag a mod's zip onto the app or use its Install button.
+
+**Included mod: Item Controls.** The app comes with it and offers to install it on first start (or later via
+**Included Mods...**). It is also on the Releases page as `ItemControls.zip`: unzip it into your `mods/` folder.
+Hold LB or RB and press X, Y or B to use one of six items; on the pause menu's Items tab, hover an item and press the
+same combo to put it there. RT rolls. The mod carries no game files: it reads what it needs from your copy.
 **Code mods** (like Item Controls) load only when you start the game with the app's **Launch** button: Hookshot
 itself never loads code from mod folders. On Linux, `eval "$(./HookshotMods-x86_64.AppImage env)"` before
 starting the game another way does the same.
@@ -24,7 +29,7 @@ Installing `.rar` mods needs [7-Zip](https://www.7-zip.org) on Windows (or `unra
 | Folder | What it is |
 | --- | --- |
 | `mod_manager/` | The mod manager (PyQt6 GUI + CLI). It enables, orders and installs mods, and loads code mods (their Vulkan layers) when it starts the game. Also holds the mod builders (`build_*.py`). |
-| `plugins/item_controls/` | Source of the **Item Controls** code mod: six item slots on LB/RB + X/Y/B, roll on RT, an in-game HUD. Ships as a Vulkan layer for Linux (`.so`) and Windows (`.dll`). |
+| `plugins/item_controls/` | The **Item Controls** code mod: six item slots on LB/RB + X/Y/B, roll on RT, an in-game HUD. `src/` is its Vulkan layer (Linux `.so`, Windows `.dll`), `mod/` its other files; `package.sh` makes the mod zip. |
 | `overlay/` | Linux-only developer overlay (LD_PRELOAD), used for research. Not shipped to players. |
 | `re/` | Small reverse-engineering helper scripts. |
 | `RESEARCH_NOTES.md` | Everything learned about the game and Hookshot so far. |
@@ -38,19 +43,20 @@ the game's files from there, and write built mods into its `mods/` folder.
 ```sh
 git submodule update --init          # imgui, Vulkan-Headers, Hookshot source (for the ASTC decoder)
 ./start_mod_manager.sh               # GUI; asks for the game folder the first time
-plugins/item_controls/build.sh       # builds the Linux .so and the Windows .dll into <game>/mods/050-ItemControls
-python3 mod_manager/build_item_controls.py   # builds the rest of that mod from your own game files
+plugins/item_controls/build.sh       # builds the mod (Linux .so, Windows .dll, its files) into <game>/mods/050-ItemControls
+plugins/item_controls/package.sh     # or: the player zip, dist/bundled_mods/ItemControls.zip (the app bundles it)
 ```
 
 ## Building the app
 
 ```sh
 pip install -r packaging/requirements-app.txt
+plugins/item_controls/package.sh     # (optional) the included mod, bundled when present
 python packaging/build_app.py        # Windows: dist/HookshotMods.exe · Linux: dist/AppDir (then appimagetool)
 ```
 
-GitHub Actions (`.github/workflows/build.yml`) builds the Windows app, the Linux AppImage and the Item
-Controls layer on every push; download them from the run's Artifacts. Pushing a tag like `v0.1.0` also
+GitHub Actions (`.github/workflows/build.yml`) builds the Item Controls mod, then the Windows app and the Linux
+AppImage with that mod inside, on every push; download them from the run's Artifacts. Pushing a tag like `v0.1.0` also
 creates a draft Release with those files attached.
 
 ## Rules for commits
@@ -61,6 +67,7 @@ creates a draft Release with those files attached.
 
 ## License
 
-GPL-3.0 (see `LICENSE`). The ASTC decoder used at build time comes from suyu (GPL-2.0-or-later) via the
-Hookshot source; imgui (MIT) and Vulkan-Headers (Apache-2.0) are submodules. [AINB](https://github.com/dt-12345/AINB)
+GPL-3.0 (see `LICENSE`). The Item Controls layer includes suyu's ASTC decoder (GPL-2.0-or-later, via the Hookshot
+source submodule) and zstd's decoder (BSD, `third_party/zstd`); imgui (MIT) and Vulkan-Headers (Apache-2.0) are
+submodules. [AINB](https://github.com/dt-12345/AINB)
 (GPL-2.0, by dt-12345) is a separate submodule in `third_party/AINB`, used only by the old Mod Playground builder.

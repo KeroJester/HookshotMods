@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Core logic for Hookshot Mod Manager."""
 
+import glob
 import json
 import os
 import re
@@ -151,6 +152,38 @@ def extract_archive(path: str, dest: str) -> None:
         return
     raise RuntimeError(f"Can't unpack {os.path.basename(path)}: install 7-Zip (7-zip.org), "
                        "or unpack it yourself and install the folder.")
+
+
+def bundled_mods_dir() -> Optional[str]:
+    """Where the mods that come with Hookshot Mods are: bundled_mods/ inside the packaged app, or dist/bundled_mods in a
+    source checkout (packaging/build_app.py puts them there)."""
+    base = getattr(sys, "_MEIPASS", None) or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dist")
+    d = os.path.join(base, "bundled_mods")
+    return d if os.path.isdir(d) else None
+
+
+def _version_key(v: str):
+    return tuple(int(x) if x.isdigit() else 0 for x in re.split(r"[.\-+]", v or "0"))
+
+
+def bundled_mods() -> List[dict]:
+    """The mods that come with Hookshot Mods: [{"path": zip, "name", "version", "description"}]. Each is an ordinary
+    mod zip; installing one is the same as installing any downloaded mod."""
+    import zipfile
+    out = []
+    d = bundled_mods_dir()
+    for z in sorted(glob.glob(os.path.join(d, "*.zip"))) if d else []:
+        try:
+            with zipfile.ZipFile(z) as zf:
+                infos = sorted((n for n in zf.namelist() if n.endswith("info.json") and n.count("/") <= 2), key=len)
+                if not infos:
+                    continue
+                info = json.loads(zf.read(infos[0]).decode("utf-8"))
+        except Exception:
+            continue
+        out.append({"path": z, "name": info.get("name") or os.path.basename(z)[:-4],
+                    "version": str(info.get("version") or ""), "description": info.get("description") or ""})
+    return out
 
 
 def dev_overlay_lib() -> Optional[str]:
@@ -554,7 +587,8 @@ class HookshotModManager:
         title = re.sub(r"[^\w\s\.-]", "", title).strip() or "InstalledMod"
         existing = None
         for m in self.list_mods():
-            if (m.metadata.name or "").lower() == (info.get("name") or title).lower():
+            if re.sub(r"[^a-z0-9]", "", (m.metadata.name or "").lower()) == \
+                    re.sub(r"[^a-z0-9]", "", (info.get("name") or title).lower()):   # ("ItemControls" = "Item Controls")
                 existing = m
                 break
         if existing:
@@ -586,10 +620,23 @@ class HookshotModManager:
         self.sync_code_mods()
         return folder
 
+    def bundled_status(self) -> List[dict]:
+        """The included mods, each with "installed" (the installed version, "" if not installed) and "action"
+        ("install", "update" or "" when the installed one is the same or newer)."""
+        norm = lambda n: re.sub(r"[^a-z0-9]", "", (n or "").lower())   # ("ItemControls" = "Item Controls")
+        installed = {norm(m.metadata.name): m for m in self.list_mods()}
+        out = []
+        for b in bundled_mods():
+            m = installed.get(norm(b["name"]))
+            have = (m.metadata.version or "") if m else ""
+            action = "install" if not m else ("update" if _version_key(b["version"]) > _version_key(have) else "")
+            out.append(dict(b, installed=have, action=action))
+        return out
+
     def create_mod(
         self,
         name: str,
-        author: str = "Justin",
+        author: str = "",
         version: str = "1.0.0",
         description: str = "",
         category: str = "General",

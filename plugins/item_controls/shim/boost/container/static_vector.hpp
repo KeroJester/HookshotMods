@@ -1,4 +1,4 @@
-// Minimal stand-in for boost::container::static_vector, enough for suyu's astc.cpp (built by mod_manager/tools).
+// Minimal stand-in for boost::container::static_vector, enough for suyu's astc.cpp (Item Controls layer, plugins/item_controls/build.sh).
 #pragma once
 #include <vector>
 namespace boost::container {
