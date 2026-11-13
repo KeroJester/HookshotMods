@@ -231,7 +231,7 @@ def main():
     with open(os.path.join(mod, "info.json"), "w") as f:
         json.dump({"name": MOD_NAME, "author": "KeroJester", "version": MOD_VERSION, "description": MOD_DESCRIPTION,
                    "category": "Gameplay", "homepage": "",
-                   # a code mod: the mod manager loads this Vulkan layer through hookshot_env.txt
+                   # a code mod: the mod manager loads this Vulkan layer when it starts the game
                    "code": {"vulkan_layer": {"name": "VK_LAYER_HOOKSHOT_item_controls",
                                              "linux": "layer/linux", "windows": "layer/windows"}},
                    # the player's own files, kept when the mod is updated

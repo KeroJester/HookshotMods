@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """Code mods: mods that carry native code (a Vulkan layer) besides RomFS files.
 
-Hookshot itself loads only RomFS mods. It does read ``hookshot_env.txt`` in the game folder before it starts Vulkan,
-on Windows and Linux alike, and the Vulkan loader then loads the layers named there. So a code mod ships its layer
-inside its own mod folder, and the manager keeps one marked block in ``hookshot_env.txt`` listing the layers of the
-enabled code mods for this platform:
+Hookshot itself loads only RomFS mods, and since v2.0.14 its hookshot_env.txt takes only the game's own switches,
+never the Vulkan loader's variables: that file is passed around between players, so it must not load code. A code
+mod therefore loads when the player starts the game from the mod manager, which sets the Vulkan loader's variables
+for that one game process only:
 
-    # >>> hookshot-mods: code mods (managed, do not edit between these lines)
     VK_ADD_LAYER_PATH=<mods>/050-ItemControls/layer/linux
     VK_INSTANCE_LAYERS=VK_LAYER_HOOKSHOT_item_controls
-    # <<< hookshot-mods
+
+(`hookshot-mods env` prints the same lines, for starting the game some other way.)
 
 A code mod declares its layer in info.json:
 
@@ -75,85 +75,57 @@ def read_layer(mod_path: str, info: dict) -> Optional[CodeLayer]:
     return CodeLayer(spec["name"], folder)
 
 
-def _split_env(text: str):
-    """(lines outside our block, the user's own values of the two variables)"""
-    outside, inside = [], False
-    user = {ENV_PATH_VAR: "", ENV_LAYERS_VAR: ""}
-    for line in text.splitlines():
-        s = line.strip()
-        if s == BLOCK_BEGIN:
-            inside = True
-            continue
-        if s == BLOCK_END:
-            inside = False
-            continue
-        if inside:
-            continue
-        outside.append(line)
-        if "=" in s and not s.startswith("#"):
-            k, v = s.split("=", 1)
-            if k.strip() in user:
-                user[k.strip()] = v.strip()
-    while outside and not outside[-1].strip():
-        outside.pop()
-    return outside, user
+def usable(layers: List[CodeLayer]) -> List[CodeLayer]:
+    return [l for l in layers if l.folder and not l.problem]
 
 
-def sync_env(game_dir: str, layers: List[CodeLayer]) -> str:
-    """Rewrites the managed block of hookshot_env.txt for these (enabled, usable) layers. Returns a status line.
+def apply_layers(env: dict, layers: List[CodeLayer]) -> dict:
+    """Adds these (enabled, usable) layers to an environment for the game process. Values already set there (the
+    player's own layers) are kept in front."""
+    use = usable(layers)
+    if not use:
+        return env
+    sep = list_sep()
+    paths = [p for p in env.get(ENV_PATH_VAR, "").split(sep) if p] + [l.folder for l in use]
+    names = [n for n in env.get(ENV_LAYERS_VAR, "").split(sep) if n] + [l.name for l in use]
+    env[ENV_PATH_VAR] = sep.join(dict.fromkeys(paths))
+    env[ENV_LAYERS_VAR] = sep.join(dict.fromkeys(names))
+    return env
 
-    Lines outside the block are kept as they are. When the player set VK_ADD_LAYER_PATH or VK_INSTANCE_LAYERS
-    themselves, their values are kept in front of ours (Hookshot applies the file top to bottom, so the block, which
-    comes last, carries the merged values)."""
+
+def clean_env_file(game_dir: str) -> str:
+    """Removes the block older versions of the manager wrote into hookshot_env.txt (Hookshot ignores those lines and
+    complains about them). Lines outside the block stay; the file goes if it held only the block."""
     path = os.path.join(game_dir, ENV_FILE)
     try:
         with open(path, "r", encoding="utf-8-sig") as f:
             text = f.read()
     except FileNotFoundError:
-        text = ""
-    outside, user = _split_env(text)
-    usable = [l for l in layers if l.folder and not l.problem]
-    lines = list(outside)
-    if usable:
-        sep = list_sep()
-        paths = [p for p in user[ENV_PATH_VAR].split(sep) if p] + [l.folder for l in usable]
-        names = [n for n in user[ENV_LAYERS_VAR].split(sep) if n] + [l.name for l in usable]
-        seen, uniq_names = set(), []
-        for n in names:
-            if n not in seen:
-                seen.add(n)
-                uniq_names.append(n)
-        if lines:
-            lines.append("")
-        lines += [BLOCK_BEGIN, f"{ENV_PATH_VAR}={sep.join(dict.fromkeys(paths))}",
-                  f"{ENV_LAYERS_VAR}={sep.join(uniq_names)}", BLOCK_END]
-    new_text = ("\n".join(lines) + "\n") if lines else ""
-    if new_text == text:
-        return f"{ENV_FILE}: up to date ({len(usable)} code mod{'s' if len(usable) != 1 else ''})"
-    if not new_text and not os.path.exists(path):
-        return f"{ENV_FILE}: no code mods"
-    if new_text:
-        with open(path, "w", encoding="utf-8", newline="\n") as f:
-            f.write(new_text)
-    else:
-        os.remove(path)                       # (it only ever held our block)
-    return f"{ENV_FILE}: updated for {len(usable)} code mod{'s' if len(usable) != 1 else ''}"
-
-
-def env_status(game_dir: str) -> List[str]:
-    """The layer names currently active in hookshot_env.txt's managed block."""
-    try:
-        with open(os.path.join(game_dir, ENV_FILE), "r", encoding="utf-8-sig") as f:
-            text = f.read()
-    except FileNotFoundError:
-        return []
-    inside, names = False, []
+        return ""
+    if BLOCK_BEGIN not in text:
+        return ""
+    outside, inside = [], False
     for line in text.splitlines():
         s = line.strip()
         if s == BLOCK_BEGIN:
             inside = True
         elif s == BLOCK_END:
             inside = False
-        elif inside and s.startswith(ENV_LAYERS_VAR + "="):
-            names = [n for n in s.split("=", 1)[1].split(list_sep()) if n]
-    return names
+        elif not inside:
+            outside.append(line)
+    while outside and not outside[-1].strip():
+        outside.pop()
+    if outside:
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
+            f.write("\n".join(outside) + "\n")
+    else:
+        os.remove(path)
+    return f"{ENV_FILE}: removed the old code-mod lines (Hookshot ignores them)"
+
+
+def shell_lines(layers: List[CodeLayer]) -> List[str]:
+    """The environment lines for starting the game with these layers by hand (sh on Linux, cmd on Windows)."""
+    env = apply_layers({}, layers)
+    if platform_key() == "windows":
+        return [f'set "{k}={v}"' for k, v in env.items()]
+    return [f"export {k}='{v}'" for k, v in env.items()]

@@ -505,7 +505,7 @@ class MainWindow(QMainWindow):
                 lay = mod.code_layer
                 name_item.setToolTip(f"Code mod (Vulkan layer {lay.name})\n" +
                                      (f"Cannot load on this PC: {lay.problem}" if lay.problem else
-                                      "Loaded through hookshot_env.txt while enabled"))
+                                      "Loads when you start the game from Hookshot Mods (Launch)"))
             name_item.setData(Qt.ItemDataRole.UserRole, mod.folder_name)
             self.mod_table.setItem(row, 2, name_item)
 

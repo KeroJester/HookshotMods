@@ -14,13 +14,16 @@ Get the app from the [Releases](https://github.com/KeroJester/HookshotMods/relea
 
 The first time, it asks for your Hookshot game folder (the one with `hookshot.exe` or `bin/hookshot`).
 Mods go into that folder's `mods/` folder; drag a mod's zip onto the app or use its Install button.
+**Code mods** (like Item Controls) load only when you start the game with the app's **Launch** button: Hookshot
+itself never loads code from mod folders. On Linux, `eval "$(./HookshotMods-x86_64.AppImage env)"` before
+starting the game another way does the same.
 Installing `.rar` mods needs [7-Zip](https://www.7-zip.org) on Windows (or `unrar`/`7z` on Linux).
 
 ## What's here
 
 | Folder | What it is |
 | --- | --- |
-| `mod_manager/` | The mod manager (PyQt6 GUI + CLI). It enables, orders and installs mods, and loads code mods by writing their Vulkan layers into `hookshot_env.txt`. Also holds the mod builders (`build_*.py`). |
+| `mod_manager/` | The mod manager (PyQt6 GUI + CLI). It enables, orders and installs mods, and loads code mods (their Vulkan layers) when it starts the game. Also holds the mod builders (`build_*.py`). |
 | `plugins/item_controls/` | Source of the **Item Controls** code mod: six item slots on LB/RB + X/Y/B, roll on RT, an in-game HUD. Ships as a Vulkan layer for Linux (`.so`) and Windows (`.dll`). |
 | `overlay/` | Linux-only developer overlay (LD_PRELOAD), used for research. Not shipped to players. |
 | `re/` | Small reverse-engineering helper scripts. |

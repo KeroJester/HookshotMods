@@ -21,6 +21,7 @@ mkdir -p "$OUT/shots"
 : > "$OUT/live.txt"
 : > "$OUT/tuner.txt"
 cd "$GAME"
+eval "$(python3 "$REPO/hookshot-mods" env)"   # the enabled code mods' Vulkan layers, as the manager's Launch sets them
 # Guard: screenshots go to /tmp (RAM-backed here). Stop the game if a run produces too many.
 ( while sleep 3; do
     n=$(ls "$OUT/shots" 2>/dev/null | wc -l); kb=$(du -sk "$OUT/shots" 2>/dev/null | cut -f1)

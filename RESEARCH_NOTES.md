@@ -1742,3 +1742,20 @@ The user wants the mod distributable, drag-and-drop on Linux and Windows. Hooksh
   `param_tweaks.txt` and `param_dump_*.bin` beside itself (dladdr), not in the game's cwd. The manager's
   "F2 Dev Overlay" box uses `core.dev_overlay_lib()`.
 - Headless tests: `HOS_TEST_USER=<game>/re/testuser_shop <repo>/overlay/tools/run_headless.sh <out> ...`.
+
+## 67. hookshot_env.txt does NOT load Vulkan layers (v2.0.14+); code mods load at launch (2026-11-12)
+
+- Correction to §64: since v2.0.14 Hookshot filters `hookshot_env.txt` (`env_line_allowed`, host/hos_main.c):
+  only names starting `RX_ HOS_ HOOKSHOT_ EDEN_ NVN_ TOTK_ SDL_`, never `HOS_ENV_FILE`/SDL library overrides,
+  and no value that is a path. Rejected lines print `env: hookshot_env.txt: X left out (only the game's switches,
+  and no paths, are taken from it)` on stderr. Reason given: the file is passed around between players and must not
+  load code. `HOS_ENV_FILE` (set in the real environment) is read unfiltered, for test runs.
+- So the manager no longer writes a block there (it removes the old one). `launch_game` sets `VK_ADD_LAYER_PATH`
+  and `VK_INSTANCE_LAYERS` for the game process only (`codemods.apply_layers`). Code mods load only when the game is
+  started from Hookshot Mods (or with `eval "$(hookshot-mods env)"` first). We deliberately do not work around
+  Hookshot's filter (e.g. an implicit layer toggled by an allowed `HOS_` switch).
+- Earlier "layer loads" checks after §64 read stale itemctl.log lines: check the log's mtime, not its tail.
+- `run_headless.sh` evals `hookshot-mods env`, so test runs load the enabled code mods like a Launch does.
+- The local reference/hookshot-src submodule is pinned at v2.0.10+55; `git fetch --tags` there has v2.0.14..v2.2.0-rc.1.
+  Hookshot v2.1.0 is out; the game folder's own launcher (`./hookshot`) starts the Builder, which offers the update.
+- Launched games are reaped by a daemon thread (an old manager window left `[hookshot] <defunct>` processes).

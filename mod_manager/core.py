@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 import tempfile
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -83,6 +84,8 @@ def child_env() -> dict:
                 env[var] = orig
             else:
                 env.pop(var, None)
+        for var in ("APPDIR", "APPIMAGE", "ARGV0", "OWD"):   # (AppImage's own variables)
+            env.pop(var, None)
         if sys.platform.startswith("win"):
             try:                                         # undo the bootloader's DLL directory for child processes
                 import ctypes
@@ -192,7 +195,8 @@ class HookshotModManager:
             raise GameDirNotFound(f"Not a Hookshot game folder (no hookshot.exe or bin/hookshot): {game_dir}")
         self.game_dir = os.path.abspath(game_dir)
         cfg = load_config()
-        if cfg.get("game_dir") != self.game_dir:
+        from_env = os.environ.get("HOOKSHOT_GAME_DIR") and os.path.abspath(os.environ["HOOKSHOT_GAME_DIR"]) == self.game_dir
+        if cfg.get("game_dir") != self.game_dir and not from_env:
             cfg["game_dir"] = self.game_dir
             try:
                 save_config(cfg)
@@ -207,19 +211,24 @@ class HookshotModManager:
             pass
         self.last_sync = ""
         if sync:
-            self.sync_code_mods()          # (paths in hookshot_env.txt follow the game folder if it moved)
+            self.sync_code_mods()
 
     # ---- code mods ------------------------------------------------------------------------------------------------
     def code_mods(self) -> List[Mod]:
         return [m for m in self.list_mods() if m.is_code_mod]
 
+    def enabled_layers(self) -> List["codemods.CodeLayer"]:
+        """The Vulkan layers of the enabled code mods, in load order."""
+        return [m.code_layer for m in self.list_mods() if m.enabled and m.is_code_mod]
+
     def sync_code_mods(self) -> str:
-        """Writes hookshot_env.txt's managed block for the enabled code mods (in load order)."""
-        layers = [m.code_layer for m in self.list_mods() if m.enabled and m.is_code_mod]
+        """Status of the enabled code mods; also removes the hookshot_env.txt block older versions wrote."""
         try:
-            self.last_sync = codemods.sync_env(self.game_dir, layers)
+            note = codemods.clean_env_file(self.game_dir)
         except OSError as e:
-            self.last_sync = f"{codemods.ENV_FILE}: could not be written ({e})"
+            note = f"{codemods.ENV_FILE}: old code-mod lines could not be removed ({e})"
+        n = len(codemods.usable(self.enabled_layers()))
+        self.last_sync = note or (f"{n} code mod{'s' if n != 1 else ''} will load when you start the game from here" if n else "")
         return self.last_sync
 
     def list_mods(self) -> List[Mod]:
@@ -665,10 +674,10 @@ class HookshotModManager:
         return results
 
     def launch_game(self, overlay: bool = False) -> subprocess.Popen:
-        """Starts the game (code mods load through hookshot_env.txt, synced first).
+        """Starts the game. Enabled code mods load through the Vulkan loader's variables, set for this process only.
         overlay: Linux only, the developer overlay (dev_overlay_lib()) when it exists (LD_PRELOAD)."""
         self.sync_code_mods()
-        env = child_env()
+        env = codemods.apply_layers(child_env(), self.enabled_layers())
         if codemods.platform_key() == "windows":
             target = os.path.join(self.game_dir, "hookshot.exe")
         else:
@@ -680,4 +689,7 @@ class HookshotModManager:
                 env["LD_PRELOAD"] = f"{overlay_lib}:{env.get('LD_PRELOAD', '')}".strip(":")
         if not os.path.exists(target):
             raise FileNotFoundError(f"Game executable not found: {target}")
-        return subprocess.Popen([target], cwd=self.game_dir, env=env)
+        proc = subprocess.Popen([target], cwd=self.game_dir, env=env)
+        # collect the game when it exits, so a long-running manager window leaves no dead process behind
+        threading.Thread(target=proc.wait, name="game-reaper", daemon=True).start()
+        return proc

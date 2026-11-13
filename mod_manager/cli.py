@@ -32,13 +32,13 @@ def get_manager(game_dir: Optional[str] = None) -> HookshotModManager:
 
 
 def cmd_code(args) -> int:
-    """Code mods (Vulkan layers) and the hookshot_env.txt block that loads them."""
+    """Code mods (Vulkan layers): they load when the game is started from the mod manager."""
     mgr = get_manager(args.game_dir)
     status = mgr.sync_code_mods()
-    active = set(codemods.env_status(mgr.game_dir))
     mods = mgr.code_mods()
     print(f"Game folder: {mgr.game_dir}  (platform: {codemods.platform_key()})")
-    print(status)
+    if status:
+        print(status)
     if not mods:
         print("No code mods installed.")
     for m in mods:
@@ -48,7 +48,7 @@ def cmd_code(args) -> int:
         elif lay.problem:
             state = f"cannot load: {lay.problem}"
         else:
-            state = "loads" if lay.name in active else "not in hookshot_env.txt"
+            state = "loads when started from Hookshot Mods"
         print(f"  {m.folder_name:28s} {lay.name:36s} {state}")
     return 0
 
@@ -281,8 +281,13 @@ def cmd_dump(args) -> int:
 
 def cmd_play(args) -> int:
     mgr = get_manager(args.game_dir)
-    overlay = not getattr(args, "no_overlay", False)
-    overlay_desc = "with F2 Dev Playground Overlay" if overlay else "without overlay"
+    try:
+        from .core import dev_overlay_lib
+    except (ImportError, ValueError):
+        from core import dev_overlay_lib
+    # (the F2 developer overlay exists only in a Linux source checkout that has built it)
+    overlay = not getattr(args, "no_overlay", False) and dev_overlay_lib() is not None and sys.platform == "linux"
+    overlay_desc = "with the F2 dev overlay" if overlay else "with your enabled mods"
     if HAVE_RICH:
         rprint(f"[bold green]Starting Hookshot ({overlay_desc})...[/bold green]")
         if overlay:
@@ -294,6 +299,15 @@ def cmd_play(args) -> int:
     proc = mgr.launch_game(overlay=overlay)
     if args.wait:
         proc.wait()
+    return 0
+
+
+def cmd_env(args) -> int:
+    """The environment lines that load the enabled code mods, for starting the game another way
+    (Linux: eval "$(hookshot-mods env)" before starting bin/hookshot)."""
+    mgr = get_manager(args.game_dir)
+    for line in codemods.shell_lines(mgr.enabled_layers()):
+        print(line)
     return 0
 
 
@@ -384,8 +398,12 @@ def main():
     p_play.set_defaults(func=cmd_play)
 
     # code mods
-    p_code = subparsers.add_parser("code", help="Show code mods (Vulkan layers) and update hookshot_env.txt for them")
+    p_code = subparsers.add_parser("code", help="Show code mods (Vulkan layers) and whether they can load")
     p_code.set_defaults(func=cmd_code)
+
+    # code-mod environment (for scripts)
+    p_env = subparsers.add_parser("env", help="Print the environment lines that load the enabled code mods")
+    p_env.set_defaults(func=cmd_env)
 
     # game folder (for scripts)
     p_gd = subparsers.add_parser("gamedir", help="Print the game folder the manager uses")
