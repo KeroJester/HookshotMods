@@ -1886,3 +1886,38 @@ controller every 100 ms), `copy` (callers of f_8575cdc0, the copy that writes it
   Quick Select list (f_8151eb00) builds its 16 PaItemBtn_00 entries with it at run time.
 Options next: (a) give clones (and their nested icon part) animations through f_804597f0/f_8045bac0; (b) build the
 boxes with the builder path (f_80459f90 + description) as the Quick Select list does, which may bring everything.
+
+## 72. Native HUD boxes: icons drawn at vanilla size; ammo count text still corrupts (2026-11-13)
+
+`ITEMCTL_RESEARCH=clone,items,keepbox,anims,alpha` (research.cpp; add `build` for builder-made boxes) shows the six
+boxes with their items' icons, drawn by the game at the vanilla RT box's size (screenshot in the session scratchpad,
+native_icons_first.png / r10).
+- Icon opacity: the icon sub-controller [ctrl+0x80] holds two replace-icon objects (+0x30 icon, +0x38 shadow; vt
+  0x84c02cb8, ctor f_80a574d0 -> f_80a57520 zeroes +0x30). Their float +0x30 is the icon's opacity: 1.0 on the RT box
+  right after the HUD's setup, 0 on boxes made later (data breakpoints: nothing touches it during play). Setting it to
+  1 shows the icons (0.5 = half transparent). Who writes it at the HUD's setup is not found yet.
+- Icon size: without animations the icons were about twice too large (the node chains are identical, all scale 1, so
+  the size comes from animations). BuildAnims (research.cpp) replicates the screen open pass f_8045bac0 for one
+  layout: instances [root+0x48] (0x20 each, root = [layout+0x80], count [[root+0x10]+0x158]); table +0x88/+0x90 of
+  0x28-byte entries {links, u32 0, u16 0x20 (|0x400 for "ResetAnimAtOpen", 0x83e3f1b0, and layout +0x38 |= 8), u8
+  f_8045bf30(inst)&1, layout, instance}, f_802f2b80(inst, 0); then the layout's virtual +0x28 (f_8045cb50). Run on
+  each box before its controller is bound (13 animations: Select UnSelect Decide Assign State StockNum NumMax NumMin
+  IsInvalid ItemPattern Type MinigamePattern ItemChange) and on its nested icon layout [[ctrl+0x80]+0x20] (3: State
+  Invalid IsRight). The frames then look like vanilla's and the icons have the right size.
+- Builder path works: the HUD builds its RT box with f_80459f90(ctx, desc), ctx {0x84c419b8, 0, HUD heap, HUD screen,
+  PlayerStatus layout [screen+0x28], resource 0x100a1fa7b8, ..}, desc {"PaItemBtn_00", 0xc, "Pa_SelectItem_00", 0x10,
+  PlayerStatus's layout list 0x107ee743f0, 0, 0, 1}. Replaying it (ctx+8 = 0: the builder allocates) gives a fresh
+  layout (root not attached, no animations: attach + BuildAnims as for clones). Generic builder f_8154f990 then
+  registers it: f_8156aa50(list, layout+0x40) (list = desc+0x20; nested Pa_ReplaceIcon_00 layouts are in it too).
+- Ammo count (as the RT update f_80a95770 at 0x80a958d4): rec = f_805aed10(&name); if [rec+0xfa] == 1: count
+  f_805b63e0(db, &name, 1, 0), max f_805b5cf0(db, &name, 0, 0), flag f_80a94910(db, &name), f_80a95df0(ctrl, count,
+  max, flag) (formats "%d" into ctrl+0xf0, sets the text of T_ItemNum_00 (0x83dfc148) through f_8045b970 ->
+  f_80459520, plays NumMax/NumMin [ctrl+0x40]/[ctrl+0x48]). Values are right (Deku Stick 27/30, Bomb 40/40,
+  Bombchu 2/40, Deku Nut 40/40). f_80a96170 is not the count: it sets the ItemPattern frame per kind.
+- PROBLEM: setting the count text on our boxes (cloned or builder-made) corrupts rendering: the HUD disappears and
+  3D meshes stretch into huge triangles (Link's held stick, black wedges). Bisection: the animations alone are fine
+  (dfanim); the same f_80a95df0 call on the game's RT box from our hook is fine (rtdf), so the calling method is not
+  the cause; registering our layouts (f_8156aa50, boxes and nested icons) plus copying the RT root's +0x90/+0x98
+  (owner) does not fix it. The text pane (index 14) and its text box match the RT box's apart from own pointers. Root
+  objects differ at +0x90/+0x98 and are shifted by 8 bytes from +0x158 on (the RT box's root has one more qword
+  there) — unexplained; next suspect. Until solved: no count text on the native boxes (overlay could draw counts).
