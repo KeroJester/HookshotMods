@@ -23,6 +23,8 @@
 #include <algorithm>
 #include <atomic>
 #include <cfloat>
+#include <cstdlib>
+#include <cstring>
 #include <cstdio>
 #include <mutex>
 #include <thread>
@@ -405,6 +407,10 @@ bool HudVisible() {
 
 void DrawHud() {
     if (!HudVisible()) return;
+    {   // (research: the game-drawn boxes are shown instead during play; RESEARCH_NOTES 70-72)
+        static const char* r = getenv("ITEMCTL_RESEARCH");
+        if (r && strstr(r, "clone") && !strstr(r, "overlay") && !PauseOpen()) return;
+    }
     ImGuiIO& io = ImGui::GetIO();
     ImDrawList* dl = ImGui::GetForegroundDrawList();
     const float S = io.DisplaySize.y / 1080.0f;
