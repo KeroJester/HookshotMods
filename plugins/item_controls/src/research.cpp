@@ -40,7 +40,7 @@ using namespace plat;
 
 static GuestFn o_FindPane, o_HudSetup, o_RtUpdate;
 static std::atomic<int> g_RtCalls{0};
-static uint64_t g_SlotCtrl[6], g_SlotName[6];   // per box: its item-button controller; a {char*, s32 cap} string + buffer
+static uint64_t g_SlotCtrl[6], g_SlotName[6], g_LabelBuf[6];   // per box: its item-button controller; a {char*, s32 cap} string + buffer
 static std::string g_SlotShown[6];
 static std::unordered_map<std::string, uintptr_t> g_Sym;
 
@@ -59,11 +59,11 @@ static uint64_t Call(GuestCtx* c, const char* fn, uint64_t a0 = 0, uint64_t a1 =
 }
 static uint64_t Q(uint64_t a) { return GuestPtrOk(a) ? GRead<uint64_t>(a) : 0; }
 template <class T> static void W(uint64_t a, T v) { GWrite<T>(a, v); }
-static uint64_t CallAt(GuestCtx* c, uint64_t addr, uint64_t a0 = 0, uint64_t a1 = 0, uint64_t a2 = 0, uint64_t a3 = 0) {
+static uint64_t CallAt(GuestCtx* c, uint64_t addr, uint64_t a0 = 0, uint64_t a1 = 0, uint64_t a2 = 0, uint64_t a3 = 0, uint64_t a4 = 0) {
     char n[32];
     snprintf(n, sizeof n, "f_%llx", (unsigned long long)addr);
     if (!g_Sym.count(n)) { auto r = ResolveSymbols({n}); if (!r.count(n)) { Log("[research] %s not resolved\n", n); return 0; } g_Sym[n] = r[n]; }
-    return Call(c, n, a0, a1, a2, a3);
+    return Call(c, n, a0, a1, a2, a3, a4);
 }
 
 static std::string GStr(uint64_t a, size_t max = 96) {
@@ -289,6 +289,48 @@ static uint64_t MakeItemButton(GuestCtx* c, uint64_t heap, uint64_t lay) {
     return obj;
 }
 
+// A box's button label (its T_Assign_00 text, 0x83deee49), as f_833dcde0 sets the RT box's: a message string
+// {ptr, s32 len, s64 -1} from f_80a86f70, f_80a8ae50(&str, button) (button: index in the name table at
+// [0x84cac668]+0x128: None A B X Y L ZL R ZR ..., Switch names; the game shows them with Xbox labels), then
+// f_80a87d30(layout, "T_Assign_00", &str, 1, 0)
+// The text box keeps a POINTER to the string (+0xf0, length +0x124; f_80459680): a joined label lives in buf, guest
+// memory that stays (one per box, from the HUD's heap)
+static void SetLabel(GuestCtx* c, uint64_t ctrl, int button, bool log, int prefix = 0, uint64_t buf = 0) {
+    const uint64_t str = c->x[31] - 0x100;
+    c->x[31] -= 0x400;
+    if (!buf) prefix = 0;
+    std::string joined;   // (with a prefix button: both glyph strings, joined in buf)
+    if (prefix) {
+        CallAt(c, 0x80a86f70, str);
+        CallAt(c, 0x80a8ae50, str, (uint64_t)prefix);
+        for (int k = 0, n = GRead<int32_t>(str + 8); k < n && k < 16; k++) joined.push_back((char)GRead<uint8_t>(Q(str) + k));
+    }
+    CallAt(c, 0x80a86f70, str);
+    const uint64_t ok = CallAt(c, 0x80a8ae50, str, (uint64_t)button);
+    if (prefix) {
+        for (int k = 0, n = GRead<int32_t>(str + 8); k < n && k < 16; k++) joined.push_back((char)GRead<uint8_t>(Q(str) + k));
+        memcpy(GPtr(buf), joined.data(), joined.size());
+        W<uint8_t>(buf + joined.size(), 0);
+        W<uint64_t>(str, buf);
+        W<int32_t>(str + 8, (int32_t)joined.size());
+    }
+    if (log) {
+        std::string t; char b[16];
+        const uint64_t p = Q(str);
+        const int n = GRead<int32_t>(str + 8);
+        for (int k = 0; k < n && k < 24; k++) { snprintf(b, sizeof b, " %04x", GRead<uint16_t>(p + 2 * k)); t += b; }
+        Log("[research] label %d: ok %d str %#llx len %d:%s\n", button, (int)ok, (unsigned long long)p, n, t.c_str());
+    }
+    // the label pane's source text is not an "@name" tag, so the by-name setter (f_80a87d30 -> f_8045b970) finds
+    // nothing: write the text pane directly (f_80459520(pane entry, &str, 0)); T_Assign_00 is the box's second
+    // text pane (pane table index 14; index 22 is T_ItemNum_00)
+    const uint64_t root = Q(Q(ctrl + 0x20) + 0x80), pane = CallAt(c, 0x8045b1f0, root, 14);
+    const bool text = pane && (GRead<uint32_t>(pane + 0xa8) & 0x3c00000) == 0x800000;
+    if (text) CallAt(c, 0x80459520, pane, str, 0);
+    if (log) Log("[research] label %d: pane 14 %#llx %s\n", button, (unsigned long long)pane, text ? "set" : "is not a text pane");
+    c->x[31] += 0x400;
+}
+
 // The RT box's update (f_80a95770, x0 = the HUD screen): after it, each box shows its slot's item through the item
 // button's setter f_80a95ef0(ctrl, &name, kind, 1, 0, -1, 0), the call the Quick Select list makes; the kind is
 // f_802efb20(item database **0x84c9e0d0, item hash)
@@ -298,6 +340,8 @@ static void RtUpdateHook(GuestCtx* c) {
         const uint64_t ri = Q(Q(Q(c->x[0] + 0x328) + 0x80) + 0x30);
         const float before = GRead<float>(ri + 0x30);
         o_RtUpdate(c);
+        if (strstr(getenv("ITEMCTL_RESEARCH"), "labels"))   // (Xbox X Y B = Switch Y X A: 4 3 1)
+            for (int i = 0; i < 6; i++) if (g_SlotCtrl[i]) SetLabel(c, g_SlotCtrl[i], (const int[]){4, 3, 1}[i % 3], i < 3 && n < 3, i < 3 ? 5 : 7, g_LabelBuf[i]);
         if (n == 1 && g_SlotCtrl[0]) {   // (the count text panes: the RT box's and box 0's, side by side)
             uint64_t panes[2], outs[2];
             const uint64_t tmp = c->x[31] - 0x200;   // (scratch below the stack: f_8045c4a0's out)
@@ -596,6 +640,7 @@ static void HudSetupHook(GuestCtx* c) {
                 i ? "" : AnimNames(c, rl).c_str());
         }
         g_SlotName[i] = Call(c, "f_8005ebe0", 0x50, heap, 8);
+        g_LabelBuf[i] = Call(c, "f_8005ebe0", 0x20, heap, 8);
         if (g_SlotName[i]) { W<uint64_t>(g_SlotName[i], g_SlotName[i] + 0x10); W<int32_t>(g_SlotName[i] + 8, 0x40); *(char*)GPtr(g_SlotName[i] + 0x10) = 0; }
         Log("[research] clone %d controller %#llx (vt %#llx), icon sub-controller %#llx\n", i, (unsigned long long)g_SlotCtrl[i],
             (unsigned long long)Q(g_SlotCtrl[i]), (unsigned long long)Q(g_SlotCtrl[i] + 0x80));
