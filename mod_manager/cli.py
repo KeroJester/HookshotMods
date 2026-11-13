@@ -322,7 +322,7 @@ def cmd_included(args) -> int:
 
 def cmd_env(args) -> int:
     """The environment lines that load the enabled code mods, for starting the game another way
-    (Linux: eval "$(hookshot-mods env)" before starting bin/hookshot)."""
+    (Linux: eval "$(hookshot-mods env)" before starting bin/hookshot or bin/longshot)."""
     mgr = get_manager(args.game_dir)
     for line in codemods.shell_lines(mgr.enabled_layers()):
         print(line)

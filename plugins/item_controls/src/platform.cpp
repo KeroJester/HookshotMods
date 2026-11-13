@@ -214,9 +214,11 @@ std::unordered_map<std::string, uintptr_t> ResolveSymbols(const std::vector<std:
     std::unordered_map<std::string, uintptr_t> out;
     std::unordered_map<std::string, int> want;
     for (auto& n : names) want[n] = 1;
-    // the game's code is in hookshot.exe, or in hookshot_game.dll when the builder split it out
+    // the game's code is in the program (hookshot.exe, Longshot's bin\longshot.exe), or in hookshot_game.dll /
+    // longshot_game.dll when the builder split it out
     struct Mod { HMODULE h; uintptr_t prefer; };
-    Mod mods[2] = {{GetModuleHandleA(nullptr), 0x140000000ULL}, {GetModuleHandleA("hookshot_game.dll"), 0x180000000ULL}};
+    Mod mods[3] = {{GetModuleHandleA(nullptr), 0x140000000ULL}, {GetModuleHandleA("hookshot_game.dll"), 0x180000000ULL},
+                   {GetModuleHandleA("longshot_game.dll"), 0x180000000ULL}};
     for (auto& m : mods) {
         if (!m.h) continue;
         char path[MAX_PATH] = {};

@@ -39,10 +39,12 @@ from PyQt6.QtWidgets import (
 )
 
 try:
-    from .core import GameDirNotFound, HookshotModManager, child_env, dev_overlay_lib, is_game_dir, load_config, save_config
+    from .core import (GameDirNotFound, HookshotModManager, child_env, dev_overlay_lib, is_game_dir, load_config,
+                       runtime_title, save_config)
     from .models import Mod
 except (ImportError, ValueError):
-    from core import GameDirNotFound, HookshotModManager, child_env, dev_overlay_lib, is_game_dir, load_config, save_config
+    from core import (GameDirNotFound, HookshotModManager, child_env, dev_overlay_lib, is_game_dir, load_config,
+                      runtime_title, save_config)
     from models import Mod
 
 DARK_STYLE = """
@@ -218,8 +220,9 @@ class MainWindow(QMainWindow):
                 break
             except GameDirNotFound as e:
                 QMessageBox.information(self, "Hookshot Mod Manager",
-                                        f"{e}\n\nPick the folder that holds hookshot.exe (Windows) or the hookshot launcher and bin/ (Linux).")
-                game_dir = QFileDialog.getExistingDirectory(self, "Hookshot game folder")
+                                        f"{e}\n\nPick the game folder: the one that holds hookshot.exe or longshot.exe (Windows), "
+                                        "or bin/ with the hookshot or longshot launcher (Linux).")
+                game_dir = QFileDialog.getExistingDirectory(self, "Hookshot or Longshot game folder")
                 if not game_dir:
                     raise SystemExit(1)
         self.current_selected_mod: Optional[Mod] = None
@@ -270,7 +273,7 @@ class MainWindow(QMainWindow):
         self.folder_lbl.setStyleSheet("color: #64748b; font-size: 11px;")
         self.folder_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.folder_btn = QPushButton("Change...")
-        self.folder_btn.setToolTip("Use another Hookshot game folder")
+        self.folder_btn.setToolTip("Use another Hookshot or Longshot game folder")
         self.folder_btn.setStyleSheet("font-size: 11px; padding: 2px 10px;")
         self.folder_btn.clicked.connect(self.on_change_game_dir)
         folder_row.addWidget(self.folder_lbl)
@@ -297,7 +300,7 @@ class MainWindow(QMainWindow):
         self.overlay_checkbox.setStyleSheet("color: #10b981; font-weight: bold; font-size: 11px;")
         # (the developer overlay is Linux-only and exists only in a development folder)
         self.overlay_checkbox.setVisible(not sys.platform.startswith("win") and
-                                         dev_overlay_lib() is not None)
+                                         dev_overlay_lib() is not None and self.mgr.runtime == "hookshot")
         play_vbox.addWidget(self.overlay_checkbox)
 
         h_layout.addLayout(play_vbox)
@@ -499,22 +502,25 @@ class MainWindow(QMainWindow):
 
     def show_game_dir(self):
         d = self.mgr.game_dir
-        self.folder_lbl.setText("Game folder: " + (d if len(d) <= 70 else "…" + d[-69:]))
+        self.folder_lbl.setText(f"{runtime_title(self.mgr.runtime)} game folder: " + (d if len(d) <= 70 else "…" + d[-69:]))
         self.folder_lbl.setToolTip(d)
+        if hasattr(self, "overlay_checkbox"):   # (the developer overlay is built against Hookshot)
+            self.overlay_checkbox.setVisible(not sys.platform.startswith("win") and dev_overlay_lib() is not None and
+                                             self.mgr.runtime == "hookshot")
 
     def on_change_game_dir(self):
         """Picks another game folder: checked, saved for next time, and the window switches to its mods."""
         start = os.path.dirname(self.mgr.game_dir)
         while True:
-            path = QFileDialog.getExistingDirectory(self, "Hookshot game folder", start)
+            path = QFileDialog.getExistingDirectory(self, "Hookshot or Longshot game folder", start)
             if not path:
                 return
             path = os.path.abspath(path)
             if is_game_dir(path):
                 break
             QMessageBox.warning(self, "Game Folder",
-                                f"{path}\n\nThis is not a Hookshot game folder. Pick the folder that holds hookshot.exe "
-                                "(Windows) or the hookshot launcher and bin/ (Linux).")
+                                f"{path}\n\nThis is not a Hookshot or Longshot game folder. Pick the folder that holds "
+                                "hookshot.exe or longshot.exe (Windows), or bin/ with the hookshot or longshot launcher (Linux).")
             start = path
         if path == self.mgr.game_dir:
             return
@@ -533,7 +539,7 @@ class MainWindow(QMainWindow):
         self.included_btn.setVisible(bool(self.mgr.bundled_status()))
         self.show_game_dir()
         self.refresh_mods()
-        self.status.showMessage(f"Game folder: {self.mgr.game_dir}")
+        self.status.showMessage(f"{runtime_title(self.mgr.runtime)} game folder: {self.mgr.game_dir}")
         env = os.environ.get("HOOKSHOT_GAME_DIR")
         if env and os.path.abspath(env) != self.mgr.game_dir:
             QMessageBox.information(self, "Game Folder",
@@ -942,7 +948,7 @@ class MainWindow(QMainWindow):
             overlay_enabled = self.overlay_checkbox.isVisible() and self.overlay_checkbox.isChecked()
             self.mgr.launch_game(overlay=overlay_enabled)
             codes = [m.display_name for m in self.mgr.code_mods() if m.enabled and not m.code_layer.problem]
-            status_text = "Hookshot launched" + (f" with code mods: {', '.join(codes)}" if codes else "") + \
+            status_text = f"{runtime_title(self.mgr.runtime)} launched" + (f" with code mods: {', '.join(codes)}" if codes else "") + \
                           (" + F2 dev overlay." if overlay_enabled else ".")
             self.status.showMessage(status_text)
         except Exception as e:

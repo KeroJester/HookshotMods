@@ -50,12 +50,33 @@ def save_config(cfg: dict) -> None:
         json.dump(cfg, f, indent=2)
 
 
+# The recompilers a game folder can come from: Hookshot, and Longshot (its continuation by the same maintainers, the same
+# game build and the same mods/ layout; its files are named longshot*). Windows: hookshot.exe / longshot.exe in the folder
+# (Longshot's starts bin\longshot.exe); Linux: bin/<name>, started through the <name> script in the folder.
+RUNTIMES = ("hookshot", "longshot")
+
+
+def game_runtime(path: str) -> Optional[str]:
+    """"hookshot" or "longshot" for a game folder made by that recompiler (None when neither is found)."""
+    if not path or not os.path.isdir(path):
+        return None
+    for name in RUNTIMES:
+        for rel in (name + ".exe", os.path.join("bin", name + ".exe"), os.path.join("bin", name)):
+            if os.path.isfile(os.path.join(path, rel)):
+                return name
+    return None
+
+
+def runtime_title(name: Optional[str]) -> str:
+    return {"hookshot": "Hookshot", "longshot": "Longshot"}.get(name or "", "Hookshot")
+
+
 def is_game_dir(path: str) -> bool:
-    """A Hookshot game folder: hookshot.exe (Windows) or bin/hookshot (Linux) beside its romfs/ or mods/."""
+    """A Hookshot or Longshot game folder: its program (hookshot.exe, bin/hookshot, longshot.exe, bin/longshot) or the
+    game image (image.bin)."""
     if not path or not os.path.isdir(path):
         return False
-    exe = os.path.isfile(os.path.join(path, "hookshot.exe")) or os.path.isfile(os.path.join(path, "bin", "hookshot"))
-    return exe or os.path.isfile(os.path.join(path, "image.bin"))
+    return game_runtime(path) is not None or os.path.isfile(os.path.join(path, "image.bin"))
 
 
 def _locked(e: OSError) -> OSError:
@@ -223,10 +244,12 @@ class HookshotModManager:
         if game_dir is None:
             game_dir = find_game_dir()
             if game_dir is None:
-                raise GameDirNotFound("Hookshot game folder not found: pass --game-dir or pick it in the manager.")
+                raise GameDirNotFound("Hookshot or Longshot game folder not found: pass --game-dir or pick it in the manager.")
         elif not is_game_dir(game_dir):
-            raise GameDirNotFound(f"Not a Hookshot game folder (no hookshot.exe or bin/hookshot): {game_dir}")
+            raise GameDirNotFound(f"Not a Hookshot or Longshot game folder (no hookshot.exe, bin/hookshot, longshot.exe "
+                                  f"or bin/longshot): {game_dir}")
         self.game_dir = os.path.abspath(game_dir)
+        self.runtime = game_runtime(self.game_dir) or "hookshot"   # (which recompiler made the folder)
         cfg = load_config()
         from_env = os.environ.get("HOOKSHOT_GAME_DIR") and os.path.abspath(os.environ["HOOKSHOT_GAME_DIR"]) == self.game_dir
         if cfg.get("game_dir") != self.game_dir and not from_env:
@@ -725,14 +748,18 @@ class HookshotModManager:
         overlay: Linux only, the developer overlay (dev_overlay_lib()) when it exists (LD_PRELOAD)."""
         self.sync_code_mods()
         env = codemods.apply_layers(child_env(), self.enabled_layers())
+        name = self.runtime
         if codemods.platform_key() == "windows":
-            target = os.path.join(self.game_dir, "hookshot.exe")
+            # (Longshot's longshot.exe only starts bin\longshot.exe; the game itself is started so the variables reach it)
+            binary = os.path.join(self.game_dir, "bin", name + ".exe")
+            target = binary if name == "longshot" and os.path.exists(binary) else os.path.join(self.game_dir, name + ".exe")
         else:
-            binary = os.path.join(self.game_dir, "bin", "hookshot")
-            launcher = os.path.join(self.game_dir, "hookshot")
+            # the game itself, from the game folder (Longshot's launcher script would hand over to its launcher app)
+            binary = os.path.join(self.game_dir, "bin", name)
+            launcher = os.path.join(self.game_dir, name)
             target = binary if os.path.exists(binary) and os.access(binary, os.X_OK) else launcher
             overlay_lib = dev_overlay_lib()
-            if overlay and overlay_lib:
+            if overlay and overlay_lib and name == "hookshot":   # (the developer overlay is built against Hookshot)
                 env["LD_PRELOAD"] = f"{overlay_lib}:{env.get('LD_PRELOAD', '')}".strip(":")
         if not os.path.exists(target):
             raise FileNotFoundError(f"Game executable not found: {target}")

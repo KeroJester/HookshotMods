@@ -1,8 +1,9 @@
 # hookshot-mods
 
-Mods and a cross-platform mod manager for the Ocarina of Time remake running under Hookshot.
+Mods and a cross-platform mod manager for the Ocarina of Time remake running under Hookshot or Longshot (Hookshot's
+continuation, [git.magicbean.dev/MagicBeanDev/Longshot](https://git.magicbean.dev/MagicBeanDev/Longshot)).
 
-**This repository contains no game files.** You need your own copy of the game, set up with Hookshot.
+**This repository contains no game files.** You need your own copy of the game, set up with Hookshot or Longshot.
 
 ## Download (players)
 
@@ -11,7 +12,9 @@ Get the app from the [Releases](https://github.com/KeroJester/HookshotMods/relea
 - **Windows:** `HookshotMods.exe`, just run it.
 - **Linux:** `HookshotMods-x86_64.AppImage`. Make it executable (`chmod +x`, or Properties → "Allow executing"), then run it.
 
-The first time, it asks for your Hookshot game folder (the one with `hookshot.exe` or `bin/hookshot`).
+The first time, it asks for your game folder: the one with `hookshot.exe` or `longshot.exe` (Windows), or with `bin/`
+and the `hookshot` or `longshot` launcher (Linux). Longshot keeps one folder per version (for example
+`Games/Longshot/nightly-80-7315957c`): pick that folder.
 To use another game folder later, click **Change...** next to the folder shown under the title.
 Mods go into that folder's `mods/` folder; drag a mod's zip onto the app or use its Install button.
 
@@ -21,8 +24,8 @@ Hold LB or RB and press X, Y or B to use one of six items; on the pause menu's I
 same combo to put it there. The game draws the six item boxes in its own HUD and on the Items tab. RT is for movement
 only (roll, sprint, side hop), and a sprint keeps going once started. The mod carries no game files: it reads what it
 needs from your copy.
-**Code mods** (like Item Controls) load only when you start the game with the app's **Launch** button: Hookshot
-itself never loads code from mod folders. On Linux, `eval "$(./HookshotMods-x86_64.AppImage env)"` before
+**Code mods** (like Item Controls) load only when you start the game with the app's **Launch** button: Hookshot and
+Longshot never load code from mod folders themselves. On Linux, `eval "$(./HookshotMods-x86_64.AppImage env)"` before
 starting the game another way does the same.
 Installing `.rar` mods needs [7-Zip](https://www.7-zip.org) on Windows (or `unrar`/`7z` on Linux).
 
