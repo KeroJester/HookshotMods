@@ -1785,3 +1785,50 @@ The user wants the mod distributable, drag-and-drop on Linux and Windows. Hooksh
   ("included_declined" in the manager config); **Included Mods...** button; `hookshot-mods included [--install]`.
   Names match ignoring case/spaces ("ItemControls" = "Item Controls"); an update keeps `slots.txt`.
 - `mod_manager/build_item_controls.py` is now only a developer tool regenerating the three lists.
+
+## 69. Native HUD boxes (option 1) — research spike (2026-11-12)
+
+Goal: the six item boxes drawn by the game's own UI (its art, fades, Pro/Hero handling, screenshots) instead of the
+layer's ImGui overlay. Tools: `re/bffh.py` (list BFFH layouts and panes in the Layout2 archive), `re/gdis.py` (disassemble
+the guest function around an address; FSTARTS = sorted f_ starts from `nm bin/hookshot`, image `re/img.elf`, needs
+llvm-objdump `-D --triple=aarch64`).
+
+**Layout format (BFFH, Nintendo.Ui.ResModels.LayoutResData)** — Hookshot's nx2/prompt_assets.py documents some of it:
+layout header +0x118 u64 pane-name table, +0x120 u64 pane-record table, +0x130 u32 pane count. Pane record 0x44 bytes:
+rotation, +0x10 scale (2f), +0x1c translation (3f), +0x28 parent index (u32), +0x2c size (2f). Panes form a flat list
+with parent indices. PlayerStatus_00.buil (27152 bytes, 33 panes): the RT box is `Pa_SelectItem_00` (pane 18, under
+N_ScaleR_00 at (1920,1078); box at (-294,-258), scale 0.85, size 380x492).
+Part panes: a table (PlayerStatus at 0x1e80) of 7 pointers to 0x58-byte part records {u64 part-layout name ("PaItemBtn_00"),
+zeros, u64 -> array, u32 pane index}, then the 7 part panes' names, then 7 u64s that look like hashes (lookup index).
+The archive holds each layout 4 times (Hookshot's prompts copy). Growing the archive would also need its entry in the
+resource size table (Hookshot already serves its own enlarged `rsizetable` from prompts/).
+
+**The item button part `PaItemBtn_00`** (23 panes): N_HUD background (P_HUDBg_00/Deco/Sh), N_ShortCut (the Quick
+Select look), T_Assign_00 (button label, font icon), N_Item_00 > N_ItemChange_00 > Pa_ReplaceIcon_00 (the icon, a
+part itself: PaReplaceIcon_00), P_AmiiboIcon_00, N_Num_00 > T_ItemNum_00 (ammo count).
+
+**Runtime creation exists**: PaShortCutSlideList_00 (the Quick Select list) has no item panes; its N_SlideList_00 is
+a custom pane (factory f_80ebed30: pane name "N_SlideList_00" in layout "PaShortCutSlideList_00" -> 0x78-byte object,
+vtable 0x84c024d8, ctor f_80ebee30) configured by a record naming "PaItemBtn_00" with the entry size (380, 492) and
+spacing: the game instantiates PaItemBtn_00 parts at run time from the part's name.
+
+**How the HUD drives the RT box**: HUD setup f_83415d20 (884 instructions) finds panes by name with
+f_8045c4a0(name, root [screen+0x28], &out); for Pa_SelectItem_00 it takes the part's layout ([...+0xa0] via
+f_8045c040/f_8045b1e0), allocates a 0x110-byte item-button controller (vtable from [0x84cac000+0xb78]+0x10), links it
+into the layout's list and stores it at HUD screen +0x328 (another controller at +0x320), then f_8045efe0(ctrl, x20, 1)
+binds it: ten states via f_8045c7a0 ("StockNum", bag/quiver sizes "..._Large", "...TypeForAnim"), then finds
+Pa_ReplaceIcon_00 and makes its icon sub-controller (code around f_80a56d80..f_80a5715c also uses Pa_ReplaceIcon_00/_01).
+Sibling init variants: f_8045e500, f_8045e9d0, f_8045ece0.
+
+**Hookshot's prompt archive** is built once per run on first request (host/prompts.c hos_prompts_romfs), so the
+layer's in-memory copy (made from it) is never stale.
+
+Two ways to six native boxes:
+- A (preferred): runtime creation — call the game's create-part code (found through the slide list's vtable) after the
+  HUD setup, five PaItemBtn_00 parts under N_ScaleR_00, controllers made like the HUD's (alloc 0x110 + f_8045efe0), and
+  their item set through the controller's set-item method (still to find: what the HUD update calls with the RT item).
+- B: layout surgery — add five part panes to PlayerStatus_00 (pane records, names, part records, the hash index) and the
+  size table entry. More format work, but the game then builds and owns them.
+Open questions for the next step: (1) the create-part function and its arguments; (2) the controller's set-item method
+(follow writes to/calls on [HUD screen+0x328] in the HUD's per-frame update); (3) calling lifted guest functions from a
+hook (GuestCtx registers + guest stack) safely.
