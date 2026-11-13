@@ -12,6 +12,7 @@ Get the app from the [Releases](https://github.com/KeroJester/HookshotMods/relea
 - **Linux:** `HookshotMods-x86_64.AppImage`. Make it executable (`chmod +x`, or Properties → "Allow executing"), then run it.
 
 The first time, it asks for your Hookshot game folder (the one with `hookshot.exe` or `bin/hookshot`).
+To use another game folder later, click **Change...** next to the folder shown under the title.
 Mods go into that folder's `mods/` folder; drag a mod's zip onto the app or use its Install button.
 
 **Included mod: Item Controls.** The app comes with it and offers to install it on first start (or later via

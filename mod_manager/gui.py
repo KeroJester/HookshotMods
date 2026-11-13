@@ -39,10 +39,10 @@ from PyQt6.QtWidgets import (
 )
 
 try:
-    from .core import GameDirNotFound, HookshotModManager, child_env, dev_overlay_lib, load_config, save_config
+    from .core import GameDirNotFound, HookshotModManager, child_env, dev_overlay_lib, is_game_dir, load_config, save_config
     from .models import Mod
 except (ImportError, ValueError):
-    from core import GameDirNotFound, HookshotModManager, child_env, dev_overlay_lib, load_config, save_config
+    from core import GameDirNotFound, HookshotModManager, child_env, dev_overlay_lib, is_game_dir, load_config, save_config
     from models import Mod
 
 DARK_STYLE = """
@@ -263,6 +263,22 @@ class MainWindow(QMainWindow):
         title_vbox.addWidget(title_lbl)
         title_vbox.addWidget(sub_lbl)
 
+        # the game folder in use, with a button to pick another (saved for next time)
+        folder_row = QHBoxLayout()
+        folder_row.setSpacing(8)
+        self.folder_lbl = QLabel()
+        self.folder_lbl.setStyleSheet("color: #64748b; font-size: 11px;")
+        self.folder_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.folder_btn = QPushButton("Change...")
+        self.folder_btn.setToolTip("Use another Hookshot game folder")
+        self.folder_btn.setStyleSheet("font-size: 11px; padding: 2px 10px;")
+        self.folder_btn.clicked.connect(self.on_change_game_dir)
+        folder_row.addWidget(self.folder_lbl)
+        folder_row.addWidget(self.folder_btn)
+        folder_row.addStretch()
+        title_vbox.addLayout(folder_row)
+        self.show_game_dir()
+
         h_layout.addLayout(title_vbox)
         h_layout.addStretch()
 
@@ -480,6 +496,50 @@ class MainWindow(QMainWindow):
         self.status = QStatusBar()
         self.setStatusBar(self.status)
         self.status.showMessage(f"Ready. Game Directory: {self.mgr.game_dir}")
+
+    def show_game_dir(self):
+        d = self.mgr.game_dir
+        self.folder_lbl.setText("Game folder: " + (d if len(d) <= 70 else "…" + d[-69:]))
+        self.folder_lbl.setToolTip(d)
+
+    def on_change_game_dir(self):
+        """Picks another game folder: checked, saved for next time, and the window switches to its mods."""
+        start = os.path.dirname(self.mgr.game_dir)
+        while True:
+            path = QFileDialog.getExistingDirectory(self, "Hookshot game folder", start)
+            if not path:
+                return
+            path = os.path.abspath(path)
+            if is_game_dir(path):
+                break
+            QMessageBox.warning(self, "Game Folder",
+                                f"{path}\n\nThis is not a Hookshot game folder. Pick the folder that holds hookshot.exe "
+                                "(Windows) or the hookshot launcher and bin/ (Linux).")
+            start = path
+        if path == self.mgr.game_dir:
+            return
+        try:
+            mgr = HookshotModManager(path)
+        except Exception as e:
+            QMessageBox.critical(self, "Game Folder", f"Could not use {path}:\n{e}")
+            return
+        self.mgr = mgr
+        self.current_selected_mod = None
+        self.detail_title.setText("")
+        self.detail_meta.setText("")
+        self.detail_desc.setText("")
+        self.mod_files_list.clear()
+        self.romfs_results_list.clear()
+        self.included_btn.setVisible(bool(self.mgr.bundled_status()))
+        self.show_game_dir()
+        self.refresh_mods()
+        self.status.showMessage(f"Game folder: {self.mgr.game_dir}")
+        env = os.environ.get("HOOKSHOT_GAME_DIR")
+        if env and os.path.abspath(env) != self.mgr.game_dir:
+            QMessageBox.information(self, "Game Folder",
+                                    f"HOOKSHOT_GAME_DIR is set to {env}: it is used instead of the saved folder when "
+                                    "Hookshot Mods starts.")
+        self.offer_included()
 
     def refresh_mods(self):
         self.mod_table.blockSignals(True)
