@@ -16,6 +16,8 @@
 //    PaItemMenu_00) with the names swapped, attached under the tab's layout after the pause menu's setup (f_80f99400)
 //    so they slide with the tab, updated every frame of the open menu (f_802f1380). Holding LB/RB dims the other row;
 //    a newly assigned item plays its box's press animation.
+// 5. In play the boxes rest at 40% and their labels are hidden; holding a bumper brings its row to full with labels
+//    (pane alpha, RESEARCH_NOTES.md section 75).
 // Guest functions are called from the hooks on the calling thread (save the context, set x0.., x30 = 0, run the
 // lifted function, restore), as Hookshot's host/oot_menu.c guest_call does.
 #include "native_hud.h"
@@ -23,6 +25,7 @@
 #include "item_controls.h"
 #include "item_files.h"
 #include "platform.h"
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -63,6 +66,7 @@ enum : uint64_t {
     fSetText = 0x80459520,      // (text pane, &str, 0): the text box keeps the POINTER to the string
     fAnim = 0x8045c7a0,         // (layout, name): a layout animation's table entry (missing: the shared default)
     fVisible = 0x8022aea0,      // (pane, bool): pane SetVisible (flag bit 0 at +0xa8, marks it for redraw)
+    fDirty = 0x815457d0,        // (pane): queue a pane for its update (after setting its pending bits at +0)
     fPauseSetup = 0x80f99400,   // pause menu screen setup (x0 screen, x1 heap; the HUD's f_83415d20 in the same slot)
     fScreenFrame = 0x802f1380,  // a UI screen's per-frame method (x0 screen; the pause menu's only while it is open)
 };
@@ -72,7 +76,7 @@ constexpr uint64_t kStrSelect = 0x83f34e3a, kStrUnSelect = 0x83f34e42;   // "Sel
 constexpr uint64_t kAnimDefault = 0x84c9e068;          // * the entry f_8045c7a0 gives for a missing name
 static const uint64_t kFns[] = {fAlloc, fBuild, fSetup, fFrame, fRegister, fPaneAt, fNode, fParent, fAttach, fBind,
                                 fKind, fSetItem, fItemRec, fCount, fMax, fCountFlag, fShowCount, fPlay, fRewind,
-                                fStrInit, fButtonGlyph, fSetText, fAnim, fVisible, fPauseSetup, fScreenFrame};
+                                fStrInit, fButtonGlyph, fSetText, fAnim, fVisible, fDirty, fPauseSetup, fScreenFrame};
 static std::unordered_map<uint64_t, uintptr_t> g_Fn;   // (filled once in Start, read-only after)
 static GuestFn o_Build, o_Setup, o_Frame, o_ScreenFrame, o_PauseSetup;
 
@@ -99,6 +103,7 @@ struct Box {
     std::string icon;
     int count = -2, max = -2;                 // (-1: no count shown)
     bool labelled = false;
+    float alpha = -1.0f, labelAlpha = -1.0f;   // (HUD: shown now; -1 not set yet)
 };
 // One set of six boxes: the HUD's (under its RT box) and the pause menu's (on the Items tab)
 struct BoxSet {
@@ -136,6 +141,21 @@ static uint64_t Call(GuestCtx* c, uint64_t fn, uint64_t a0 = 0, uint64_t a1 = 0,
     const uint64_t r = c->x[0];
     *c = saved;
     return r;
+}
+
+// A pane's own alpha: +0x74 (used while bit 0x8 of +0xa8 is set); the pane's update (f_8154c890, pending bit 0x20)
+// multiplies it with the parent's into +0x78 and passes the change on to the children. Marked as SetVisible does.
+static void SetAlpha(GuestCtx* c, uint64_t pane, float a) {
+    if (!GuestPtrOk(pane)) return;
+    const uint32_t f = GRead<uint32_t>(pane + 0xa8);
+    if (GRead<float>(pane + 0x74) == a && (f & 8)) return;
+    W<float>(pane + 0x74, a);
+    W<uint32_t>(pane + 0xa8, f | 8);
+    const uint32_t pending = GRead<uint32_t>(pane), want = GRead<uint32_t>(pane + 4) & 0x20;
+    if (want & ~pending) {
+        W<uint32_t>(pane, pending | want);
+        Call(c, fDirty, pane);
+    }
 }
 
 // ---- 1. during the screen's build -------------------------------------------------------------------------------------
@@ -432,6 +452,32 @@ static void UpdateBox(GuestCtx* c, BoxSet& set, int i, bool counts) {
     b.count = count, b.max = max;
 }
 
+// In play the boxes sit back: 40% while their bumper is up, full while it is held; the button labels only show
+// while their bumper is held. Eased over a few frames.
+constexpr float kRestAlpha = 0.4f, kFadeStep = 0.2f;
+static float Toward(float cur, float goal) {
+    if (cur < 0.0f) return goal;
+    return cur < goal ? std::min(goal, cur + kFadeStep) : std::max(goal, cur - kFadeStep);
+}
+static void FadeHud(GuestCtx* c, BoxSet& set) {
+    const int bumper = itemctl::HeldBumper();
+    for (int i = 0; i < kBoxes; i++) {
+        Box& b = set.box[i];
+        const bool held = bumper == i / 3;
+        const float a = Toward(b.alpha, held ? 1.0f : kRestAlpha), la = Toward(b.labelAlpha, held ? 1.0f : 0.0f);
+        if (a != b.alpha) {   // (the box's root pane, its children following)
+            SetAlpha(c, Call(c, fNode, b.lay + 0x40), a);
+            b.alpha = a;
+        }
+        if (la != b.labelAlpha && b.labelled) {
+            const uint64_t pane = Call(c, fPaneAt, Q(b.lay + 0x80), 14);   // T_Assign_00
+            if (GuestPtrOk(pane) && (GRead<uint32_t>(pane + 0xa8) & 0x3c00000) == 0x800000)
+                SetAlpha(c, pane, la);
+            b.labelAlpha = la;
+        }
+    }
+}
+
 static void UpdateSet(GuestCtx* c, BoxSet& set) {
     set.lastFrame = NowNs();
     const bool counts = (set.frames++ % 10) == 0;          // (counts checked six times a second, items every frame)
@@ -439,6 +485,7 @@ static void UpdateSet(GuestCtx* c, BoxSet& set) {
         if (!set.box[i].labelled) SetLabel(c, set.box[i], kBumper[i / 3], kFace[i % 3]);
         UpdateBox(c, set, i, counts);
     }
+    if (&set == &g_Hud) FadeHud(c, set);
     if (&set == &g_Pause) {   // a bumper held on the pause menu: its row picked out, the other row dimmed
         const int bumper = itemctl::HeldBumper();
         if (bumper != set.bumper) {

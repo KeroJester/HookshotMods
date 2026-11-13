@@ -1987,3 +1987,17 @@ Goal: show where an item is going while assigning, in the game's own style, with
 - Verified headless: built and set up in the pause menu; assignment updates live (Deku Stick LB+X -> RB+X); row
   dimming; hidden on Equipment, back on Items; HUD boxes after closing; boxes again on reopening; no crash.
 - Research switch: ITEMCTL_RESEARCH=allbuild logs every part build (part, instance, screen and its vt, parent).
+
+## 75. Pane alpha: in-game boxes fade (0.8.0, 2026-11-13)
+User's request: in play the boxes sit at about 40% and come to 100% while their bumper is held; the button labels
+are hidden (0%) unless their bumper is held. The pause menu boxes stay opaque.
+- **Pane alpha:** +0x74 float = the pane's own alpha, used while bit 0x8 of +0xa8 is set; +0x78 = its global alpha.
+  The pane update f_8154c890 runs when pending bit 0x20 is set at +0. It computes global = (bit 0x8 ? own : 1)
+  times the parent's global (unless bit 0x10), passes the change to the children (f_8154d720(pane, 0x20)), and hides
+  the pane below ~0.001.
+- **Setting it:** write +0x74, set bit 0x8, then mark the pane as SetVisible does: [pane] |= [pane+4] & 0x20, then
+  f_815457d0(pane) if that bit was not already pending. The box's root pane (f_80229650(layout + 0x40)) fades the
+  whole box, count included. The label is text pane 14, T_Assign_00.
+- Not alpha: f_8154b720 writes +0x7c (0 by default) and bit 0x200, so it is something else. No setter for +0x74
+  was found among the small functions.
+- Eased by 0.2 a frame. Verified headless: rest 40% without labels; LB held: LB row full with labels; same for RB.
