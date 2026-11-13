@@ -2069,3 +2069,16 @@ direction it did not.
   4 of 4 offsets with no dialogue, chained rolls still happen (1 or 2 per run).
 - **RT log line:** an RT press blocked by an offer now logs "RT blocked: the game offers '<command>' on B".
 - Two-frame press visibility (a test) let interactions in again (3 of 4), so presses stay one frame.
+
+### 0.9.4: RT used an item right after loading a save
+The user's report: sometimes after booting and loading, RT used the game's own RT item (a Deku Nut).
+- **Cause:** play is recognised from UI screen updates (HUD screen seen, no menu screen seen). Headless, RT was spammed
+  from the title through the load. One boot showed "menu" for 20 s of play with the HUD shown and its screen not
+  updating, so RT went to the game unchanged.
+- **The "menu" screen** was vt 0x84c04fb0, the class of TitleMenuBG_00, MenuBG_00 and SystemBG_00: the title's
+  background screen kept updating after the load. Normally its +0x1a8 (shown) is 0 after the load (two later boots).
+- **Fix:** the background class counts as a menu only while shown (+0x1a8 != 0). Play is also recognised from the
+  player's movement step f_809552f0 (every frame in play; not while paused or talking): play = no pause, no ocarina,
+  and (movement step seen, or no menu and HUD seen).
+- Verified headless (two boots, intermittent bug not hit): play recognised from the movement step as soon as the
+  player can move (before the HUD screen's first update); pause clears it.

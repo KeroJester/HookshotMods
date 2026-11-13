@@ -165,6 +165,7 @@ static void WriteEntry(uint64_t e, uint32_t v) { GWrite<uint32_t>(e + 0x1C, v); 
 static GuestFn o_ScreenFrame = nullptr, o_Ocarina = nullptr;
 static std::atomic<uint64_t> g_Screen{0}, g_HudScr{0}, g_DoCmd{0};
 static std::atomic<int64_t> g_PauseSeen{0}, g_HudSeen{0}, g_MenuSeen{0}, g_OcarinaSeen{0};
+static std::atomic<uint64_t> g_MenuVt{0}, g_MenuScr{0};
 
 static void ScreenFrameHook(GuestCtx* c) {
     uint64_t s = c->x[0];
@@ -174,11 +175,20 @@ static void ScreenFrameHook(GuestCtx* c) {
         else if (vt == kHudScreenVt) { g_HudScr = s; g_HudSeen = NowNs(); }
         else if (vt == kHudScreen2Vt) g_HudSeen = NowNs();
         else if (vt == kDoCommandVt) g_DoCmd = s;
-        else if (vt == 0x84c04fb0 || vt == 0x84c08aa0 || vt == 0x84c091f8 || vt == 0x84c09a10) g_MenuSeen = NowNs();
+        // menus: the background screens (0x84c04fb0: TitleMenuBG_00, MenuBG_00, SystemBG_00) only while shown (+0x1a8;
+        // the title's can keep updating after a save is loaded), the pause header, message dialog and log
+        else if ((vt == 0x84c04fb0 && GRead<uint32_t>(s + 0x1a8) != 0) || vt == 0x84c08aa0 || vt == 0x84c091f8 || vt == 0x84c09a10)
+            g_MenuSeen = NowNs(), g_MenuVt = vt, g_MenuScr = s;
     }
     o_ScreenFrame(c);
 }
 static void OcarinaHook(GuestCtx* c) { g_OcarinaSeen = NowNs(); o_Ocarina(c); }
+// The player's movement step (f_809552f0): every frame in play, not while paused or talking. Play is recognised by it
+// too, as the UI screens' updates can stall after loading a save (the title's background screen lingered, the HUD
+// screen did not update, so RT went to the game and used its item).
+static GuestFn o_Move = nullptr;
+static std::atomic<int64_t> g_MoveSeen{0};
+static void MoveHook(GuestCtx* c) { g_MoveSeen = NowNs(); o_Move(c); }
 // The player's rolling node (AINB ExecutePlayerRolling, vtable 0x849e9500): its enter f_806d9a30 and exit f_809590b0
 // (each only in that vtable). While a roll runs, the game keeps an action press for its end and spends it on whatever
 // is offered then (a Talk that turns up at the roll's end took it), so RT presses made during a roll are held here.
@@ -189,7 +199,9 @@ static void RollEnterHook(GuestCtx* c) { g_Rolling = true; o_RollEnter(c); }
 static void RollExitHook(GuestCtx* c) { o_RollExit(c); g_Rolling = false; g_RollEnd = NowNs(); }
 static bool Recent(const std::atomic<int64_t>& t) { return NowNs() - t.load() < 100000000; }
 static bool PauseOpen() { return Recent(g_PauseSeen); }
-static bool InGameplay() { return !PauseOpen() && !Recent(g_OcarinaSeen) && !Recent(g_MenuSeen) && Recent(g_HudSeen); }
+static bool InGameplay() {
+    return !PauseOpen() && !Recent(g_OcarinaSeen) && (Recent(g_MoveSeen) || (!Recent(g_MenuSeen) && Recent(g_HudSeen)));
+}
 // The action command the game logic sets for the prompt (DoCommand_00's update f_80a8b620 reads it): GameData struct
 // 0xca62c947, its string member 0xd7e9ac3a naming a String entry; "Empty" when nothing is offered. Read with the
 // game's own tables (GameData manager [0x84ea42a8]: structs +0xc10 count, +0xc18 entries of 0x20, +0xc20 {hash, index}
@@ -366,7 +378,13 @@ static uint64_t Transform(uint64_t raw) {
         static const bool rtLog = getenv("ITEMCTL_RTLOG") != nullptr;
         if (rtLog) {
             const char* gc = GameCommand();
-            Log("[itemctl] RT command '%s'\n", gc ? gc : "?");
+            Log("[itemctl] RT command '%s' play %d pause %d menu %d ocarina %d hud %d\n", gc ? gc : "?", (int)play, (int)pause,
+                (int)Recent(g_MenuSeen), (int)Recent(g_OcarinaSeen), (int)Recent(g_HudSeen));
+            Log("[itemctl]   movement %d\n", (int)Recent(g_MoveSeen));
+            const uint64_t ms = g_MenuScr;
+            Log("[itemctl]   menu vt %#llx (%#llx: +1a4 %08x +1a8 %u), HUD shown %u\n", (unsigned long long)g_MenuVt.load(),
+                (unsigned long long)ms, GuestPtrOk(ms) ? GRead<uint32_t>(ms + 0x1a4) : 0, GuestPtrOk(ms) ? GRead<uint32_t>(ms + 0x1a8) : 9,
+                GuestPtrOk(g_HudScr.load()) ? GRead<uint32_t>(g_HudScr.load() + 0x1a8) : 9);
             const uint64_t d = g_DoCmd;
             Log("[itemctl] RT press %.3f prompt %08x cmd %d -> %s\n", now / 1e9, GuestPtrOk(d) ? GRead<uint32_t>(d + 0x1a4) : 0,
                 GuestPtrOk(d) ? GRead<int32_t>(d + 0x2e8) : -9, g_RtPending ? "wait" : "blocked");
@@ -672,6 +690,7 @@ bool Init(const std::string& modDir) {
     names.push_back("f_802f1380");
     names.push_back("f_832b4df0");
     names.push_back("f_806d9a30");
+    names.push_back("f_809552f0");
     names.push_back("f_809590b0");
     auto sym = ResolveSymbols(names);
     for (auto& n : names) if (!sym.count(n)) Log("[itemctl] symbol %s not found\n", n.c_str());
@@ -679,6 +698,7 @@ bool Init(const std::string& modDir) {
     o_ScreenFrame = hook::Install(sym.count("f_802f1380") ? sym["f_802f1380"] : 0, ScreenFrameHook, "screen frame f_802f1380");
     o_Ocarina = hook::Install(sym.count("f_832b4df0") ? sym["f_832b4df0"] : 0, OcarinaHook, "ocarina update f_832b4df0");
     if (!o_ScreenFrame || !o_Ocarina) { Log("[itemctl] context hooks failed: controls stay vanilla\n"); return false; }
+    if (sym.count("f_809552f0")) o_Move = hook::Install(sym["f_809552f0"], MoveHook, "player movement step f_809552f0");
     if (sym.count("f_806d9a30") && sym.count("f_809590b0")) {   // (without them RT presses during a roll pass as before)
         o_RollExit = hook::Install(sym["f_809590b0"], RollExitHook, "roll exit f_809590b0");
         if (o_RollExit) o_RollEnter = hook::Install(sym["f_806d9a30"], RollEnterHook, "roll enter f_806d9a30");
