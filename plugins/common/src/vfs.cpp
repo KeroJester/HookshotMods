@@ -30,6 +30,8 @@ struct Entry {
 };
 static std::vector<Entry> g_Entries;
 static std::vector<std::pair<std::string, Live>> g_Live;   // (lower-case path, live)
+struct New { std::string key, openAs; Data data; };
+static std::vector<New> g_New;
 static std::mutex g_Mu;
 static std::condition_variable g_Made;
 static std::unordered_map<uint64_t, std::shared_ptr<const Bytes>> g_Open;   // FileHandle -> served copy
@@ -54,6 +56,46 @@ void Register(const std::string& rel, Patch patch, std::function<bool()> when) {
 }
 
 void RegisterLive(const std::string& rel, Live live) { g_Live.emplace_back(Lower(rel), std::move(live)); }
+
+void RegisterNew(const std::string& rel, const std::string& openAs, Data data) {
+    if (openAs.size() == rel.size()) g_New.push_back({Lower(rel), openAs, std::move(data)});
+    else Log("[vfs] %s: %s is not the same length (not served)\n", rel.c_str(), openAs.c_str());
+}
+
+static std::string Key(const char* guestPath);
+
+static size_t ReadPath(uint64_t p, char* out, size_t cap) {
+    size_t n = 0;
+    for (; n + 1 < cap; n++) { out[n] = (char)GRead<uint8_t>(p + n); if (!out[n]) break; }
+    out[n] = 0;
+    return n;
+}
+
+// A new file: the open goes to openAs (same length, rewritten in place and put back), the data is ours
+static bool OpenNew(GuestCtx* c) {
+    const uint64_t outp = c->x[0], pathp = c->x[1], mode = c->x[2];
+    if (g_New.empty() || (mode & 6) || !GuestPtrOk(pathp) || !GuestPtrOk(outp)) return false;
+    char path[512];
+    const size_t n = ReadPath(pathp, path, sizeof path);
+    const std::string key = Key(path);
+    for (const New& e : g_New) {
+        if (e.key != key || key.size() > n) continue;
+        std::shared_ptr<const Bytes> d = e.data();
+        if (!d) return false;
+        const uint64_t at = pathp + (n - key.size());
+        for (size_t i = 0; i < key.size(); i++) GWrite<uint8_t>(at + i, (uint8_t)e.openAs[i]);
+        o_Open(c);
+        for (size_t i = 0; i < key.size(); i++) GWrite<uint8_t>(at + i, (uint8_t)path[n - key.size() + i]);
+        if (c->x[0] == 0) {
+            std::lock_guard<std::mutex> lk(g_Mu);
+            g_Open[GRead<uint64_t>(outp)] = d;
+            static int logged;
+            if (logged++ < 40) Log("[vfs] the game opened %s: reads the mod's own (%zu bytes)\n", key.c_str(), d->size());
+        }
+        return true;
+    }
+    return false;
+}
 
 static void Make(std::unique_lock<std::mutex>& lk, Entry& e) {   // (g_Mu held; released while working)
     if (e.state) return;
@@ -88,12 +130,11 @@ static Entry* Find(const std::string& key) {
 
 static void OpenHook(GuestCtx* c) {
     const uint64_t outp = c->x[0], pathp = c->x[1], mode = c->x[2];
+    if (OpenNew(c)) return;
     o_Open(c);
     if (c->x[0] != 0 || (mode & 6) || !GuestPtrOk(pathp) || !GuestPtrOk(outp)) return;
     char path[512];
-    size_t n = 0;
-    for (; n + 1 < sizeof path; n++) { path[n] = (char)GRead<uint8_t>(pathp + n); if (!path[n]) break; }
-    path[n] = 0;
+    ReadPath(pathp, path, sizeof path);
     const std::string key = Key(path);
     for (auto& [k, live] : g_Live) {
         if (k != key) continue;

@@ -23,6 +23,12 @@ void Register(const std::string& romfsRel, Patch patch, std::function<bool()> wh
 using Live = std::function<std::shared_ptr<const gamefiles::Bytes>()>;
 void RegisterLive(const std::string& romfsRel, Live live);
 
+// A file the game does not have (a new sound's stream): opening romfsRel opens openAs instead (an existing file whose
+// RomFS path has the same length: the guest's path is rewritten in place for the open) and serves data() for it.
+// data() runs at each open; null: the open goes ahead unchanged (and fails, as for any missing file).
+using Data = std::function<std::shared_ptr<const gamefiles::Bytes>()>;
+void RegisterNew(const std::string& romfsRel, const std::string& openAs, Data data);
+
 // Installs the hooks and starts making the copies. False: no file is changed (logged).
 bool Start();
 

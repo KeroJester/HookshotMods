@@ -9,11 +9,12 @@
 //   - event flows: the event system only takes query answers inside the MelodyType enum, so the flows see every added
 //     song as 13 (a value they never get natively): the presentation flows get case 13 and the type query answers 13;
 //   - size table: the score book, the flows and the message archives grow, so their entries are raised (rstb.*);
-//   - melody sounds f_8337b730: each song plays through a host sound whose stream then reads its own replay
-//     (song_audio.cpp); the presentation is let go when that replay ends;
+//   - melody sounds f_8337b730: each song plays its own sound, an entry the mod adds to the ocarina sound archive
+//     (song_audio.cpp, §79m);
 //   - the song effect: the player's effect is chosen by the song type; each song shows a native song's (§79i).
 #include "mm_songs.h"
 #include "song_audio.h"
+#include "song_link.h"
 #include "song_text.h"
 #include "songs.h"
 #include "byml.h"
@@ -26,7 +27,6 @@
 #include "vfs.h"
 #include <algorithm>
 #include <atomic>
-#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <map>
@@ -72,7 +72,7 @@ enum : uint64_t {
     fNew = 0x8005eca0,          // operator new(align, size) on the default heap
     fQueryType = 0x82a7c980,    // flow query EventQueryMelodyTypeForNormal (x0 node): writes the played type (13 -> -1)
     fQueryOut = 0x80854e00,     // (node + 0x20, value): a query node's output
-    fOmUpdate = 0x832b4df0,     // OcarinaMgr per-frame update (x0 OM, x1 pad state)
+    fSoundSearch = 0x8045db00,  // (SLink user + 0x58 -> +0x18, &asset out, const char* name) -> bool: a sound by name
     fPlayerMain = 0x80609d00,   // player: actor variable +0x1ac0 = song type (picks the song effect)
 };
 // Score objects (0x70 bytes): notes container at +0x38 (data +0x50, count +0x58/+0x5c, pitch codes like the note
@@ -80,7 +80,7 @@ enum : uint64_t {
 // entry is raised; the mod makes copies for empty slots as a fallback.
 constexpr uint64_t kBookSingleton = 0x84e8c7a8;          // * score book holder
 static guest::Functions g_Fn;
-static GuestFn o_Matcher, o_MelodySound, o_QueryType, o_OmUpdate, o_PlayerMain;
+static GuestFn o_Matcher, o_MelodySound, o_QueryType, o_SoundSearch, o_PlayerMain;
 static std::atomic<uint64_t> g_Om{0};
 static std::atomic<bool> g_BookPatched{false};
 static uint32_t g_Last = 0;                              // the last added type
@@ -276,29 +276,32 @@ static void MatcherHook(GuestCtx* c) {
 }
 
 // ---- melody sounds ---------------------------------------------------------------------------------------------------
-// The sound plays through the song's host, a native song's sound (the type is swapped), whose stream then reads the
-// song's replay (song_audio.cpp). (A held note's sound would be a cleaner host, but the game keeps the notes' streams
-// in memory once played, so their files are not read again: §79k.) The result is a 16-byte handle (x8 = where it goes): pool index i8 at +0, slot i16
-// at +2 (-1 none), id u32 at +4; the sound is alive while the pool's object at that slot still has that id. The
-// presentation waits for the replay (OcarinaMgr+0x20, kind 0) to be gone; the host's stream is longer than the replay,
-// so the handle is let go when the replay ends.
-struct Replay { uint64_t lo = 0, hi = 0; int64_t endNs = 0; };
-static Replay g_Replay;                                  // (game thread only)
-static int64_t NowNs() { return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
+// f_8337b730(sound, type, kind) finds the sound "Melody_" + the type's name through the SLink search f_8045db00 and
+// plays it (kind 0: the presentation's replay, whose handle the presentation waits on). For an added song the type is
+// swapped for Zelda's Lullaby and, during the SLink search, Melody_ZeldaLullaby is pointed at the song's own sound, an
+// entry the mod adds to the ocarina BARS (song_audio.cpp, song_link.cpp): its markers drive the staff, its length the
+// presentation. Without it (the changed files not in effect) Zelda's Lullaby's sound plays.
+static thread_local const std::string* tl_SoundName;   // the song's own sound, for the SLink search below
+
+static void SoundSearchHook(GuestCtx* c) {
+    if (tl_SoundName && songlink::Redirect(c->x[0], *tl_SoundName)) tl_SoundName = nullptr;
+    o_SoundSearch(c);
+}
+
 static void MelodySoundHook(GuestCtx* c) {
-    const uint64_t out = c->x[8], kind = c->x[2];
+    const uint64_t kind = c->x[2];
     const songs::Song* s = songs::ByType((uint32_t)c->x[1]);
+    std::string own;
     if (s) {
         if (kind == 0) g_Matched = 0;                    // (its replay starts: the presentation switches answer 13)
         songaudio::Asked(s->type, kind);
-        c->x[1] = (uint64_t)(s->hostType >= 0 ? s->hostType : 0);
+        own = o_SoundSearch ? songaudio::SoundName(s->type) : std::string();
+        tl_SoundName = own.empty() ? nullptr : &own;
+        c->x[1] = 0;                                     // (Melody_ZeldaLullaby, redirected to the song's own sound)
     }
     o_MelodySound(c);
-    const float secs = s ? songaudio::Seconds(s->type) : 0.f;
-    if (s && kind == 0 && secs > 0 && GuestPtrOk(out)) {
-        g_Replay = {Q(out), Q(out + 8), NowNs() + (int64_t)(secs * 1e9)};
-        Log("[song] replay handle %016llx %016llx, ends in %.2f s\n", (unsigned long long)g_Replay.lo, (unsigned long long)g_Replay.hi, secs);
-    }
+    tl_SoundName = nullptr;
+    songlink::Restore();
 }
 
 // ---- the song effect -------------------------------------------------------------------------------------------------
@@ -317,22 +320,10 @@ static void PlayerMainHook(GuestCtx* c) {
     if (s && D(om + 0x220) == from) GWrite<uint32_t>(om + 0x220, t);
 }
 
-static void OmUpdateHook(GuestCtx* c) {
-    const uint64_t om = c->x[0];
-    if (g_Replay.endNs && NowNs() >= g_Replay.endNs) {
-        if (Q(om + 0x20) == g_Replay.lo && Q(om + 0x28) == g_Replay.hi) {
-            GWrite<int16_t>(om + 0x22, -1);
-            Log("[song] replay over: handle released\n");
-        }
-        g_Replay = {};
-    }
-    o_OmUpdate(c);
-}
-
 // ---- start -----------------------------------------------------------------------------------------------------------
 bool Start() {
     if (!g_Fn.Resolve({fMatcher, fBookGet, fBookList, fListCount, fScoreMatch, fMelodySound, fNew, fQueryType, fQueryOut,
-                       fOmUpdate, fPlayerMain}, "song")) {
+                       fSoundSearch, fPlayerMain}, "song")) {
         Log("[song] off\n");
         return false;
     }
@@ -350,7 +341,7 @@ bool Start() {
     o_MelodySound = hook::Install(g_Fn.Host(fMelodySound), MelodySoundHook, "melody sound f_8337b730");
     if (const char* v = getenv("MAJORA_EFFECT_FROM")) g_EffectOverride = atoi(v) % 13;   // (testing)
     o_PlayerMain = hook::Install(g_Fn.Host(fPlayerMain), PlayerMainHook, "player f_80609d00 (song effect)");
-    o_OmUpdate = hook::Install(g_Fn.Host(fOmUpdate), OmUpdateHook, "ocarina update f_832b4df0");
+    o_SoundSearch = hook::Install(g_Fn.Host(fSoundSearch), SoundSearchHook, "sound search f_8045db00");
     o_QueryType = hook::Install(g_Fn.Host(fQueryType), QueryTypeHook, "flow query f_82a7c980");
     o_Matcher = o_QueryType ? hook::Install(g_Fn.Host(fMatcher), MatcherHook, "song matcher f_832b7400") : nullptr;
     Log("[song] %zu songs %s\n", songs::All().size(), o_Matcher ? "on" : "off (hooks failed)");

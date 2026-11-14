@@ -15,7 +15,7 @@ fi
 MOD=$MAJORA_MOD_DIR
 COMMON=$ROOT/plugins/common/src
 ZSTD=$ROOT/third_party/zstd/lib
-SRCS="$HERE/src/layer.cpp $HERE/src/majora.cpp $HERE/src/mm_songs.cpp $HERE/src/songs_data.cpp $HERE/src/song_text.cpp $HERE/src/song_audio.cpp
+SRCS="$HERE/src/layer.cpp $HERE/src/majora.cpp $HERE/src/mm_songs.cpp $HERE/src/songs_data.cpp $HERE/src/song_text.cpp $HERE/src/song_audio.cpp $HERE/src/song_link.cpp
       $COMMON/hook.cpp $COMMON/platform.cpp $COMMON/gamefiles.cpp $COMMON/vfs.cpp $COMMON/byml.cpp $COMMON/evfl.cpp $COMMON/rstb.cpp $COMMON/msbt.cpp $COMMON/bwav.cpp"
 CSRCS="$ZSTD/common/entropy_common.c $ZSTD/common/error_private.c $ZSTD/common/fse_decompress.c
        $ZSTD/common/xxhash.c $ZSTD/common/zstd_common.c $ZSTD/decompress/huf_decompress.c

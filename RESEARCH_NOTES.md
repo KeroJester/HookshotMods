@@ -2495,3 +2495,50 @@ language) the presentation title works natively.**
   falls to the last case): wrong, the scan is exact.
 - **Test pitfall:** after notes that match nothing the ocarina stays out, so the next D-pad left puts it away (then the
   note buttons act as item buttons). tools/song_lines.sh: "+NOTES" plays without taking the ocarina out again.
+
+### §79m. Each song's own sound: the Goron Lullaby hang (MajoraMod 0.3.0)
+- **Symptom (user, Longshot):** the Goron Lullaby's replay "breaks" and the song hangs 10-15 s mid-replay. Headless:
+  the staff stopped after 4 of 8 notes, Link kept playing, the presentation lasted the host's whole 18.6 s stream (the
+  Serenade of Water, a warp song); the mod's early release (OM+0x22 = -1 when the replay ended) never ran because the
+  OcarinaMgr update is not called while the staff waits.
+- **The staff follows the sound's markers.** Each BARS entry's AMTA (v5) has a marker table at +0x50 (u32 count;
+  {u32 id, u32 name offset from that field, u32 start sample, u32 length}). Song streams carry one "UI" marker per note
+  (also "PlayNote:<key>" ones on some); the presentation reveals note i at UI marker i and waits for every note.
+  Serenade 5, Epona / Saria / Sun / Lullaby / Time / Prelude 6, Nocturne 7, Bolero 8. So every borrowed host with fewer
+  markers than the song has notes stalled (Goron 8 on Serenade 5; Sonata, Bossa Nova, Elegy 7 on 6), and the others
+  revealed notes at the host's rhythm. The ExampleMelody_* entries (songbook "listen") have the same markers.
+- **AMTA v5 layout:** +0x08 size, +0x10 DATA (+0x38: loudness floats), +0x14 MARK (+0x50), +0x18 MINF offset, +0x24
+  name (self-relative), +0x28 CRC32 of the name, strings last (the name twice, "UI", "PlayNote:..."). The MINF holds
+  the stream length in samples twice (MINF +0x18/+0x1c) and the UI times again as {u16 count, 0xffff, u32 times...}.
+- **BARS v0x0102:** "BARS", u32 size, BOM, version, u32 count; count CRC32s of the entry names (ascending); count
+  (AMTA offset, BWAV offset) pairs; AMTAs (4-aligned), then the prefetch BWAVs (64-aligned). Prefetch BWAV: same header
+  as the stream (CRC u32 at +8 not checked against the data), flag +0x0c = 1, per channel prefetch 14336 samples, data
+  offsets 0xc0 + c * 0x2000. Stream file: data at 0xc0 + c * align(bytes, 0x40). The stream path is
+  "content://Sound/Resource/Stream/" + the entry name + ".bwav" (string 0x83d54a48).
+- **SLink2 picks the BARS entry.** f_8337b730 searches "Melody_<Type>"; the f_8045db00 search does not take a BARS
+  name (searching "Ocarina_EponaSong" directly: no sound, the staff falls back to a timer, no stream open). The XLNK
+  (SLink2/slink2.Product.111.bslnk, version 0x22, size at +4, name table offset at +0x58 running to the end) refers to
+  the entry by one parameter u32 = 0x01000000 | offset of "Ocarina_<Type>" in the name table (one reference each:
+  Ocarina_ZeldaLullaby at +0x29b4c, WaterSerenade +0x29b64, EponaSong +0x296a0).
+- **MajoraMod (song_audio.cpp, song_link.cpp):**
+  - BARS: an entry "Ocarina_Majora<type>" per song (padded with '_' to its template's name length), its AMTA copied
+    from a native one with as many UI markers (6 Epona's Song, 7 Nocturne of Shadow, 8 Bolero of Fire) with the names,
+    CRC, length and UI times (MARK and MINF) set to the song's; prefetch BWAV and stream built from the rendered replay
+    (2 channels, the same mono data, DSP-ADPCM with Epona's Song's coefficients; the song's own opening, no host
+    prefetch). 756800 -> 912384 bytes (size table +9 x 20480).
+  - Stream files: vfs::RegisterNew(path, openAs, data): the open goes to the template's stream (same path length,
+    rewritten in place in the guest and put back) and the mod's bytes are served.
+  - SLink2: the names appended to the XLNK name table (size table +1024). During an added song's melody sound (type
+    swapped to 0), the search hook writes Melody_ZeldaLullaby's parameter in the loaded XLNK to the song's name and
+    the melody hook puts it back. The loaded XLNK is found once from the search's first argument (pointers followed up
+    to three deep to a header with the patched size and the expected parameter value).
+  - Gone: the host streams served per read, the OcarinaMgr release hook, hostType / hostPitch. The Inverted Song of
+    Time has its full 8.3 s replay again.
+- **Verified headless (shop save):** Goron Lullaby (8 notes revealed with the replay, D A B D A B A D from its own D,
+  ends at 7.9 s), Song of Healing (11-note replay), then a native Zelda's Lullaby (its own stream, "Excellent playing").
+- **Verified headless, all nine:** every song opens its own stream (log "reads the mod's own"), the staff shows all its
+  notes (7 for Sonata, Bossa Nova, Elegy; 8 for the Goron Lullaby) and the presentation ends with the replay. On the
+  user's save (Hyrule Field, no songs learned): Storm's notes do nothing, then the Goron Lullaby and the Inverted Song
+  of Time (full 9.6 s) play through.
+- **Longshot:** the BARS and SLink2 grow, so the first launch after updating plays vanilla (the size table is read
+  before the layer starts, §79j); the songs come back from the next launch.

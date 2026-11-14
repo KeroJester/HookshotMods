@@ -21,10 +21,8 @@ struct Song {
     const char* id;               // the type name ("HealingSong"): its murmur3 is the score book's MelodyType
     const char* english;          // for the log
     std::vector<int> notes;       // what the player plays: MIDI keys 62 D, 65 F, 69 A, 71 B, 74 HighD
-    std::vector<Note> replay;     // Majora's Mask 3D's replay of the song (its NA_BGM_OCA_* sequence)
-    // the native song whose sound it plays through (song_audio.cpp): one that opens on the same note and lasts long enough
-    int hostType;
-    const char* hostPitch;        // (unused: a held note's sound cannot be a host, §79k)
+    std::vector<Note> replay;     // Majora's Mask 3D's replay of the song (its NA_BGM_OCA_* sequence): its own sound,
+                                  // whose first notes.size() notes are the staff's (song_audio.cpp)
     uint32_t effectFrom;          // the native song whose effect it shows (§79i)
     std::vector<Text> texts;
 };
