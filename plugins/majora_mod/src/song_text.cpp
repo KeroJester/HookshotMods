@@ -27,7 +27,7 @@ static const Lang kLangs[] = {
     {"TWzh", ""},
 };
 constexpr const char* kMsbt = "LayoutMsg/Ocarina_00.msbt";
-constexpr uint32_t kArchiveExtra = 8192;               // (size table: the archive grows by the texts)
+constexpr uint32_t kArchiveExtra = 4096;               // (size table: the archive grows by the texts)
 
 static void Tag(Bytes& out, uint16_t group, uint16_t tag, const uint8_t* data, uint16_t n) {
     const uint8_t h[7] = {0x0E, (uint8_t)group, (uint8_t)(group >> 8), (uint8_t)tag, (uint8_t)(tag >> 8), (uint8_t)n, (uint8_t)(n >> 8)};

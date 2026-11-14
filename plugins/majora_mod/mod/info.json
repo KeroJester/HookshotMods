@@ -1,8 +1,8 @@
 {
   "name": "MajoraMod",
   "author": "KeroJester",
-  "version": "0.1.1",
-  "description": "Majora's Mask content for Ocarina of Time. So far: the Song of Healing (B A F B A F on the ocarina) as a song of its own. Start the game from Hookshot Mods for it to load.",
+  "version": "0.2.0",
+  "description": "Majora's Mask content for Ocarina of Time. So far: all of Majora's Mask's songs as songs of their own (Song of Healing, Song of Soaring, Sonata of Awakening, Goron Lullaby, New Wave Bossa Nova, Elegy of Emptiness, Oath to Order, Inverted Song of Time, Song of Double Time), with their own replay, name and caption. Start the game from Hookshot Mods for it to load.",
   "category": "Gameplay",
   "homepage": "https://github.com/KeroJester/HookshotMods",
   "code": {

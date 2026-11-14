@@ -62,7 +62,6 @@ enum : uint64_t {
     fListCount = 0x80021a20,    // (list) -> count
     fScoreMatch = 0x832b8510,   // (score, ring, ring length) -> bool
     fMelodySound = 0x8337b730,  // (sound, type, kind) -> melody sound by name ("Melody_" + type name), handle via x8
-    fSoundSearch = 0x8045db00,  // (SLink user + 0x58 -> +0x18, &asset out, const char* name) -> bool: a sound by name
     fNew = 0x8005eca0,          // operator new(align, size) on the default heap
     fQueryType = 0x82a7c980,    // flow query EventQueryMelodyTypeForNormal (x0 node): writes the played type (13 -> -1)
     fQueryOut = 0x80854e00,     // (node + 0x20, value): a query node's output
@@ -74,7 +73,7 @@ enum : uint64_t {
 // entry is raised; the mod makes copies for empty slots as a fallback.
 constexpr uint64_t kBookSingleton = 0x84e8c7a8;          // * score book holder
 static guest::Functions g_Fn;
-static GuestFn o_Matcher, o_MelodySound, o_QueryType, o_OmUpdate, o_PlayerMain, o_SoundSearch;
+static GuestFn o_Matcher, o_MelodySound, o_QueryType, o_OmUpdate, o_PlayerMain;
 static std::atomic<uint64_t> g_Om{0};
 static std::atomic<bool> g_BookPatched{false};
 static uint32_t g_Last = 0;                              // the last added type
@@ -144,16 +143,30 @@ static bool PatchScoreBook(gamefiles::Bytes& file) {
     return true;
 }
 
-// The list's own array of score pointers (no parent chain: checked), and its count
-static uint64_t ScoreSlots(GuestCtx* c, uint32_t& count) {
+// The score list (0 if not loaded) and its count. A list can have a parent ([list+0x18]) whose entries come first.
+static uint64_t ScoreList(GuestCtx* c, uint32_t& count) {
     count = 0;
     const uint64_t holder = Q(kBookSingleton);
     if (!holder) return 0;
     const uint64_t book = g_Fn.Call(c, fBookGet, holder + 0x20);
     const uint64_t list = book ? g_Fn.Call(c, fBookList, book) : 0;
-    if (!GuestPtrOk(list) || Q(list + 0x18)) return 0;
+    if (!GuestPtrOk(list)) return 0;
     count = (uint32_t)g_Fn.Call(c, fListCount, list);
-    return Q(list + 0x10);
+    return list;
+}
+
+// Where the score pointer for a list position is, as the matcher indexes the list: position < the parent's count:
+// look there; else position - that count in the list's own array at [list+0x10]. 0 when not found.
+static uint64_t SlotAddr(GuestCtx* c, uint64_t list, uint32_t pos) {
+    for (int depth = 0; depth < 8 && GuestPtrOk(list); depth++) {
+        const uint64_t parent = Q(list + 0x18);
+        if (!parent) return Q(list + 0x10) ? Q(list + 0x10) + 8ull * pos : 0;
+        const uint32_t n = (uint32_t)g_Fn.Call(c, fListCount, parent);
+        if (pos < n) { list = parent; continue; }
+        pos -= n;
+        return Q(list + 0x10) ? Q(list + 0x10) + 8ull * pos : 0;
+    }
+    return 0;
 }
 
 static uint64_t MakeScore(GuestCtx* c, uint64_t model, const std::vector<int>& keys, uint32_t type) {
@@ -170,28 +183,45 @@ static uint64_t MakeScore(GuestCtx* c, uint64_t model, const std::vector<int>& k
     return obj;
 }
 
-// The list's slots once the book is loaded: empty ones filled (fallback), each song's type written. 0 if not ready.
-static uint64_t Scores(GuestCtx* c) {
-    static uint64_t s_Ready;
+// The songs' score slots once the book is loaded (index = type): empty ones filled (fallback), each song's type
+// written. Empty if not ready.
+static std::vector<uint64_t> g_Slot;                     // (game thread only)
+static bool Scores(GuestCtx* c) {
+    static uint64_t s_List;
     uint32_t count = 0;
-    const uint64_t slots = ScoreSlots(c, count);
-    if (!GuestPtrOk(slots) || count <= g_Last) return 0;
-    if (slots == s_Ready) return slots;
-    const uint64_t model = Q(slots + 8 * 12);
-    if (!GuestPtrOk(model)) return 0;
-    if (!Q(slots + 8 * 13)) GWrite<uint64_t>(slots + 8 * 13, MakeScore(c, model, std::vector<int>(9, 62), kTypeNone));
+    const uint64_t list = ScoreList(c, count);
+    static int s_NoList;
+    if (!list && s_NoList++ < 3) Log("[song] no score list yet (holder %#llx)\n", (unsigned long long)Q(kBookSingleton));
+    if (!list || count <= g_Last) {
+        static int s_Logged;
+        if (list && s_Logged++ < 3) Log("[song] the score list has %u entries (needs %u)\n", count, g_Last + 1);
+        return false;
+    }
+    if (list == s_List && !g_Slot.empty()) return true;
+    const uint64_t model = Q(SlotAddr(c, list, 12));
+    if (!GuestPtrOk(model)) {
+        static int s_NoModel;
+        if (s_NoModel++ < 3) Log("[song] score list %#llx (%u entries, parent %#llx): no score at 12\n", (unsigned long long)list, count, (unsigned long long)Q(list + 0x18));
+        return false;
+    }
+    g_Slot.assign(g_Last + 1, 0);
+    for (uint32_t pos = 13; pos <= g_Last; pos++) g_Slot[pos] = SlotAddr(c, list, pos);
+    if (g_Slot[13] && !Q(g_Slot[13])) GWrite<uint64_t>(g_Slot[13], MakeScore(c, model, std::vector<int>(9, 62), kTypeNone));
     for (const songs::Song& s : songs::All()) {
-        uint64_t score = Q(slots + 8ull * s.type);
+        const uint64_t slot = g_Slot[s.type];
+        if (!slot) { Log("[song] no score slot for %s\n", s.english); continue; }
+        uint64_t score = Q(slot);
         if (!score) {
             score = MakeScore(c, model, s.notes, s.type);
-            GWrite<uint64_t>(slots + 8ull * s.type, score);
+            GWrite<uint64_t>(slot, score);
             Log("[song] score object made for %s\n", s.english);
         }
         if (GuestPtrOk(score) && D(score + 0x60) != s.type) GWrite<uint32_t>(score + 0x60, s.type);
     }
-    s_Ready = slots;
-    Log("[song] %zu song scores ready\n", songs::All().size());
-    return slots;
+    s_List = list;
+    Log("[song] %zu song scores ready (list %#llx, %u entries, parent %#llx)\n", songs::All().size(),
+        (unsigned long long)list, count, (unsigned long long)Q(list + 0x18));
+    return true;
 }
 
 // ---- the ocarina event flows -------------------------------------------------------------------------------------------
@@ -215,11 +245,11 @@ static bool PatchFlow(const Flow& flow, gamefiles::Bytes& file) {
 static void MatcherHook(GuestCtx* c) {
     const uint64_t om = c->x[0], out = c->x[1];
     g_Om = om;
-    const uint64_t slots = g_BookPatched ? Scores(c) : 0;
+    const bool ready = g_BookPatched && Scores(c);
     o_Matcher(c);
-    if ((c->x[0] & 1) || !slots || !GuestPtrOk(out)) return;
+    if ((c->x[0] & 1) || !ready || !GuestPtrOk(out)) return;
     for (const songs::Song& s : songs::All()) {
-        const uint64_t score = Q(slots + 8ull * s.type);
+        const uint64_t score = s.type < g_Slot.size() && g_Slot[s.type] ? Q(g_Slot[s.type]) : 0;
         if (!GuestPtrOk(score)) continue;
         for (auto [ring, len] : {std::pair<uint64_t, uint64_t>{0x158, 0x25c}, {0x138, 0x258}}) {
             if (g_Fn.Call(c, fScoreMatch, score, om + ring, D(om + len)) & 1) {
@@ -234,45 +264,23 @@ static void MatcherHook(GuestCtx* c) {
 }
 
 // ---- melody sounds ---------------------------------------------------------------------------------------------------
-// The sound plays through the song's host (a native song's sound: the type is swapped; or a held note's: the sound's
-// name is swapped for "Ocarina_<pitch>" in the SLink search f_8045db00 that f_8337b730 makes), whose stream then reads
-// the song's replay (song_audio.cpp). The result is a 16-byte handle (x8 = where it goes): pool index i8 at +0, slot i16
+// The sound plays through the song's host, a native song's sound (the type is swapped), whose stream then reads the
+// song's replay (song_audio.cpp). (A held note's sound would be a cleaner host, but the game keeps the notes' streams
+// in memory once played, so their files are not read again: §79k.) The result is a 16-byte handle (x8 = where it goes): pool index i8 at +0, slot i16
 // at +2 (-1 none), id u32 at +4; the sound is alive while the pool's object at that slot still has that id. The
 // presentation waits for the replay (OcarinaMgr+0x20, kind 0) to be gone; the host's stream is longer than the replay,
 // so the handle is let go when the replay ends.
 struct Replay { uint64_t lo = 0, hi = 0; int64_t endNs = 0; };
 static Replay g_Replay;                                  // (game thread only)
 static int64_t NowNs() { return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
-static thread_local uint64_t tl_SoundName;               // guest string: the name the SLink search should use
-static std::map<std::string, uint64_t> g_Names;          // host stream -> guest string (game thread only)
-
-static uint64_t GuestName(GuestCtx* c, const std::string& name) {
-    auto it = g_Names.find(name);
-    if (it != g_Names.end()) return it->second;
-    const uint64_t p = g_Fn.Call(c, fNew, 8, name.size() + 1);
-    if (!GuestPtrOk(p)) return 0;
-    memcpy(GPtr(p), name.c_str(), name.size() + 1);
-    return g_Names[name] = p;
-}
-
-static void SoundSearchHook(GuestCtx* c) {
-    if (tl_SoundName) c->x[2] = tl_SoundName;
-    o_SoundSearch(c);
-}
-
 static void MelodySoundHook(GuestCtx* c) {
     const uint64_t out = c->x[8], kind = c->x[2];
     const songs::Song* s = songs::ByType((uint32_t)c->x[1]);
     if (s) {
         songaudio::Asked(s->type, kind);
-        if (s->hostType >= 0) c->x[1] = (uint64_t)s->hostType;
-        else {
-            c->x[1] = 0;                                    // (any native type: its name is replaced in the search)
-            if (o_SoundSearch) tl_SoundName = GuestName(c, songaudio::HostStream(*s));
-        }
+        c->x[1] = (uint64_t)(s->hostType >= 0 ? s->hostType : 0);
     }
     o_MelodySound(c);
-    tl_SoundName = 0;
     const float secs = s ? songaudio::Seconds(s->type) : 0.f;
     if (s && kind == 0 && secs > 0 && GuestPtrOk(out)) {
         g_Replay = {Q(out), Q(out + 8), NowNs() + (int64_t)(secs * 1e9)};
@@ -311,7 +319,7 @@ static void OmUpdateHook(GuestCtx* c) {
 // ---- start -----------------------------------------------------------------------------------------------------------
 bool Start() {
     if (!g_Fn.Resolve({fMatcher, fBookGet, fBookList, fListCount, fScoreMatch, fMelodySound, fNew, fQueryType, fQueryOut,
-                       fOmUpdate, fPlayerMain, fSoundSearch}, "song")) {
+                       fOmUpdate, fPlayerMain}, "song")) {
         Log("[song] off\n");
         return false;
     }
@@ -326,7 +334,6 @@ bool Start() {
         vfs::Register(std::string(f.file) + ".zs", [&f](gamefiles::Bytes& file) { return PatchFlow(f, file); }, rstb::Applied);
         rstb::Require(f.file, f.vanillaRoom + kFlowExtraRoom);
     }
-    o_SoundSearch = hook::Install(g_Fn.Host(fSoundSearch), SoundSearchHook, "sound search f_8045db00");
     o_MelodySound = hook::Install(g_Fn.Host(fMelodySound), MelodySoundHook, "melody sound f_8337b730");
     if (const char* v = getenv("MAJORA_EFFECT_FROM")) g_EffectOverride = atoi(v) % 13;   // (testing)
     o_PlayerMain = hook::Install(g_Fn.Host(fPlayerMain), PlayerMainHook, "player f_80609d00 (song effect)");

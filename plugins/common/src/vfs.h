@@ -17,8 +17,9 @@ using Patch = std::function<bool(gamefiles::Bytes& file)>;
 // grow beyond their resource size table entry).
 void Register(const std::string& romfsRel, Patch patch, std::function<bool()> when = nullptr);
 
-// A file whose content depends on the moment: live() runs at each open of that path (on the opening thread; keep it
-// quick) and returns the bytes to serve for this open, or null for the file as it would be otherwise.
+// A file whose content depends on the moment: live() runs at each read of that path (on the reading thread; keep it
+// quick) and returns the bytes to serve for that read, or null for the file as it is. Asked per read, not per open,
+// because the game keeps some files open (the sound streams of single notes). The bytes must keep the file's size.
 using Live = std::function<std::shared_ptr<const gamefiles::Bytes>()>;
 void RegisterLive(const std::string& romfsRel, Live live);
 

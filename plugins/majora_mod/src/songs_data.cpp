@@ -3,6 +3,8 @@
 // Majora's Mask (RESEARCH_NOTES.md §79k). Captions are the mod's own text. Languages Majora's Mask was never released
 // in show the English name.
 #include "songs.h"
+#include <algorithm>
+#include <cstdlib>
 
 namespace songs {
 
@@ -44,7 +46,7 @@ static std::vector<Song> Make() {
         // NA_BGM_OCA_BIGWING_SEQ (its doubled track left out)
         {{0.0f, 65, 84, 0.325f}, {0.3f, 71, 80, 0.2938f}, {0.6f, 74, 94, 0.55f}, {1.2f, 65, 73, 0.35f},
          {1.5f, 71, 76, 0.2938f}, {1.8f, 74, 96, 1.7625f}},
-        -1, "F", 4,
+        2, nullptr, 4,   // (Saria's Song: it opens on F, then a short A before the replay takes over)
         {{"en", "Song of Soaring", kEnThe, "A melody that carries you on great wings to places you have been before."},
          {"fr", "Chant de l'envol", kFrM, "Une mélodie qui vous porte sur de grandes ailes vers les lieux déjà visités."},
          {"es", "Canción de vuelo", kEsF, "Una melodía que te lleva con grandes alas a los lugares que ya has visitado."},
@@ -55,7 +57,7 @@ static std::vector<Song> Make() {
         // NA_BGM_OCA_AWAKING_SEQ
         {{0.0f, 74, 102, 0.2394f}, {0.3191f, 71, 100, 0.2327f}, {0.6383f, 74, 100, 0.2726f}, {0.9574f, 71, 100, 0.6383f},
          {1.5957f, 62, 102, 0.6449f}, {2.234f, 69, 99, 1.2434f}, {3.5106f, 62, 92, 1.2101f}},
-        -1, "HighD", 2,
+        1, nullptr, 2,   // (Epona's Song: it opens on a held high D)
         {{"en", "Sonata of Awakening", kEnThe, "A melody that awakens those sunk in a deep slumber."},
          {"fr", "Sonate de l'éveil", kFrF, "Une mélodie qui réveille ceux qui sont plongés dans un profond sommeil."},
          {"es", "Sonata del despertar", kEsF, "Una melodía que despierta a quienes duermen un sueño profundo."},
@@ -66,7 +68,7 @@ static std::vector<Song> Make() {
         // NA_BGM_OCA_LULLABY_SEQ
         {{0.0f, 62, 88, 0.7631f}, {0.6977f, 69, 90, 0.6042f}, {1.3643f, 71, 97, 0.4167f}, {2.0095f, 62, 102, 0.6681f},
          {2.6992f, 69, 96, 0.6528f}, {3.3658f, 71, 90, 0.5444f}, {4.011f, 69, 95, 0.7112f}, {4.7006f, 62, 86, 1.8403f}},
-        -1, "D", 1,
+        8, nullptr, 1,   // (the Serenade of Water: it opens on a held D, the ocarina alone)
         {{"en", "Goron Lullaby", kEnThe, "A Goron lullaby that lulls even the mightiest to sleep."},
          {"fr", "Berceuse des Gorons", kFrF, "Une berceuse goron qui endort même les plus robustes."},
          {"es", "Nana goron", kEsF, "Una nana goron que adormece incluso a los más fuertes."},
@@ -77,7 +79,7 @@ static std::vector<Song> Make() {
         // NA_BGM_OCA_TIDE_SEQ
         {{0.0f, 71, 102, 1.0625f}, {1.0714f, 74, 98, 0.2232f}, {1.2857f, 71, 94, 0.1607f}, {1.5f, 69, 92, 1.2143f},
          {2.7857f, 65, 98, 0.2232f}, {3.0f, 71, 98, 0.2143f}, {3.2143f, 69, 94, 3.0357f}},
-        -1, "B", 5,
+        0, nullptr, 5,   // (Zelda's Lullaby: it opens on B)
         {{"en", "New Wave Bossa Nova", kEnThe, "A gentle melody of the waves, sung by a Zora to her eggs."},
          {"fr", "Bossa-nova des flots", kFrF, "Une douce mélodie des flots, chantée par une Zora à ses œufs."},
          {"es", "Bossanova de las olas", kEsF, "Una suave melodía de las olas que una zora canta a sus huevos."},
@@ -88,7 +90,7 @@ static std::vector<Song> Make() {
         // NA_BGM_OCA_SHELL_SEQ
         {{0.0f, 69, 112, 1.3393f}, {1.4286f, 71, 110, 0.7143f}, {2.1428f, 69, 112, 0.625f}, {2.8571f, 65, 108, 0.3571f},
          {3.2143f, 69, 108, 0.3571f}, {3.5714f, 74, 120, 0.625f}, {4.2857f, 71, 115, 1.4286f}},
-        -1, "A", 3,
+        4, nullptr, 3,   // (the Song of Time: it opens on a held A)
         {{"en", "Elegy of Emptiness", kEnThe, "A mournful melody that leaves behind an empty shell of yourself."},
          {"fr", "Hymne du vide", kFrMV, "Une mélodie mélancolique qui laisse derrière vous une enveloppe vide."},
          {"es", "Elegía al vacío", kEsF, "Una melodía melancólica que deja atrás un cascarón vacío de ti mismo."},
@@ -99,7 +101,7 @@ static std::vector<Song> Make() {
         // NA_BGM_OCA_PLEDGE_SEQ (its doubled track left out)
         {{0.0f, 69, 124, 1.6216f}, {1.6216f, 65, 108, 0.8108f}, {2.4324f, 62, 98, 0.8108f}, {3.2432f, 65, 98, 0.8108f},
          {4.054f, 69, 114, 0.8108f}, {4.8648f, 74, 120, 1.5203f}},
-        -1, "A", 3,
+        4, nullptr, 3,   // (the Song of Time)
         {{"en", "Oath to Order", kEnThe, "A solemn call that summons the four giants."},
          {"fr", "Ode de l'appel", kFrFV, "Un appel solennel qui invoque les quatre géants."},
          {"es", "Oda al orden", kEsF, "Una llamada solemne que invoca a los cuatro gigantes."},
@@ -107,11 +109,12 @@ static std::vector<Song> Make() {
          {"it", "Ode all'ordine", kItFV, "Un richiamo solenne che invoca i quattro giganti."},
          {"ja", "{誓|ちか}いの{号令|ごうれい}", nullptr, "四人の巨人を呼び寄せる、おごそかな呼びかけ。"}}});
     s.push_back({21, "InvertedSongOfTime", "Inverted Song of Time", {F, D, A, F, D, A},
-        // NA_BGM_OCA_TIME_SPEED_SEQ; the last note held 0.66 s instead of 1.9 s (the host, one held F, lasts 7.2 s)
+        // NA_BGM_OCA_TIME_SPEED_SEQ, its descending tail tightened (from 8.3 s to 6.2 s: the host, Saria's Song, lasts
+        // 6.28 s; it is the only native song that opens on F)
         {{0.0057f, 65, 110, 0.5455f}, {0.5511f, 62, 127, 1.0909f}, {1.642f, 69, 112, 0.4773f}, {2.1875f, 65, 112, 0.5455f},
-         {2.7329f, 62, 122, 1.0909f}, {3.8238f, 69, 95, 0.4545f}, {4.3688f, 64, 112, 0.75f}, {5.1188f, 63, 112, 0.25f},
-         {5.3688f, 62, 112, 0.25f}, {5.6188f, 61, 112, 0.25f}, {5.8688f, 60, 95, 0.5f}, {6.3686f, 59, 106, 0.66f}},
-        -1, "F", 4,
+         {2.7329f, 62, 122, 1.0909f}, {3.8238f, 69, 95, 0.4545f}, {4.3688f, 64, 112, 0.45f}, {4.82f, 63, 112, 0.2f},
+         {5.02f, 62, 112, 0.2f}, {5.22f, 61, 112, 0.2f}, {5.42f, 60, 95, 0.35f}, {5.77f, 59, 106, 0.3f}},
+        2, nullptr, 4,   // (Saria's Song)
         {{"en", "Inverted Song of Time", kEnThe, "The Song of Time played backward. It slows the flow of time."},
          {"fr", "Chant du temps inversé", kFrM, "Le Chant du temps joué à l'envers. Il ralentit le cours du temps."},
          {"es", "Canción del tiempo invertida", kEsF, "La canción del tiempo tocada al revés. Ralentiza el paso del tiempo."},
@@ -138,7 +141,11 @@ static std::vector<Song> Make() {
 }
 
 const std::vector<Song>& All() {
-    static const std::vector<Song> s = Make();
+    static const std::vector<Song> s = [] {
+        std::vector<Song> v = Make();
+        if (const char* n = getenv("MAJORA_SONGS")) v.resize(std::min(v.size(), (size_t)atoi(n)));   // (testing)
+        return v;
+    }();
     return s;
 }
 

@@ -2437,16 +2437,39 @@ language) the presentation title works natively.**
     (score book, flows, the 16 message archives) wait for it: on Longshot the first launch after installing runs
     vanilla (ocarina works, no Song of Healing) and everything is active from the next launch.
 
-### §79k. All of Majora's Mask's songs (types 14..22) — in progress
-- Types: 14 Healing, 15 Soaring, 16 Sonata, 17 Goron Lullaby, 18 Bossa Nova, 19 Elegy, 20 Oath to Order, 21 Inverted
-  Song of Time, 22 Double Time (plugins/majora_mod/src/songs_data.cpp). Replays: MM3D NA_BGM_OCA_{CURE,BIGWING,AWAKING,
-  LULLABY,TIDE,SHELL,PLEDGE,TIME_SPEED,TIME_JUMP}_SEQ (doubled tracks dropped; Inverted's last note shortened to fit).
-- Names: en/fr/es from MM3D's message files (0x1b72..0x1b7f "You played the ..."); de/it/ja not verified.
-- French/Italian grammar tags: params [gender][elision][article][1]; fr elided 01 04 00 01 / 02 04 01 01, it 02 03 03 01;
-  Italian titles also carry tag 201.13; Japanese furigana tag = group 0 tag 0, u16 base chars, u16 reading bytes, reading.
-- Audio hosts: the BARS prefetch (0.3 s) is the host's, so a host must open on the song's first note. Single-note streams
-  Ocarina_<pitch> (7.2 s, same BARS) are ideal: the melody sound's SLink search f_8045db00(x2 = name) gets
-  "Ocarina_<pitch>" instead. Healing -> ZeldaLullaby, Double Time -> TimeSong (longer than 7.2 s). Warp songs are
-  bad hosts (Bolero/Minuet open with low backing).
-- Status: builds; all nine replays built and checked offline (notes in order, smooth splice); in-game test of the
-  name swap and presentations not yet confirmed.
+### §79k. All of Majora's Mask's songs (types 14..22)
+- **Types** (plugins/majora_mod/src/songs_data.cpp): 14 Healing, 15 Soaring, 16 Sonata of Awakening, 17 Goron Lullaby,
+  18 New Wave Bossa Nova, 19 Elegy of Emptiness, 20 Oath to Order, 21 Inverted Song of Time, 22 Song of Double Time.
+  Score book: entries 12, 13 placeholders, then one per song (23 entries; the game makes all 23 objects, list has no
+  parent; size table 7768 + 3 x 8192). Each entry's MelodyType = murmur3 of the type name (verified: "HealingSong"
+  470802952, "ScarecrowSong" 514990477, note "HighD" 825411668).
+- **Replays:** MM3D's NA_BGM_OCA_{CURE, BIGWING (Soaring), AWAKING (Sonata), LULLABY (Goron; LULLABY_HALF = the
+  intro), TIDE (Bossa Nova), SHELL (Elegy), PLEDGE (Oath), TIME_SPEED (Inverted), TIME_JUMP (Double Time)}_SEQ,
+  read with mod_manager cseq. BIGWING and PLEDGE double every note on a second track (dropped). Keys 59..77 all have
+  recordings (Ocarina_LowB .. Ocarina_HighF).
+- **Names:** en / fr / es are MM3D's own (message/us/{use,usf,uss}.gmsg: entries 0x14-byte {u16 id, .., u32 offset,
+  u32 length}, UTF-8 text with 0x7f control codes; "You played the ..." = 0x1b72 Sonata, 0x1b73 Goron Lullaby, 0x1b74
+  Bossa Nova, 0x1b75 Elegy, 0x1b76 Oath, 0x1b79 Healing, 0x1b7b Soaring, 0x1b7e Inverted, 0x1b7f Double Time, 0x1b80
+  Lullaby Intro). de / it / ja are not verified against Majora's Mask.
+- **Grammar tags** (title = 0E C9 00 00 00 04 00 + 4 parameter bytes): fr masculine 01 00 00 01, masculine elided
+  ("l'Esprit") 01 04 00 01, feminine 02 01 01 01, feminine elided ("l'Épée") 02 04 01 01; es feminine 02 01 01 01; de
+  feminine 02 01 01 01, neuter 03 02 02 01; it feminine 02 02 02 01, feminine elided ("l'Ode") 02 03 03 01, and every
+  Italian title also has an empty tag 201.13 after it; en "the" 00 01 ff 01. Japanese reading aids: tag group 0 tag
+  0, data u16 base characters, u16 reading bytes, reading (UTF-8), placed before the kanji. Languages Majora's Mask
+  never shipped in get the English name with no tag (EUpl's titles carry a declension tag 201.10 with word forms:
+  copying one onto another name would be wrong).
+- **Hosts:** the BARS prefetch (0.3 s) is the host's own, so a host must open on the song's first note. Single-note
+  streams (Ocarina_<pitch>) looked ideal (the melody sound's SLink search f_8045db00(x2 = name) can be pointed at
+  "Ocarina_F"; it works), but the game reads a note's whole stream (197 KB, two reads) when the note is played and
+  keeps it: the replay then plays from that copy and the file is never read again (traced). Native song streams are
+  read at each play. So every song has a native host: B -> Zelda's Lullaby (Healing, Bossa Nova), high D -> Epona's
+  Song (Sonata), D -> Serenade of Water (Goron Lullaby; pure ocarina D, no backing), A -> Song of Time (Elegy, Oath,
+  Double Time), F -> Saria's Song (Soaring, Inverted; it plays F then a short A inside its 0.3 s: the only native song
+  opening on F; Bolero and Minuet open with heavy low backing). The Inverted Song's tail is tightened to fit Saria's
+  6.28 s.
+- **vfs::RegisterLive is decided per read** (not per open), and the replay is served for its whole length.
+- **Effects** (effectFrom): Healing 0 (pink), Soaring 4 (blue tunnel), Sonata 2 (green leaves), Goron 1 (warm glow),
+  Bossa Nova 5, Elegy 3, Oath 3, Inverted 4, Double Time 4.
+- **Test pitfall:** in zsh, $P in "$($P args)" is not split: the note input lines came out empty and the songs were
+  never played (it looked like a broken ocarina). Use scratchpad tools/song_lines.sh. Also: /tmp is RAM (16 GB) and
+  each run's screenshots take hundreds of MB: delete old runs.

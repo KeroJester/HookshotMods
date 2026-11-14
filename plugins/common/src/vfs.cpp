@@ -9,6 +9,7 @@
 #include "hook.h"
 #include "platform.h"
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <condition_variable>
 #include <memory>
@@ -32,6 +33,7 @@ static std::vector<std::pair<std::string, Live>> g_Live;   // (lower-case path, 
 static std::mutex g_Mu;
 static std::condition_variable g_Made;
 static std::unordered_map<uint64_t, std::shared_ptr<const Bytes>> g_Open;   // FileHandle -> served copy
+static std::unordered_map<uint64_t, const Live*> g_LiveOpen;           // FileHandle -> its live (asked at each read)
 
 typedef void (*MarkWrittenFn)(const void* p, size_t n);
 static MarkWrittenFn g_MarkWritten;
@@ -95,11 +97,9 @@ static void OpenHook(GuestCtx* c) {
     const std::string key = Key(path);
     for (auto& [k, live] : g_Live) {
         if (k != key) continue;
-        if (auto d = live()) {
-            std::lock_guard<std::mutex> lk(g_Mu);
-            g_Open[GRead<uint64_t>(outp)] = std::move(d);
-            return;
-        }
+        std::lock_guard<std::mutex> lk(g_Mu);
+        g_LiveOpen[GRead<uint64_t>(outp)] = &live;   // (the game may keep the file open: asked again at each read)
+        return;
     }
     std::unique_lock<std::mutex> lk(g_Mu);
     Entry* e = Find(key);
@@ -119,9 +119,24 @@ static void OpenHook(GuestCtx* c) {
 }
 
 static std::shared_ptr<const Bytes> Served(uint64_t handle) {
-    std::lock_guard<std::mutex> lk(g_Mu);
-    auto it = g_Open.find(handle);
-    return it == g_Open.end() ? nullptr : it->second;
+    const Live* live = nullptr;
+    {
+        std::lock_guard<std::mutex> lk(g_Mu);
+        auto it = g_Open.find(handle);
+        if (it != g_Open.end()) return it->second;
+        auto lt = g_LiveOpen.find(handle);
+        if (lt == g_LiveOpen.end()) return nullptr;
+        live = lt->second;
+    }
+    return (*live)();                     // (outside the lock: it may log)
+}
+static void TraceLive(uint64_t handle, int64_t off, uint64_t size) {   // (development: MAJORA_TRACE_LIVE)
+    static const bool on = getenv("MAJORA_TRACE_LIVE") != nullptr;
+    static int n;
+    if (!on || n >= 400) return;
+    { std::lock_guard<std::mutex> lk(g_Mu); if (!g_LiveOpen.count(handle)) return; }
+    n++;
+    Log("[vfs] live read %#llx off %lld size %llu\n", (unsigned long long)handle, (long long)off, (unsigned long long)size);
 }
 
 static uint64_t Copy(const Bytes& d, int64_t off, uint64_t buf, uint64_t size) {
@@ -133,12 +148,14 @@ static uint64_t Copy(const Bytes& d, int64_t off, uint64_t buf, uint64_t size) {
 }
 
 static void Read4Hook(GuestCtx* c) {      // ReadFile(FileHandle, off, buf, size) -> Result
+    TraceLive(c->x[0], (int64_t)c->x[1], c->x[3]);
     auto d = Served(c->x[0]);
     if (!d) return o_Read4(c);
     uint64_t want = c->x[3], n = Copy(*d, (int64_t)c->x[1], c->x[2], want);
     c->x[0] = n == want ? 0 : 0x2EE202;
 }
 static void ReadN(GuestCtx* c, GuestFn orig) {   // ReadFile(u64* read, FileHandle, off, buf, size[, option])
+    TraceLive(c->x[1], (int64_t)c->x[2], c->x[4]);
     auto d = Served(c->x[1]);
     if (!d) return orig(c);
     uint64_t n = Copy(*d, (int64_t)c->x[2], c->x[3], c->x[4]);
@@ -160,6 +177,7 @@ static void CloseHook(GuestCtx* c) {
     o_Close(c);
     std::lock_guard<std::mutex> lk(g_Mu);
     g_Open.erase(h);
+    g_LiveOpen.erase(h);
 }
 
 bool Start() {

@@ -2,13 +2,11 @@
 // startup from the game's own single-note recordings (Sound/Resource/Stream/Ocarina_<pitch>.bwav), following Majora's
 // Mask 3D's replay sequences (start, key, velocity and length of each note; songs.cpp).
 //
-// Each plays through a host sound: a native song's (the melody sound for the song asks for that type) or one held
-// note's (the melody sound's name is swapped for "Ocarina_<pitch>", mm_songs.cpp). The next time the game opens the
-// host's stream file after that, it reads ours instead. The host's BARS prefetch (header and first 14336 samples, held
+// Each plays through a host sound: a native song's (the melody sound for the song asks for that type, mm_songs.cpp).
+// While the replay plays, reads of the host's stream file return ours (decided per read). The host's BARS prefetch (header and first 14336 samples, held
 // in memory) stays the host's, so the built stream keeps the host's format exactly: same channels, coefficients, sample
-// count and data offsets. The prefetch's 0.3 s are the host's own, so a host opens on the song's first note: a held
-// note's recording is the very one the song's first note is made from; ours takes over after it with a short
-// crossfade. The rest of the host's length is silence (the presentation is let go when ours ends).
+// count and data offsets. The prefetch's 0.3 s are the host's own, so a host opens on the song's first note; ours takes
+// over after it with a short crossfade. The rest of the host's length is silence (the presentation is let go when ours ends).
 #include "song_audio.h"
 #include "bwav.h"
 #include "gamefiles.h"
@@ -42,7 +40,8 @@ struct Built { std::shared_ptr<const Bytes> stream; float seconds = 0; };
 static std::map<uint32_t, Built> g_Built;          // song type -> its stream (filled by the worker)
 static std::mutex g_Mu;
 static std::atomic<uint32_t> g_PendingType{0};
-static std::atomic<int64_t> g_PendingUntil{0};     // steady-clock ns: a melody sound for that song was asked for
+static std::atomic<int64_t> g_PendingUntil{0};     // steady-clock ns: until then, that song's host reads its replay
+static std::atomic<bool> g_Logged{false};
 
 static int64_t Now() { return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
 
@@ -172,7 +171,8 @@ static void Build() {
 
 void Asked(uint32_t type, uint64_t kind) {
     g_PendingType = type;
-    g_PendingUntil = Now() + 5000000000LL;
+    g_PendingUntil = Now() + (int64_t)((Seconds(type) + 1.5) * 1e9);   // (the replay, and the stream's read-ahead)
+    g_Logged = false;
     const songs::Song* s = songs::ByType(type);
     Log("[audio] melody sound kind %llu for the %s\n", (unsigned long long)kind, s ? s->english : "?");
 }
@@ -193,10 +193,9 @@ void Start() {
             if (!until || until < Now()) return nullptr;              // (the host's own sound: a native song, a note)
             const songs::Song* s = songs::ByType(g_PendingType);
             if (!s || HostStream(*s) != name) return nullptr;
-            g_PendingUntil = 0;
             std::shared_ptr<const Bytes> d;
             { std::lock_guard<std::mutex> lk(g_Mu); auto it = g_Built.find(s->type); if (it != g_Built.end()) d = it->second.stream; }
-            Log("[audio] the game opened %s's stream: %s\n", name.c_str(), d ? s->english : "its own (replay not built)");
+            if (d && !g_Logged.exchange(true)) Log("[audio] the game reads %s's stream: the %s\n", name.c_str(), s->english);
             return d;
         });
     }
