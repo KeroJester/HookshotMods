@@ -2134,3 +2134,106 @@ icon; known from the start (later taught by the Happy Mask Salesman).
 - **Next:** for each reader, what it does with the type (bounds check, table index, sound/text name). A 14th type
   means extending each table or hooking each check. Only one window was captured (match at an unknown time in it);
   repeat with marks to pin the match-time readers.
+
+### §79a. The small readers of the song type (what a 14th type does to each)
+Notation: OM = OcarinaMgr (vtable 0x84bc1978, 0x1066df3210 in v2.0.14); OM is fetched with f_806aac40([global]).
+"T" = OM+0x220, the matched/selected song type (0..12, 13 = none).
+- **f_82a7c980** = flow query QueryMelodyTypeForNormal: T, 13 -> -1, written to the node's output (f_80854e00).
+  A 14 passes through. Event flows compare against specific types, so no flow matches it (wanted: no Lullaby events).
+- **f_8292a440** (AINB node): T != 13 -> f_832b87f0(OM, 12 if T == 12 else 5, node byte). Neutral for 14.
+- **f_832b87f0(OM, mode, flag)** = SetMode. flag set: mode = 0, f_832b9570, T 13 -> 0, then
+  **f_8337b730(OM sound, T, 0)** starts the melody sound; the result goes to OM+0x20. flag clear: OM+0x230 = mode,
+  +0x254 = 0, +0x280 = 0, +0x288 = 1; modes 12 and 14 (scarecrow record/play) also reset +0x265fc and call
+  [OM+0x2f8]->vt+0x38 and f_82fe5a90. Neutral for 14 except through f_8337b730.
+- **f_8337b730(sound, T, kind)** = melody sound by name: prefix by kind (0 "Melody_", 1 "ExampleMelody_",
+  2 "ScoreExampleMelody_"; strings 0x83db9d4b / 0x83dfbfa9 / 0x83cca13f) + the type's name from the enum table
+  [0x84ca8830] (inline: T <= 12, offset at +0xa8 + 4*T; otherwise the default string 0x83cfdd43), then plays it via
+  f_803815e0. **Type 14 finds no sound.** Needs a hook (or real "Melody_HealingSong" / "ExampleMelody_..." /
+  "ScoreExampleMelody_..." entries in Sound/Resource Ocarina.bars + the slink2 .bslnk, and the name).
+- **f_828b4340 / f_828b47f0** (player node enter / exit while playing): only T == 12 (scarecrow) is special.
+  Neutral.
+- **f_828a9280** (AINB node, own kind at node+0x20, not a song type): only T != 13 ("some song matched"); also uses
+  OM+0x230 (mode), +0x254, +0x273 and +0x276. Neutral.
+- **f_832b2af0** = replay / listen stepping, per frame while a melody is shown. Score book: singleton
+  [0x84c9e108] + 0x20 -> f_832b3f20 -> f_832b3f70 = list. **list[T] by position** (segments: count f_80021a20 of
+  [seg+0x18], chained; the end falls back to [list+0x10] + 8*T, so out-of-range T reads past the array).
+  f_832b3fd0(score): notes u32[] at +0x18, count +0x24. Steps OM+0x284 (note index) on timer OM+0x244 (40.0) and
+  sets OM+0x280 = current note; OM+0x271 = 1 while between notes (so **OM+0x271 is not a learned flag**).
+  T == 12 reads the scarecrow's notes from GameData (hash 0xcc535536, f_8377b980). T 13 -> 0.
+  **A 14 needs list entries 13 and 14** (13 a placeholder).
+
+### §79b. Score book, matcher, the big readers, songbook and title
+**Score book data:** GameParameter/MelodyScoreBook/Default.game__ocarina__MelodyScoreBook.bgyml (BYML v7, 920 bytes;
+mod_manager/byml.py parse_byml). Root {MelodyScores: [12 entries]}, in type order 0 (Zelda's Lullaby) .. 11 (Prelude
+of Light). Entry fields:
+- MelodyScore: u32[] note hashes. B = 3433458314, HighD = 825411668, A = 1423767502, F = 2552959238, D = 1673550086
+  (murmur3 of the note names, as §61).
+- MelodyType: the type's name hash. Missing on entry 0 = default ZeldaLullaby.
+- NoteNumForNavi: 3 on the first six entries. RestToRepeatExample: 60 on entry 0.
+Scarecrow's Song (12) has no entry: its notes are in GameData (hash 0xcc535536, f_8377b980 with an index).
+The runtime list keeps file order, so **list position == type**. For type 14, append three entries: 12 and 13
+(placeholders whose notes can never be played, so they never match) and 14 = B A F B A F (MM's Song of Healing:
+C-left C-right C-down twice). No existing song uses B A F.
+
+**Matcher f_832b7400(OM, &type) -> bool** (free play, mode 1):
+- for list position i: learned = OM+0x264[i < 13 ? i : 0]; if learned, f_832b8510(list[i], ring +0x158, len
+  +0x25c), then the same with ring +0x138 (+0x258); on a match type = *f_82fe3df0(list[i]), OM+0x244 = 0, true.
+- then, if OM+0x270 (scarecrow learned) == 1: f_832b85d0 on each ring -> 12.
+- f_82fe3df0(score) = &score+0x60, the parsed MelodyType (inherited from a parent via +0x10 / f_82fe4880 unless
+  +0x6d bit 0).
+- Consequences: a position-14 entry borrows Zelda's Lullaby's learned flag, and its type hash is unknown to the
+  enum.
+- Plan: write 14 into list[14]+0x60 once the book is loaded, and post-hook the matcher: no native match -> test
+  list[14] with f_832b8510 on both rings ourselves -> 14 (known from the start, as the user wants).
+
+**f_832b1e40(any, type) -> note count:** scarecrow from GameData (up to 8 slots); else list[type] -> f_832b3fd0 ->
+f_8048f450. 11 callers (staff, songbook, UI states). Covered by the appended entries.
+
+**The big readers:**
+- **f_806a9040** (player animation): sets AS variables OcarinaPerformanceRate (0x83d43c58),
+  OcarinaLastMelodyType (0x83df8e22, = T when T != 13) and OcarinaAnticipatedMelody (0x83d9e372); vt+0x2e8 = index
+  by name, vt+0x70 = set int.
+- **f_80609d00** (3508 instructions, player): T != 13 -> f_83bf01a0(x22, actor + 0x1ac0, T), the actor-variable
+  setter also used by f_828b47f0 (+0x1acc).
+- **f_80c225d0** (6848): T != 13 -> AS vt+0x70 with index [+0x1358].
+- **f_802d57c0** (6516): T != 13 and a float above a threshold only; its other "+0x220" loads are other fields.
+- So the song-specific animation and effect come from data keyed on these variables (ASB / ELink), not from code.
+  A 14 probably plays the defaults. To be traced when the effect is done (MM's effect: OCEFF_WIPE7).
+
+**Songbook (UI screen built by f_8340ecf0, 1520 instructions):**
+- Loop i = 0..12 over "Pa_MelodyBtn_%02d" (0x83e24032) found with f_8045c4a0. Per button: layout -> screen+0x518[i];
+  animations Type / Decide / Failure / CursorLoop / PlayOut (names from 0x83f368f0, via f_8045c7a0) ->
+  screen+0x310 + 0x28*i; controller -> screen+0x580[i] (its +0x84 |= 4).
+- **These arrays are back to back (13 slots each), so a 14th button cannot be added in place.** Plan: the mod builds
+  and drives a 14th PaOcarinaMelodyTypeBtn_00 part itself (as Item Controls' boxes), and the panel calls get index 14.
+- "Type" is most likely the icon's texture-pattern animation (frames = OcarinaMelodyIcon_00..12). The new icon =
+  a 14th texture in the archive + a 14th pattern frame in the part's layout.
+- Cursor: an AINB node "OneShotSetCurrentMelodyBtnIndexForCursor" (string 0x83cb944e) suggests the cursor is driven by
+  Sequence/Ocarina.module.ainb. Not read yet.
+- **Panel title f_83410d90(screen, index):** learned = OM+0x264[index < 13 ? index : 0] (0x80db6710 fetches OM);
+  "Title_%02d" (0x83e31954) from LayoutMsg/Ocarina_00 (0x83d07b4c) via f_803926d0 + f_80a8afe0 -> T_Title_00.
+  **Caption f_83410e80** does the same with "Caption_%02d" (0x83dd4d4b).
+- f_833e7e00: button state (Type pattern, learned check as above).
+
+**Presentation title f_8342d250:** T -> "Title_%02d" from LayoutMsg/Ocarina_00 -> f_80a8afe0. This is the text the
+"You played ...!" message inserts (§61: Dm_SY_Ocarina Talk_00, tag 201.1). **With Title_14 in Ocarina_00.msbt (every
+language) the presentation title works natively.**
+
+### §79c. The plan for a 14th song type (from §79a-b)
+1. **Score book:** serve a patched MelodyScoreBook (+ entries 12, 13 placeholders, 14 = B A F B A F); set
+   list[14]+0x60 = 14 after load.
+2. **Matcher:** post-hook f_832b7400, our own test of list[14] -> 14.
+3. **Names:** hook f_8337b730 for T == 14 ("Melody_" / "ExampleMelody_" / "ScoreExampleMelody_" sounds) and the
+   enum ToText f_82fe4c70 (14 -> "HealingSong").
+   - Sound: either new BARS + bslnk entries, or play through a host sound with the stream file redirected (OpenFile
+     hook, as §61) and the host's prefetch BWAV swapped only while ours plays. The BARS buffer address comes from the
+     file read hook, so no memory scan is needed.
+   - The stream itself: built at runtime from the game's Ocarina_<pitch>.bwav (C++ port of mod_manager/bwav.py).
+4. **Text:** serve LayoutMsg/Ocarina_00.msbt with Title_14 / Caption_14 in every language (MM's official names).
+5. **Songbook:** our own 14th button (part PaOcarinaMelodyTypeBtn_00) + cursor + panel with index 14; new icon
+   texture + pattern frame.
+6. **Learned flags:** OM+0x264..0x270 = 13 flags; 0x271 is the replay "between notes" flag and 0x273 / 0x276 are other
+   flags, so a 14th flag must live elsewhere (the mod's own state). Known from the start for now.
+7. **Animation / effect:** the AS variables above; decide later (default, or a data change).
+8. **Flows:** QueryMelodyTypeForNormal reports 14, so no Lullaby event fires (wanted). Ocarina-point events for the Song
+   of Healing come with the MM content.
