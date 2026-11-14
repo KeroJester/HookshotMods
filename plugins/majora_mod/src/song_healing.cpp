@@ -11,6 +11,7 @@
 //   - size table: the score book and the flows grow, so their entries are raised (rstb.*);
 //   - melody sounds f_8337b730: no "Melody_HealingSong" exists yet, so type 14 plays through a stand-in.
 #include "song_healing.h"
+#include "song_text.h"
 #include "byml.h"
 #include "evfl.h"
 #include "rstb.h"
@@ -229,6 +230,7 @@ bool Start() {
         Log("[song] off\n");
         return false;
     }
+    songtext::Start();
     vfs::Register(kScoreBook, PatchScoreBook);
     // (the parsed book lives in the memory the size table sets aside for the file: 7768 bytes held the 12 vanilla
     // scores; with three more, the note arrays and the objects past the 13th failed to allocate)

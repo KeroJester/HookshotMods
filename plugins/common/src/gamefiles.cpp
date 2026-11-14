@@ -135,4 +135,38 @@ std::vector<SarcEntry> SarcList(const Bytes& s) {
     return out;
 }
 
+bool SarcReplace(Bytes& s, const std::string& name, const Bytes& data) {
+    if (s.size() < 0x20 || memcmp(s.data(), "SARC", 4) || memcmp(&s[0x14], "SFAT", 4)) return false;
+    auto rd32 = [&](size_t o) { uint32_t v; memcpy(&v, &s[o], 4); return v; };
+    const uint32_t dataOff = rd32(0xc);
+    const uint16_t n = s[0x1a] | s[0x1b] << 8;
+    if (0x20 + 16ull * n > s.size() || dataOff > s.size()) return false;
+    int target = -1;
+    for (auto& e : SarcList(s))
+        if (e.name == name) {
+            for (int i = 0; i < n; i++) if (dataOff + rd32(0x20 + 16 * i + 8) == e.offset) target = i;
+        }
+    if (target < 0) return false;
+    std::vector<int> order(n);
+    for (int i = 0; i < n; i++) order[i] = i;
+    std::sort(order.begin(), order.end(), [&](int a, int b) { return rd32(0x20 + 16 * a + 8) < rd32(0x20 + 16 * b + 8); });
+    Bytes out(s.begin(), s.begin() + dataOff);
+    for (int i : order) {
+        const size_t node = 0x20 + 16ull * i;
+        const uint32_t start = rd32(node + 8), end = rd32(node + 12);
+        uint32_t align = 1;
+        while (align < 0x1000 && ((dataOff + start) % (align * 2)) == 0) align *= 2;
+        while (out.size() % align) out.push_back(0);
+        const uint32_t ns = (uint32_t)(out.size() - dataOff);
+        if (i == target) out.insert(out.end(), data.begin(), data.end());
+        else out.insert(out.end(), s.begin() + dataOff + start, s.begin() + dataOff + end);
+        const uint32_t ne = (uint32_t)(out.size() - dataOff);
+        memcpy(&out[node + 8], &ns, 4), memcpy(&out[node + 12], &ne, 4);
+    }
+    const uint32_t size = (uint32_t)out.size();
+    memcpy(&out[8], &size, 4);
+    s.swap(out);
+    return true;
+}
+
 }  // namespace gamefiles

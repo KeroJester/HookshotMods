@@ -8,5 +8,7 @@
 namespace rstb {
 // romfsRel without ".zs" (as the table keys files), e.g. "Event/EventFlow/Dm_SY_Ocarina.bfevfl"
 void Require(const std::string& romfsRel, uint32_t minSize);
+// Raises an entry by `extra` bytes over the table's own value (for files whose vanilla size differs by language)
+void Grow(const std::string& romfsRel, uint32_t extra);
 uint32_t Crc32(const std::string& s);
 }

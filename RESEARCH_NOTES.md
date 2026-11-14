@@ -2333,3 +2333,31 @@ language) the presentation title works natively.**
 - **Test pitfalls:**
   - drive_test runs need 380+ s when the boot is slow (screenshots then stop at the timeout, not a freeze);
   - a background memory scan crashed the game (a page unmapped under it): don't scan.
+
+### §79g. The Song of Healing's texts in every language
+- **MSBT (LayoutMsg/Ocarina_00.msbt):** UTF-8 (header byte 0x0c = 0), two sections only (LBL1 with 23 hash
+  buckets, TXT2). 41 labels: Title_00..12, Caption_00..12, SelectMelody, Close, Decide, OpenMelodyScoreBook,
+  PlayOcarina, PlayExample, recording texts, Pa_OcarinaMicInputPractice_00-T_Text_00.
+- **plugins/common msbt.*:** parse / Set / Write, round-trips the USen and EUde files byte for byte. Label bucket =
+  (hash * 0x492 + byte) % buckets. Sections padded to 16 with 0xAB; header +0x12 = file size.
+- **Titles start with a grammar tag:** 0x0E, group 201, tag 0, 4 parameter bytes (7 + 4 bytes).
+  - USen: 00 00 ff 01 (possessive names: Zelda's Lullaby, Epona's, Saria's), 00 01 ff 01 ("the": Sun's Song, Song of
+    Time ... Prelude), 00 02 ff 01 (Scarecrow).
+  - fr: 00 01 00 00 masculine (Chant, Menuet), 00 02 01 01 feminine (Berceuse, Sérénade).
+  - de: 00 03 04 04 (Wiegenlied, Eponas Lied), 00 02 01 01 (Hymne, Serenade, Nocturne...), 00 03 02 02 (Menuett,
+    Requiem), 00 01 00 00 (Bolero).
+  - es: 00 02 01 01 feminine, 00 01 00 00 masculine. it: 00 02 02 02 feminine (Canzone), 00 01 00 00 masculine,
+    00 02 03 03 (Ode).
+  - JPja: furigana tags (group 0) or none; EUnl: other tags for possessives; EUru: none.
+- **The mod copies the tag from a native title with the same grammar:**
+  - en: Song of Time (4); fr: Chant d'Épona (1); es: Canción de Epona (1); de: Menuett des Waldes (6, "das Lied der
+    Befreiung"); it: Canzone del tempo (4); ja / ru / ko / zh: no tag.
+  - Names (Majora's Mask's own): Song of Healing / Chant de l'apaisement / Canción de curación / Lied der Befreiung /
+    いやしの歌; Italian "Canzone della guarigione" is not verified.
+  - nl / pl / ru / pt / ko / zh: English for now (Majora's Mask was never released in them; question for the user).
+  - Captions are the mod's own text (English, plus own fr / es / de / it / ja translations).
+- **gamefiles::SarcReplace:** a file of any size in a SARC archive. Header, file table and names stay; the data area
+  is laid out again in order, each file on its old alignment.
+- **rstb::Grow:** raises an entry over its own value (archives differ by language). Mals/USen 2373752 -> 2377848.
+- **Verified headless (USen):** "You played the Song of Healing!" (name in red, as native titles), the notes on the
+  staff, then the replay.

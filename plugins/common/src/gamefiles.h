@@ -29,5 +29,9 @@ struct SarcEntry {
     size_t offset, size;      // within the archive
 };
 std::vector<SarcEntry> SarcList(const Bytes& sarc);
+// Replaces one file of a SARC archive with data of any size: the header, file table and names stay, the data area is
+// laid out again in the same order, each file keeping its alignment (the largest power of two, up to 0x1000, that its
+// old start was on). False when the file is not in the archive.
+bool SarcReplace(Bytes& sarc, const std::string& name, const Bytes& data);
 
 }  // namespace gamefiles

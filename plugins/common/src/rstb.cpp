@@ -4,6 +4,7 @@
 #include "gamefiles.h"
 #include "platform.h"
 #include "vfs.h"
+#include <algorithm>
 #include <cstring>
 #include <map>
 #include <mutex>
@@ -13,7 +14,7 @@ using plat::Log;
 
 static const char* kTable = "System/Resource/ResourceSizeTable.Product.111.Nin_Ounce_NVN2.rsizetable.zs";
 static std::mutex g_Mu;
-static std::map<std::string, uint32_t> g_Want;
+static std::map<std::string, uint32_t> g_Want, g_Grow;
 
 uint32_t Crc32(const std::string& s) {
     uint32_t c = 0xffffffffu;
@@ -32,7 +33,8 @@ static bool Patch(gamefiles::Bytes& file) {
     if (22 + 8ull * ncrc + (slen + 4ull) * nname > t.size()) { Log("[rstb] size table truncated\n"); return false; }
     std::lock_guard<std::mutex> lk(g_Mu);
     int changed = 0;
-    for (auto& [path, size] : g_Want) {
+    for (auto& [path, extra] : g_Grow) if (!g_Want.count(path)) g_Want[path] = 0;
+    for (auto& [path, want] : g_Want) {
         bool found = false;
         const uint32_t crc = Crc32(path);
         for (uint32_t i = 0; i < ncrc; i++) {
@@ -40,6 +42,7 @@ static bool Patch(gamefiles::Bytes& file) {
             memcpy(&c, &t[22 + 8 * i], 4), memcpy(&s, &t[26 + 8 * i], 4);
             if (c != crc) continue;
             found = true;
+            const uint32_t size = g_Grow.count(path) ? std::max(want, s + g_Grow[path]) : want;
             if (s < size) { memcpy(&t[26 + 8 * i], &size, 4); changed++; Log("[rstb] %s: %u -> %u\n", path.c_str(), s, size); }
         }
         for (uint32_t i = 0; i < nname; i++) {   // (paths whose crc collides with another's)
@@ -48,6 +51,7 @@ static bool Patch(gamefiles::Bytes& file) {
             found = true;
             uint32_t s;
             memcpy(&s, &t[at + slen], 4);
+            const uint32_t size = g_Grow.count(path) ? std::max(want, s + g_Grow[path]) : want;
             if (s < size) { memcpy(&t[at + slen], &size, 4); changed++; Log("[rstb] %s (named): %u -> %u\n", path.c_str(), s, size); }
         }
         if (!found) Log("[rstb] %s: no entry (the game sizes it itself)\n", path.c_str());
@@ -57,11 +61,21 @@ static bool Patch(gamefiles::Bytes& file) {
     return true;
 }
 
+void Grow(const std::string& romfsRel, uint32_t extra) {
+    bool first;
+    {
+        std::lock_guard<std::mutex> lk(g_Mu);
+        first = g_Want.empty() && g_Grow.empty();
+        g_Grow[romfsRel] = std::max(g_Grow[romfsRel], extra);
+    }
+    if (first) vfs::Register(kTable, Patch);
+}
+
 void Require(const std::string& romfsRel, uint32_t minSize) {
     bool first;
     {
         std::lock_guard<std::mutex> lk(g_Mu);
-        first = g_Want.empty();
+        first = g_Want.empty() && g_Grow.empty();
         uint32_t& v = g_Want[romfsRel];
         if (v < minSize) v = minSize;
     }
