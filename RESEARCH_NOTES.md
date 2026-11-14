@@ -2097,3 +2097,14 @@ depend on the same symbols. The user chose to remove it.
 - **Size:** Linux layer 1.86 MB to 0.61 MB.
 - **CI:** no longer fetches imgui_src (the Linux dev overlay in overlay/ still uses it).
 - **Verified headless (Hookshot):** boxes in the HUD and the pause menu, LB+X use, pause assignment, no crash.
+
+## 78. Ammo counts for the bow and the slingshot (Item Controls 0.9.6)
+The user's report: the slingshot's box showed no seed count; the bow would be the same. The boxes counted the slot's own
+item (record +0xfa == 1: sticks, nuts, bombs), and weapons have no count of their own.
+- **The RT box's update f_80a95770:** after rec = f_805aed10(&name), f_8015fdd0(&out, rec + 0x70). When out == 1 (a
+  weapon that shoots an ammo item), f_802d5480(&A, &[rec + 0x98]) copies a name into string A, and
+  f_80a865a0(&B, &A, 0) gives the ammo item's name in B ({char*, s32 cap} strings, 0x40 buffers). Count, max and flag
+  are then f_805b63e0 / f_805b5cf0 / f_80a94910 with B, as for the other items.
+- **Mod:** the same steps; each box has two more strings (ammo, tmp).
+- Verified headless: the Bow in LB+X shows 50 (ammo Item_Arrow_Normal 50/50, green at max). The slingshot takes the
+  same weapon path (untested: the test save has none).

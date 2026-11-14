@@ -59,6 +59,9 @@ enum : uint64_t {
     fSetItem = 0x80a95ef0,      // item button: show an item (ctrl, &name, kind, 1, 0, -1, 0)
     fItemRec = 0x805aed10,      // the item's record from &name ([+0xfa] == 1: it shows a count)
     fCount = 0x805b63e0, fMax = 0x805b5cf0, fCountFlag = 0x80a94910,
+    fRecKind = 0x8015fdd0,      // (&u32 out, record + 0x70): 1 for a weapon that shoots an ammo item (bow, slingshot)
+    fStrCopy = 0x802d5480,      // (&{char*, s32 cap} dest, &const char*): copy a name
+    fAmmoName = 0x80a865a0,     // (&dest, &weapon string from record + 0x98, 0): the ammo item's name
     fShowCount = 0x80a95df0,    // (ctrl, count, max, flag): the count text and its NumMax/NumMin states
     fPlay = 0x802f0f00, fRewind = 0x802f0fe0,   // play a state forward / back
     fStrInit = 0x80a86f70,      // message string {ptr, s32 len, s64 -1}
@@ -75,7 +78,7 @@ constexpr uint64_t kStrInvalid = 0x83f342b8;         // "IsInvalid" (the icon di
 constexpr uint64_t kStrSelect = 0x83f34e3a, kStrUnSelect = 0x83f34e42;   // "Select" / "UnSelect" (cursor on the box)
 constexpr uint64_t kAnimDefault = 0x84c9e068;          // * the entry f_8045c7a0 gives for a missing name
 static const uint64_t kFns[] = {fAlloc, fBuild, fSetup, fFrame, fRegister, fPaneAt, fNode, fParent, fAttach, fBind,
-                                fKind, fSetItem, fItemRec, fCount, fMax, fCountFlag, fShowCount, fPlay, fRewind,
+                                fKind, fSetItem, fItemRec, fCount, fMax, fCountFlag, fRecKind, fStrCopy, fAmmoName, fShowCount, fPlay, fRewind,
                                 fStrInit, fButtonGlyph, fSetText, fAnim, fVisible, fDirty, fPauseSetup, fScreenFrame};
 static std::unordered_map<uint64_t, uintptr_t> g_Fn;   // (filled once in Start, read-only after)
 static GuestFn o_Build, o_Setup, o_Frame, o_ScreenFrame, o_PauseSetup;
@@ -98,6 +101,7 @@ constexpr float kPauseRight = 1840.0f - 190.0f * kPauseScale, kPauseTop = 700.0f
 static std::mutex g_Mu;                  // (the build may run on a loading thread, the frames on the game's)
 struct Box {
     uint64_t lay = 0, ctrl = 0, name = 0, label = 0;   // layout; controller; {char*, s32 cap} + buffer; label glyphs
+    uint64_t ammo = 0, tmp = 0;               // {char*, s32 cap} + buffer: the ammo item's name, a step on the way
     uint64_t decide = 0, invalid = 0, select = 0, unselect = 0;   // its animations (0: missing)
     uint32_t item = 0xffffffff;
     std::string icon;
@@ -299,7 +303,10 @@ static bool AttachSet(GuestCtx* c, BoxSet& set, const uint64_t built[kBoxes], ui
         b.ctrl = MakeController(c, heap, lay);
         b.name = Call(c, fAlloc, 0x50, heap, 8);
         b.label = Call(c, fAlloc, 0x20, heap, 8);
-        if (b.name) { W<uint64_t>(b.name, b.name + 0x10); W<int32_t>(b.name + 8, 0x40); W<uint8_t>(b.name + 0x10, 0); }
+        b.ammo = Call(c, fAlloc, 0x50, heap, 8);
+        b.tmp = Call(c, fAlloc, 0x50, heap, 8);
+        for (uint64_t str : {b.name, b.ammo, b.tmp})
+            if (str) { W<uint64_t>(str, str + 0x10); W<int32_t>(str + 8, 0x40); W<uint8_t>(str + 0x10, 0); }
         auto anim = [&](uint64_t str, const char* name) -> uint64_t {   // (the game's own copy of the name)
             if (GStr(str) != name) return 0;
             const uint64_t e = Call(c, fAnim, lay, str);
@@ -310,7 +317,7 @@ static bool AttachSet(GuestCtx* c, BoxSet& set, const uint64_t built[kBoxes], ui
         b.select = anim(kStrSelect, "Select");
         b.unselect = anim(kStrUnSelect, "UnSelect");
     }
-    for (auto& b : set.box) if (!b.ctrl || !b.name || !b.label) { Log("[hud] %s boxes: allocation failed\n", set.what); return false; }
+    for (auto& b : set.box) if (!b.ctrl || !b.name || !b.label || !b.ammo || !b.tmp) { Log("[hud] %s boxes: allocation failed\n", set.what); return false; }
     set.frames = 0;
     set.active = -1;
     set.bumper = -1;
@@ -436,11 +443,30 @@ static void UpdateBox(GuestCtx* c, BoxSet& set, int i, bool counts) {
     if (!changed && !counts) return;
     int count = -1, max = -1;
     uint64_t flag = 0;
+    // the count shown: the item's own (sticks, nuts, bombs: record +0xfa == 1), or a weapon's ammo (bow: arrows,
+    // slingshot: seeds; record kind 1), whose name comes from the weapon's record as the RT box's update f_80a95770 gets it
     const uint64_t rec = icon.empty() ? 0 : Call(c, fItemRec, b.name);
-    if (GuestPtrOk(rec) && GRead<uint8_t>(rec + 0xfa) == 1) {
-        count = (int)(uint32_t)Call(c, fCount, db, b.name, 1, 0);
-        max = (int)(uint32_t)Call(c, fMax, db, b.name, 0, 0);
-        flag = Call(c, fCountFlag, db, b.name) & 1;
+    uint64_t counted = 0;
+    if (GuestPtrOk(rec)) {
+        Scratch s(c);
+        W<uint32_t>(s.at, 0);
+        Call(c, fRecKind, s.at, rec + 0x70);
+        if (GRead<uint32_t>(s.at) == 1) {
+            W<uint64_t>(s.at + 8, Q(rec + 0x98));
+            W<uint8_t>(b.tmp + 0x10, 0);
+            W<uint8_t>(b.ammo + 0x10, 0);
+            Call(c, fStrCopy, b.tmp, s.at + 8);
+            Call(c, fAmmoName, b.ammo, b.tmp, 0);
+            if (GuestPtrOk(Q(b.ammo)) && GRead<uint8_t>(Q(b.ammo))) counted = b.ammo;
+        } else if (GRead<uint8_t>(rec + 0xfa) == 1) {
+            counted = b.name;
+        }
+    }
+    if (counted) {
+        count = (int)(uint32_t)Call(c, fCount, db, counted, 1, 0);
+        max = (int)(uint32_t)Call(c, fMax, db, counted, 0, 0);
+        flag = Call(c, fCountFlag, db, counted) & 1;
+        if (changed && counted == b.ammo) Log("[hud] %s box %d: ammo %s %d/%d\n", set.what, i, GStr(Q(b.ammo)).c_str(), count, max);
     }
     if (count == b.count && max == b.max && !changed) return;
     if (count >= 0) {
