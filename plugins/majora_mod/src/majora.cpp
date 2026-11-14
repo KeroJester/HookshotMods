@@ -5,7 +5,7 @@
 #include "gamefiles.h"
 #include "platform.h"
 #include "rstb.h"
-#include "song_healing.h"
+#include "mm_songs.h"
 #include "vfs.h"
 
 namespace majora {

@@ -1,16 +1,19 @@
-// The Song of Healing's replay sound (RESEARCH_NOTES.md §79h). The game has no recording of it, so one is built at
-// startup from the game's own single-note recordings (Sound/Resource/Stream/Ocarina_<pitch>.bwav), following
-// Majora's Mask 3D's replay sequence (NA_BGM_OCA_CURE_SEQ: start, key, velocity and length of each note).
+// The songs' replay sounds (RESEARCH_NOTES.md §79h, §79k). The game has no recordings of them, so they are built at
+// startup from the game's own single-note recordings (Sound/Resource/Stream/Ocarina_<pitch>.bwav), following Majora's
+// Mask 3D's replay sequences (start, key, velocity and length of each note; songs.cpp).
 //
-// It is played through a host song's sound: the melody sound for type 14 asks for Zelda's Lullaby (song_healing.cpp),
-// and the next time the game opens that song's stream file, it reads ours instead. The host's BARS prefetch (header
-// and first samples, held in memory) stays the host's, so the built stream keeps the host's format exactly: same
-// channels, coefficients, sample count and data offsets; the prefetch's samples are the host's own (both songs start
-// on B), and ours takes over after them with a short crossfade. The rest of the host's length is silence.
+// Each plays through a host sound: a native song's (the melody sound for the song asks for that type) or one held
+// note's (the melody sound's name is swapped for "Ocarina_<pitch>", mm_songs.cpp). The next time the game opens the
+// host's stream file after that, it reads ours instead. The host's BARS prefetch (header and first 14336 samples, held
+// in memory) stays the host's, so the built stream keeps the host's format exactly: same channels, coefficients, sample
+// count and data offsets. The prefetch's 0.3 s are the host's own, so a host opens on the song's first note: a held
+// note's recording is the very one the song's first note is made from; ours takes over after it with a short
+// crossfade. The rest of the host's length is silence (the presentation is let go when ours ends).
 #include "song_audio.h"
 #include "bwav.h"
 #include "gamefiles.h"
 #include "platform.h"
+#include "songs.h"
 #include "vfs.h"
 #include <atomic>
 #include <chrono>
@@ -18,6 +21,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -26,28 +30,26 @@ namespace songaudio {
 using namespace plat;
 using gamefiles::Bytes;
 
-constexpr const char* kHost = "ZeldaLullaby";
 constexpr const char* kStreamDir = "Sound/Resource/Stream/";
 constexpr const char* kBars = "Sound/Resource/Ocarina.bars.zs";
 constexpr int kRate = 48000;
 constexpr float kTail = 1.2f;   // after the last note (the game's replays end about 1.2 s after their last loud note)
+static const char* const kNative[] = {"ZeldaLullaby", "EponaSong", "SariaSong", "SunSong", "TimeSong", "StormSong",
+                                      "ForestMinuet", "FireBolero", "WaterSerenade", "SpiritRequiem", "ShadowNocturne",
+                                      "LightPrelude"};
 
-struct Note { float start; int key, velocity; float length; };
-// MM3D NA_BGM_OCA_CURE_SEQ (seconds, MIDI key, velocity, seconds): B A F, B A F, B A E D E
-static const Note kNotes[] = {
-    {0.0057f, 71, 118, 0.5341f}, {0.5511f, 69, 118, 0.5114f}, {1.0966f, 65, 99, 0.3977f},
-    {1.6420f, 71, 124, 0.5455f}, {2.1875f, 69, 118, 0.4830f}, {2.7329f, 65, 116, 0.4034f},
-    {3.2784f, 71, 114, 0.5227f}, {3.8238f, 69, 122, 0.4261f}, {4.3693f, 64, 116, 0.2614f},
-    {4.6420f, 62, 118, 0.3295f}, {4.9147f, 64, 122, 1.5625f},
-};
-static const char* Pitch(int key) { return key == 62 ? "D" : key == 64 ? "E" : key == 65 ? "F" : key == 69 ? "A" : key == 71 ? "B" : nullptr; }
-
-static std::atomic<float> g_Seconds{0};         // our replay's length (0 until built)
-static std::shared_ptr<const Bytes> g_Stream;     // the built stream file (null until built, or if it failed)
+struct Built { std::shared_ptr<const Bytes> stream; float seconds = 0; };
+static std::map<uint32_t, Built> g_Built;          // song type -> its stream (filled by the worker)
 static std::mutex g_Mu;
-static std::atomic<int64_t> g_PendingUntil{0};   // steady-clock ns: a type-14 melody sound was asked for
+static std::atomic<uint32_t> g_PendingType{0};
+static std::atomic<int64_t> g_PendingUntil{0};     // steady-clock ns: a melody sound for that song was asked for
 
 static int64_t Now() { return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
+
+std::string HostStream(const songs::Song& s) {
+    if (s.hostType >= 0 && s.hostType < 12) return std::string("Ocarina_") + kNative[s.hostType];
+    return std::string("Ocarina_") + (s.hostPitch ? s.hostPitch : "B");
+}
 
 static bool Load(const std::string& rel, Bytes& out) {
     const std::string p = gamefiles::RomfsPath(rel);
@@ -58,7 +60,7 @@ static bool Load(const std::string& rel, Bytes& out) {
 static bool Mono(const char* pitch, std::vector<float>& out) {   // one note's recording, channels averaged, -1..1
     Bytes f;
     std::vector<bwav::Channel> ch;
-    if (!Load(std::string(kStreamDir) + "Ocarina_" + pitch + ".bwav", f) || !bwav::Channels(f, ch) || ch.empty() || ch[0].rate != kRate) return false;
+    if (!pitch || !Load(std::string(kStreamDir) + "Ocarina_" + pitch + ".bwav", f) || !bwav::Channels(f, ch) || ch.empty() || ch[0].rate != kRate) return false;
     std::vector<std::vector<int16_t>> pcm;
     size_t n = SIZE_MAX;
     for (auto& c : ch) { pcm.push_back(bwav::Decode(f, c)); n = std::min(n, pcm.back().size()); }
@@ -70,16 +72,17 @@ static bool Mono(const char* pitch, std::vector<float>& out) {   // one note's r
 
 // Each note: the game's recording of that pitch from its attack, held for the note's length, then released the way
 // the game's notes end (0.12 s fade); level 1.18x the RMS of a held note (the game's replays sit about that much
-// above a single note), peak at most 0.98.
-static bool Render(std::vector<float>& out) {
-    float total = 0;
-    for (auto& n : kNotes) total = std::max(total, n.start + n.length);
-    out.assign((size_t)((total + kTail) * kRate) + 1, 0.f);
-    std::vector<float> src[128];
+// above a single note), peak at most 0.98. maxSeconds: the host's length (the replay and its tail must fit).
+static bool Render(const songs::Song& song, float maxSeconds, std::map<int, std::vector<float>>& cache, std::vector<float>& out) {
+    float last = 0;
+    for (auto& n : song.replay) last = std::max(last, n.start + n.length + 0.12f);
+    const float total = std::min(maxSeconds - 0.05f, last + kTail);
+    if (total < last) Log("[audio] %s: %.2f s is longer than its host (%.2f s): cut\n", song.english, last, maxSeconds);
+    out.assign((size_t)(total * kRate), 0.f);
     const size_t release = (size_t)(0.12 * kRate);
-    for (auto& n : kNotes) {
-        std::vector<float>& s = src[n.key];
-        if (s.empty() && !Mono(Pitch(n.key), s)) return false;
+    for (auto& n : song.replay) {
+        std::vector<float>& s = cache[n.key];
+        if (s.empty() && !Mono(songs::PitchName(n.key), s)) { Log("[audio] %s: no recording for key %d\n", song.english, n.key); return false; }
         const size_t hold = (size_t)(n.length * kRate), len = std::min(s.size(), hold + release), at = (size_t)(n.start * kRate);
         for (size_t i = 0; i < len && at + i < out.size(); i++) {
             float x = s[i];
@@ -88,8 +91,8 @@ static bool Render(std::vector<float>& out) {
             out[at + i] += x * (n.velocity / 127.f);
         }
     }
-    std::vector<float> b;
-    if (!Mono("B", b)) return false;
+    std::vector<float>& b = cache[71];
+    if (b.empty() && !Mono("B", b)) return false;
     double ref = 0, loud = 0;
     size_t cnt = 0;
     for (size_t i = 0; i < std::min<size_t>(b.size(), kRate); i++) ref += (double)b[i] * b[i];
@@ -99,14 +102,11 @@ static bool Render(std::vector<float>& out) {
     float gain = (float)(1.18 * ref / std::max(loud, 1e-6)), peak = 0;
     for (float& x : out) { x *= gain; peak = std::max(peak, std::fabs(x)); }
     if (peak > 0.98f) for (float& x : out) x *= 0.98f / peak;
-    Log("[audio] replay rendered: %zu notes, %.2f s, peak %.2f\n", sizeof kNotes / sizeof *kNotes, out.size() / (double)kRate, std::min(peak, 0.98f));
     return true;
 }
 
 // Prefetch sample counts per channel: from the host's prefetch BWAV inside the BARS (same magic .. CRC as the stream).
-static bool Prefetch(const Bytes& host, std::vector<uint32_t>& out) {
-    Bytes z, bars;
-    if (!Load(kBars, z) || !gamefiles::Unzstd(z, bars)) return false;
+static bool Prefetch(const Bytes& bars, const Bytes& host, std::vector<uint32_t>& out) {
     for (size_t o = 0; o + 12 <= bars.size(); o += 4) {
         if (memcmp(&bars[o], host.data(), 12)) continue;
         Bytes head(bars.begin() + o, bars.begin() + std::min(bars.size(), o + 0x10 + 8 * bwav::kRecord));
@@ -115,30 +115,28 @@ static bool Prefetch(const Bytes& host, std::vector<uint32_t>& out) {
         for (auto& c : ch) out.push_back(c.prefetch);
         return true;
     }
-    Log("[audio] %s: prefetch not found in the BARS\n", kHost);
     return false;
 }
 
-static void Build() {
-    Bytes host;
+static bool BuildOne(const songs::Song& song, const Bytes& bars, std::map<int, std::vector<float>>& cache) {
+    const std::string host = HostStream(song);
+    Bytes file;
     std::vector<bwav::Channel> ch;
     std::vector<uint32_t> pre;
     std::vector<float> ours;
-    const std::string rel = std::string(kStreamDir) + "Ocarina_" + kHost + ".bwav";
-    if (!Load(rel, host) || !bwav::Channels(host, ch) || !Prefetch(host, pre) || pre.size() != ch.size() || !Render(ours)) {
-        Log("[audio] the Song of Healing keeps the stand-in sound\n");
-        return;
-    }
-    auto out = std::make_shared<Bytes>(host);
-    const size_t fade = kRate / 10;
+    if (!Load(std::string(kStreamDir) + host + ".bwav", file) || !bwav::Channels(file, ch) || ch.empty()) return false;
+    if (!Prefetch(bars, file, pre) || pre.size() != ch.size()) { Log("[audio] %s: prefetch not found in the BARS\n", host.c_str()); return false; }
+    if (!Render(song, ch[0].samples / (float)kRate, cache, ours)) return false;
+    auto out = std::make_shared<Bytes>(file);
+    const size_t fade = kRate / 8;
     for (size_t i = 0; i < ch.size(); i++) {
         const bwav::Channel& c = ch[i];
         const size_t p = pre[i], n = c.samples;
-        if (c.codec != 1 || c.rate != kRate || p % 14 || p >= n || c.offStream != c.offHere) {
-            Log("[audio] %s channel %zu: unexpected format (codec %u, prefetch %zu)\n", kHost, i, c.codec, p);
-            return;
+        if (c.codec != 1 || c.rate != kRate || p % 14 || p < 2 || p >= n || c.offStream != c.offHere) {
+            Log("[audio] %s channel %zu: unexpected format (codec %u, prefetch %zu)\n", host.c_str(), i, c.codec, p);
+            return false;
         }
-        std::vector<int16_t> h = bwav::Decode(host, c);
+        std::vector<int16_t> h = bwav::Decode(file, c);
         std::vector<int16_t> pcm(n - p);
         for (size_t k = p; k < n; k++) {
             float y = k < ours.size() ? ours[k] * 32767.f : 0.f;
@@ -151,35 +149,57 @@ static void Build() {
         int h1 = h[p - 1], h2 = h[p - 2];
         Bytes enc = bwav::EncodeDsp(pcm.data(), pcm.size(), c.coefs, h1, h2);
         const size_t at = c.offStream + p / 14 * 8;
-        if (at + enc.size() > out->size()) { Log("[audio] %s channel %zu: data past the file\n", kHost, i); return; }
+        if (at + enc.size() > out->size()) { Log("[audio] %s channel %zu: data past the file\n", host.c_str(), i); return false; }
         memcpy(out->data() + at, enc.data(), enc.size());
     }
-    if (const char* dump = getenv("MAJORA_DUMP_REPLAY")) {   // (development: the built stream, for listening to it)
-        if (FILE* f = fopen(dump, "wb")) { fwrite(out->data(), 1, out->size(), f); fclose(f); }
+    if (const char* dir = getenv("MAJORA_DUMP_REPLAY")) {   // (development: the built streams, for listening to them)
+        const std::string path = std::string(dir) + "/" + song.id + ".bwav";
+        if (FILE* f = fopen(path.c_str(), "wb")) { fwrite(out->data(), 1, out->size(), f); fclose(f); }
     }
     std::lock_guard<std::mutex> lk(g_Mu);
-    g_Stream = out;
-    g_Seconds = ours.size() / (float)kRate;
-    Log("[audio] Song of Healing replay ready (in %s's stream format, %zu bytes)\n", kHost, out->size());
+    g_Built[song.type] = {out, ours.size() / (float)kRate};
+    Log("[audio] %s: replay ready, %.2f s (in %s's stream format)\n", song.english, ours.size() / (float)kRate, host.c_str());
+    return true;
 }
 
-void Asked(uint64_t kind) {
+static void Build() {
+    Bytes z, bars;
+    if (!Load(kBars, z) || !gamefiles::Unzstd(z, bars)) { Log("[audio] the BARS is not readable: the songs keep their host sounds\n"); return; }
+    std::map<int, std::vector<float>> cache;
+    for (const songs::Song& s : songs::All())
+        if (!BuildOne(s, bars, cache)) Log("[audio] %s keeps its host's sound\n", s.english);
+}
+
+void Asked(uint32_t type, uint64_t kind) {
+    g_PendingType = type;
     g_PendingUntil = Now() + 5000000000LL;
-    Log("[audio] melody sound kind %llu for the Song of Healing\n", (unsigned long long)kind);
+    const songs::Song* s = songs::ByType(type);
+    Log("[audio] melody sound kind %llu for the %s\n", (unsigned long long)kind, s ? s->english : "?");
 }
 
-float Seconds() { return g_Seconds; }
+float Seconds(uint32_t type) {
+    std::lock_guard<std::mutex> lk(g_Mu);
+    auto it = g_Built.find(type);
+    return it == g_Built.end() ? 0.f : it->second.seconds;
+}
 
 void Start() {
-    const std::string rel = std::string(kStreamDir) + "Ocarina_" + kHost + ".bwav";
-    vfs::RegisterLive(rel, [] () -> std::shared_ptr<const Bytes> {
-        const int64_t until = g_PendingUntil.exchange(0);
-        std::shared_ptr<const Bytes> s;
-        { std::lock_guard<std::mutex> lk(g_Mu); s = g_Stream; }
-        const bool ours = until > Now() && s;
-        Log("[audio] the game opened %s's stream: %s\n", kHost, ours ? "the Song of Healing" : until ? "own (replay not built)" : "own");
-        return ours ? s : nullptr;
-    });
+    std::map<std::string, bool> hosts;
+    for (const songs::Song& s : songs::All()) hosts[HostStream(s)] = true;
+    for (auto& [host, unused] : hosts) {
+        const std::string name = host;
+        vfs::RegisterLive(std::string(kStreamDir) + host + ".bwav", [name]() -> std::shared_ptr<const Bytes> {
+            const int64_t until = g_PendingUntil.load();
+            if (!until || until < Now()) return nullptr;              // (the host's own sound: a native song, a note)
+            const songs::Song* s = songs::ByType(g_PendingType);
+            if (!s || HostStream(*s) != name) return nullptr;
+            g_PendingUntil = 0;
+            std::shared_ptr<const Bytes> d;
+            { std::lock_guard<std::mutex> lk(g_Mu); auto it = g_Built.find(s->type); if (it != g_Built.end()) d = it->second.stream; }
+            Log("[audio] the game opened %s's stream: %s\n", name.c_str(), d ? s->english : "its own (replay not built)");
+            return d;
+        });
+    }
     std::thread(Build).detach();
 }
 

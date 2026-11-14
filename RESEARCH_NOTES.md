@@ -2436,3 +2436,17 @@ language) the presentation title works natively.**
     opened the vfs copy. vfs::Register(..., when) serves a changed file only while `when` is true, so the grown files
     (score book, flows, the 16 message archives) wait for it: on Longshot the first launch after installing runs
     vanilla (ocarina works, no Song of Healing) and everything is active from the next launch.
+
+### §79k. All of Majora's Mask's songs (types 14..22) — in progress
+- Types: 14 Healing, 15 Soaring, 16 Sonata, 17 Goron Lullaby, 18 Bossa Nova, 19 Elegy, 20 Oath to Order, 21 Inverted
+  Song of Time, 22 Double Time (plugins/majora_mod/src/songs_data.cpp). Replays: MM3D NA_BGM_OCA_{CURE,BIGWING,AWAKING,
+  LULLABY,TIDE,SHELL,PLEDGE,TIME_SPEED,TIME_JUMP}_SEQ (doubled tracks dropped; Inverted's last note shortened to fit).
+- Names: en/fr/es from MM3D's message files (0x1b72..0x1b7f "You played the ..."); de/it/ja not verified.
+- French/Italian grammar tags: params [gender][elision][article][1]; fr elided 01 04 00 01 / 02 04 01 01, it 02 03 03 01;
+  Italian titles also carry tag 201.13; Japanese furigana tag = group 0 tag 0, u16 base chars, u16 reading bytes, reading.
+- Audio hosts: the BARS prefetch (0.3 s) is the host's, so a host must open on the song's first note. Single-note streams
+  Ocarina_<pitch> (7.2 s, same BARS) are ideal: the melody sound's SLink search f_8045db00(x2 = name) gets
+  "Ocarina_<pitch>" instead. Healing -> ZeldaLullaby, Double Time -> TimeSong (longer than 7.2 s). Warp songs are
+  bad hosts (Bolero/Minuet open with low backing).
+- Status: builds; all nine replays built and checked offline (notes in order, smooth splice); in-game test of the
+  name swap and presentations not yet confirmed.
