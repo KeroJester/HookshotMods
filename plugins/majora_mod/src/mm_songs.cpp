@@ -46,14 +46,21 @@ constexpr const char* kScoreBook = "GameParameter/MelodyScoreBook/Default.game__
 // specific songs and are left alone.
 struct Flow { const char* file; uint32_t vanillaRoom; std::set<std::string> skip; };
 static const Flow kFlows[] = {
-    {"Event/EventFlow/Dm_SY_Ocarina.bfevfl", 115184, {"Event45"}},   // (Event45: the song-learning path)
+    // (Event45: the song-learning path. Event13: the first switch after free play, where "no song" ends the event: §79l)
+    {"Event/EventFlow/Dm_SY_Ocarina.bfevfl", 115184, {"Event45", "Event13"}},
     {"Event/EventFlow/Dm_SY_Ocarina_move_Ed.bfevfl", 61872, {}},     // (Event12, Event109: all songs but warps)
 };
 constexpr uint32_t kFlowExtraRoom = 4096;               // (size table: the vanilla entry plus room for the added cases)
-// The event system only takes query answers inside the MelodyType enum (0..13): a 14 ends the flow even with a case
-// for it (§79f). 13 ("none") never reaches a flow natively (the query reports none as -1), so the flows see the added
-// songs as 13: the query answers 13 for them, and the presentation flows get case 13 -> Zelda's Lullaby's event.
+// The event system turns a query answer into the MelodyType enum, and anything outside it (the query's -1 for "no song",
+// or 14..) becomes 13 = None (§79l). So "no song" reaches the switches as 13 too, and a case 13 in the first switch
+// after free play (Event13) made it run a presentation that waited forever for a song (the softlock after playing an
+// unlearned song's notes). So: Event13 keeps no case 13 and asks while the added song's replay has not started yet
+// (from its match to its melody sound): the query answers Zelda's Lullaby (case 0's branch, as every case but Epona's
+// and the Sun's Song); after that it answers 13, and the presentation switches past Event13 have case 13 -> case 0's
+// branch. The song sensor and the world's song events see 13 (no song), as before.
 constexpr uint32_t kFlowValue = 13;
+constexpr uint32_t kFirstSwitchAs = 0;
+static uint32_t g_Matched;                               // an added song matched, its replay not started yet (game thread)
 
 enum : uint64_t {
     fMatcher = 0x832b7400,      // (OM, MelodyType* out) -> bool, free play
@@ -107,7 +114,10 @@ static uint32_t PitchCode(int key) { return key == 62 ? 4 : key == 65 ? 7 : key 
 static void QueryTypeHook(GuestCtx* c) {
     const uint64_t node = c->x[0];
     o_QueryType(c);
-    if (songs::ByType(D(g_Om + 0x220))) g_Fn.Call(c, fQueryOut, node + 0x20, kFlowValue);
+    const uint32_t t = D(g_Om + 0x220);
+    if (songs::ByType(t)) g_Fn.Call(c, fQueryOut, node + 0x20, g_Matched == t ? kFirstSwitchAs : kFlowValue);
+    if (getenv("MAJORA_TRACE_SONG") && songs::ByType(t))   // (development)
+        Log("[trace] flow query: type %u -> %u\n", t, g_Matched == t ? kFirstSwitchAs : kFlowValue);
 }
 
 // ---- score book ------------------------------------------------------------------------------------------------------
@@ -247,6 +257,7 @@ static void MatcherHook(GuestCtx* c) {
     g_Om = om;
     const bool ready = g_BookPatched && Scores(c);
     o_Matcher(c);
+    if ((c->x[0] & 1) && GuestPtrOk(out) && songs::ByType(D(out))) g_Matched = D(out);
     if ((c->x[0] & 1) || !ready || !GuestPtrOk(out)) return;
     for (const songs::Song& s : songs::All()) {
         const uint64_t score = s.type < g_Slot.size() && g_Slot[s.type] ? Q(g_Slot[s.type]) : 0;
@@ -255,6 +266,7 @@ static void MatcherHook(GuestCtx* c) {
             if (g_Fn.Call(c, fScoreMatch, score, om + ring, D(om + len)) & 1) {
                 GWrite<uint32_t>(out, s.type);
                 GWrite<uint32_t>(om + 0x244, 0);
+                g_Matched = s.type;
                 c->x[0] = 1;
                 Log("[song] %s played\n", s.english);
                 return;
@@ -277,6 +289,7 @@ static void MelodySoundHook(GuestCtx* c) {
     const uint64_t out = c->x[8], kind = c->x[2];
     const songs::Song* s = songs::ByType((uint32_t)c->x[1]);
     if (s) {
+        if (kind == 0) g_Matched = 0;                    // (its replay starts: the presentation switches answer 13)
         songaudio::Asked(s->type, kind);
         c->x[1] = (uint64_t)(s->hostType >= 0 ? s->hostType : 0);
     }

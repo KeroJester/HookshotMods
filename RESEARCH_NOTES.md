@@ -2473,3 +2473,25 @@ language) the presentation title works natively.**
 - **Test pitfall:** in zsh, $P in "$($P args)" is not split: the note input lines came out empty and the songs were
   never played (it looked like a broken ocarina). Use scratchpad tools/song_lines.sh. Also: /tmp is RAM (16 GB) and
   each run's screenshots take hundreds of MB: delete old runs.
+
+### §79l. The softlock after an unlearned song's notes (MajoraMod 0.2.1)
+- **Symptom (user, Longshot):** after playing custom songs, playing the Song of Storms' notes (not learned) started a
+  presentation with no title and no notes that never ended. Reproduced headless on the user's save (no songs learned)
+  with Storm's notes alone; vanilla does nothing. With the flow patch off: nothing either.
+- **The event runtime** (f_81248840: a switch calls its query, then scans the case table for an exact match; no match
+  = the switch ends) is not where the 13 comes from: the query wrapper turns the answer into the MelodyType enum, and
+  values outside it (the query's -1 for "no song", 14..) become 13 = None. So "no song" reaches the switches as 13:
+  natively only Event137 and Event297 have a case 13 (both generic).
+- **Cause:** the mod's case 13 in Event13, the first switch after free play (Event0 EventWaitOcarinaInputForNormal ->
+  join -> Event13), sent "no song" into case 0's presentation branch, which then waited for a song that never played.
+  (The earlier "it ended the flow" reading of a 14 in §79f was the same rule: 14 became 13, which had no case then.)
+- **Fix:** Event13 keeps no case 13 (skipped like Event45). While an added song's replay has not started (from its
+  match to its kind-0 melody sound) the query answers 0 (Zelda's Lullaby: Event13's case 0 -> 66, the branch of every
+  song but Epona's and the Sun's Song); after that it answers 13 as before (the other six patched switches have case 13
+  -> case 0's branch; the song sensor and the world's song events see "no song").
+- Rejected on the way: answering Zelda's Lullaby during the whole presentation (OM mode 4/5) - the mode goes back to 0
+  when the replay starts (f_832b87f0 SetMode with flag), and Zelda's Lullaby's value also takes Event45's song-learning
+  branch: presentations lost their title and ended early. Appending a case 14 after 13 (thinking an unmatched value
+  falls to the last case): wrong, the scan is exact.
+- **Test pitfall:** after notes that match nothing the ocarina stays out, so the next D-pad left puts it away (then the
+  note buttons act as item buttons). tools/song_lines.sh: "+NOTES" plays without taking the ocarina out again.
