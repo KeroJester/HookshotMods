@@ -234,6 +234,8 @@ static bool Scores(GuestCtx* c) {
     return true;
 }
 
+bool EnsureScores(GuestCtx* c) { return g_BookPatched && Scores(c); }
+
 // ---- the ocarina event flows -------------------------------------------------------------------------------------------
 // Every switch on GameSystemActor.EventQueryMelodyTypeForNormal gets case 13 -> Zelda's Lullaby's event (its branches
 // are the generic ones: waits, closing the dialog, the condition sensor that reads the played type itself), except the
