@@ -1,0 +1,15 @@
+{
+  "name": "MajoraMod",
+  "author": "KeroJester",
+  "version": "0.1.0",
+  "description": "Majora's Mask content for Ocarina of Time. So far: the Song of Healing (B A F B A F on the ocarina) as a song of its own. Start the game from Hookshot Mods for it to load.",
+  "category": "Gameplay",
+  "homepage": "https://github.com/KeroJester/HookshotMods",
+  "code": {
+    "vulkan_layer": {
+      "name": "VK_LAYER_HOOKSHOT_majora_mod",
+      "linux": "layer/linux",
+      "windows": "layer/windows"
+    }
+  }
+}

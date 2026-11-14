@@ -2264,3 +2264,41 @@ language) the presentation title works natively.**
   SLink2/slink2.Product.111.bslnk.zs. The streams are Sound/Resource/Stream/Ocarina_<Name>.bwav. A native Song of
   Healing sound = a new BARS entry ExampleMelody_HealingSong + the slink2 definitions + Stream/Ocarina_HealingSong.bwav
   (the BWAV and stream built at runtime from the game's Ocarina_<pitch>.bwav, as §61's builder did in Python).
+
+### §79e. MajoraMod build: first results (2026-11-13)
+- **Code layout:** plugins/majora_mod (layer VK_LAYER_HOOKSHOT_majora_mod, mod folder 060-MajoraMod, log
+  majora/majora.log). Shared code moved to plugins/common/src (platform, hook, gamefiles, vfs; new: byml.* =
+  BYML read/write, a C++ port of mod_manager/byml.py that round-trips the score book byte for byte; guest.h = calling
+  game functions). Item Controls builds from the same files.
+- **Score book patch works:** vfs serves a 1144-byte score book with 15 entries; the runtime list count is 15.
+- **The game makes at most 13 score objects:** list slots 13 and 14 stay null (slot 12, a placeholder, got an
+  object). Objects are 0x70 bytes in one block:
+  - +0x00 vtable 0x84b87488, +0x08 0x83f04f8c, +0x10 parent link, +0x30 resource;
+  - +0x38 notes container (vtable 0x84b87550; data at container+0x18 = score+0x50, count at container+0x24 =
+    score+0x5c, plus a parent's count via container+0x10; f_8048f450 = count);
+  - +0x60 type (from MelodyType), +0x68 RestToRepeatExample, +0x6c / +0x6d flags (own notes / own type, else
+    inherited).
+  - Note data are pitch codes as in the rings (B 13, A 11, F 7, D 4).
+  - Puzzle: the game's own objects read score+0x50 == 0 although their count is 6 and Zelda's Lullaby matches. Maybe
+    a buffer elsewhere or an inherited container.
+  The mod makes the slot 13 / 14 objects itself (a copy of slot 12's, its own notes array, type 14; operator new
+  f_8005eca0(align, size)). **Result: the game's own matcher then matches B A F B A F** at list position 14. It uses
+  Zelda's Lullaby's learned flag, as predicted, and the type at +0x60 = 14.
+- **List lookup:** a list's parent ([list+0x18]) entries come first (the matcher's loop). Here no parent: count 15,
+  own array.
+- **After the match** (free-play update f_832b6e20 at 0x832b7250):
+  - OM+0x220 = type (13 -> 0), OM+0x114 = 1, f_832b1dc0(OM), f_832b4260(OM) (warp-song scene paths for 6..11),
+    then f_8325f420(listener, type);
+  - **f_8325f420** = message "song played": "Item_Melody_%s" (0x83de1bd5) + the type name (inline enum table;
+    > 12 -> ""), CRC32 via f_80e66170, sent with the type and lifetime 30 through f_80e66590.
+  - Item_Melody_<Name> are tiny actor packs (Pack/Actor, 13 of them incl. ScarecrowSong): key items (PouchContent
+    KeyItemMelody, model Obj_Rupee, event PouchContent.event.root.ain).
+  - With the item name forced to Item_Melody_ZeldaLullaby there is still no presentation, so the item is not the gate.
+- **The gate is the event flow Event/EventFlow/Dm_SY_Ocarina.bfevfl** (read with the evfl wheel in the game folder).
+  GameSystemActor.EventQueryMelodyTypeForNormal is switched on at Event13, 14, 45, 52, 66, 137, 147, 192, 245, 433,
+  519. Every case list covers only 0..12: Event14 branches per song (441, 449, 450, 451, 448, 452, 96, 102, 117,
+  136, 162, 168, 453), Event52 / 245 send all to one event, Event66 / 147 / 192 cover the warp and special songs.
+  Type 14 has no case, so the flow ends. (The old mod answered the host type to these queries for this reason.)
+- **Plan:** patch the flow at load: give each of these switches a case 14 with Zelda's Lullaby's target (to be
+  checked per switch). The new case table is appended at the end of the file and the switch's existing pointer
+  changed (no new pointer, so the relocation table stays). Needs the bfevfl layout (from the evfl wheel's source).

@@ -15,8 +15,9 @@ if [ -z "${ITEMCTL_MOD_DIR:-}" ]; then
 fi
 MOD=$ITEMCTL_MOD_DIR
 ZSTD=$ROOT/third_party/zstd/lib
-SRCS="$HERE/src/layer.cpp $HERE/src/item_controls.cpp $HERE/src/hook.cpp $HERE/src/platform.cpp
-      $HERE/src/gamefiles.cpp $HERE/src/vfs.cpp $HERE/src/item_files.cpp $HERE/src/native_hud.cpp $HERE/src/research.cpp"
+COMMON=$ROOT/plugins/common/src   # (shared with the other code mods: symbols, hooks, game files, file serving)
+SRCS="$HERE/src/layer.cpp $HERE/src/item_controls.cpp $COMMON/hook.cpp $COMMON/platform.cpp
+      $COMMON/gamefiles.cpp $COMMON/vfs.cpp $HERE/src/item_files.cpp $HERE/src/native_hud.cpp $HERE/src/research.cpp"
 CSRCS="$ZSTD/common/entropy_common.c $ZSTD/common/error_private.c $ZSTD/common/fse_decompress.c
        $ZSTD/common/xxhash.c $ZSTD/common/zstd_common.c $ZSTD/decompress/huf_decompress.c
        $ZSTD/decompress/zstd_ddict.c $ZSTD/decompress/zstd_decompress.c $ZSTD/decompress/zstd_decompress_block.c"
@@ -35,7 +36,7 @@ cobjs() {   # $1 C compiler, $2 extra flags: zstd's decoder as objects (C, not C
     done
     echo "$objs"
 }
-FLAGS="-O2 -std=c++20 -DVK_NO_PROTOTYPES -I$ROOT/vulkan_headers_src/include -I$HERE/src -I$ZSTD"
+FLAGS="-O2 -std=c++20 -DVK_NO_PROTOTYPES -I$ROOT/vulkan_headers_src/include -I$HERE/src -I$COMMON -I$ZSTD"
 NAME=VkLayer_hookshot_item_controls
 manifest() {   # $1 library path relative to the manifest
     cat <<JSON
