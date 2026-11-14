@@ -7,6 +7,7 @@
 #include "rstb.h"
 #include "mm_songs.h"
 #include "songbook.h"
+#include "icons.h"
 #include "vfs.h"
 
 namespace majora {
@@ -17,6 +18,7 @@ bool Init(const std::string& modDir) {
     if (!gamefiles::Init()) { Log("[majora] the game's files cannot be read: off\n"); return false; }
     song::Start();                                         // (registers its changed files before the server starts)
     songbook::Start();
+    icons::Start();
     rstb::Start(modDir);                                   // (the grown files' sizes; see rstb.h)
     vfs::Start();
     return true;

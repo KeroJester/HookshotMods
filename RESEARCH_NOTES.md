@@ -2542,3 +2542,56 @@ language) the presentation title works natively.**
   of Time (full 9.6 s) play through.
 - **Longshot:** the BARS and SLink2 grow, so the first launch after updating plays vanilla (the size table is read
   before the layer starts, §79j); the songs come back from the next launch.
+
+### §79n. The songbook: buttons and icons for the added songs (MajoraMod 0.4.0)
+- **Layout:** Ocarina_00 (screen vt 0x84c0a4f8, built once at boot by f_8340ecf0). Group N_MelodyBtn_00 (scale 1.4,
+  y 240) holds rows N_MelodyBtnL_00 (y 180: Pa_MelodyBtn_00 04 03 05 01 02 12, Lullaby .. Scarecrow) and
+  N_MelodyBtnR_00 (y 0: 06 .. 11, the warp songs); every button is a part PaOcarinaMelodyTypeBtn_00 (220 x 237.6).
+- **Screen state:** +0x518[13] part layouts, +0x310 + 0x28 i the button's animations (Type, Decide, Failure,
+  CursorLoop, PlayOut; names at 0x83f368f0..), +0x580[13] controllers (UniteButton, found by name in the screen's list
+  +0x38: nodes at controller + 8, name at node + 0x10), +0x610 the listening panel. The selected button is GameData
+  int 0x8566048e.
+- **Calls:** f_83412b00(screen, mode) opens (1), opens for listening (2) or closes (0): per button the Type frame
+  (index + 1 if learned, else 0), the controller's state 4 animation (Decide / Failure) via f_80df53e0, show
+  f_80a89190(layout, 0) / hide f_80aa3b00; and the focus f_8379c010(screen, layout[index < 13 ? index : 0], 0).
+  The focus system calls the screen's vt method f_83410c70(screen, controller): index from the layout, GameData set
+  (f_80183b70), then (OcarinaMgr +0x278 == 1) title f_83410d90 / caption f_83410e80 / notes f_83410f70 by index, or
+  (== 2) f_833e7e00 + f_832b7880. The notes look the song up by MelodyType in the score list (so the added songs' score
+  objects must have their types written before the songbook opens: song::EnsureScores). The panel's learned check is
+  OM+0x264[index < 13 ? index : 0]. The listening glow f_834138e0(screen, op, index) plays PlayOut of
+  button index < 13 ? index : 0. Listening plays ExampleMelody_<Type> / ScoreExampleMelody_<Type> (SLink2: their
+  sound names are redirected too, §79m).
+- **Controllers come with the part:** the screen's layout setup f_8045bac0 builds the layout tree (f_80c3de80, which
+  calls the part builder f_80459f90) and then, for each layout in its list, finds the part's own controller
+  definition (f_8045c290) and has the controller factory f_80790920 make it ("UniteButton": 0x90-byte object, vt
+  0x84c416e8, init f_80791020). So nine more parts built with a copy of Pa_MelodyBtn_10's build call (instance names
+  Pa_MelodyBtn_<type>) and registered in the same list get real controllers, which the focus system reaches.
+- **Drawing pitfalls (layout panes):** a pane's transform (+0x6c/+0x70 translate, +0x60 scale; world matrix at +0x28..,
+  global position +0x4c/+0x50) is drawn from data computed when the pane updates; panes are updated from a queue
+  (pending bits at +0, wanted mask at +4; SetTranslate f_8022a3e0 marks 0x40 and queues via f_815457d0). Changes made
+  before the songbook is first shown are not drawn; a moved group node does not redraw its children; panes attached
+  under a group node are never updated. What works: at the first focus after each open, every button's part pane is
+  placed (pending cleared, SetTranslate, pending = wanted & ~0x20, queued) and the added parts hang under the Minuet's
+  part pane. The vanilla drawing has the block one row higher than the layout (y 492, from an early calculation), so
+  the block is set there too. A part's root pane is built hidden (flag bit 0 at +0xa8): f_8022aea0(root, 1). Its
+  animations are not applied either (glows lit): their frames are copied from a game button's when the songbook
+  opens (UnSelect at its last frame, Select / CursorLoop at 0; f_802f2b70 reads a frame, f_802f2d90 sets one).
+- **Index past 12:** handled in hooks: the focus call when opening (layout 0 -> the added button), PlayOut, and the
+  focus callback itself (the mod's own handling for its buttons, the panel's learned flag set meanwhile).
+- **Placement:** bottom row seven (the warp songs on the top row's arc, the Song of Healing last), a third row of eight
+  at y -180 (step 160, gentler arc), the block where it is drawn; fits above the panel.
+- **Icons:** the button's icon is the Type animation's texture pattern over OcarinaMelodyIcon_00..12 (ASTC 4x4 sRGB,
+  107 x 107, in UI/Layout2Archive/Common...bntx, 878 textures, 244 MB). The texture names are resolved when a part
+  is built, from strings in the loaded layout archive (4 copies of "OcarinaMelodyIcon_00" in guest memory near the
+  songbook's resources): renaming them to OcarinaMelodyIcon_<type> while one added button is built, and back after,
+  gives that button its own texture as frame 1 (the game's buttons keep theirs).
+- **New textures in the BNTX** (icon_tex.cpp; format notes there): copies of OcarinaMelodyIcon_00's BRTI in RGBA8 sRGB
+  (0x0b06, block height 16 GOBs, 57344 bytes each), inserted as a 4096-aligned block before BRTD (new BRTIs, a texture
+  list of all 887, names, a new _DIC) with BRTD's data appended and _RLT rebuilt; every old pointer past the insertion
+  moved. The _DIC is a PATRICIA trie (bit i = bit (i & 7) of the character len - 1 - i / 8); the builder reproduces
+  the file's own 879 nodes exactly (checked at run time before anything is changed). Base: the runtime's own
+  prompts/Common.bntx.zs (button glyphs) when present. Size table +1 MB. Art: plugins/majora_mod/art/make_icons.py
+  (original glyphs, PNGs in art/icons, built into src/icons_data.cpp, zstd).
+- **Verified headless:** shop save (all learned) and the user's save (none learned): 22 buttons, cursor through all,
+  titles / captions / notes, listening (own stream, own glow), cursor restored on reopen, then a presentation; HUD and
+  Item Controls' boxes unaffected.

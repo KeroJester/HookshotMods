@@ -12,6 +12,7 @@
 // song's type as the index.
 #include "songbook.h"
 #include "mm_songs.h"
+#include "icons.h"
 #include "guest.h"
 #include "hook.h"
 #include "platform.h"
@@ -123,6 +124,24 @@ static void RegisterTree(GuestCtx* c, uint64_t list, uint64_t lay, int depth = 0
 }
 
 // ---- 1. the layout build: one more button per added song ----------------------------------------------------------
+static float g_IconFrame = 0.0f;
+
+// Where "OcarinaMelodyIcon_00" is in the loaded layout archive (the button part's texture list and animation): the
+// archive is one block of guest memory, and the built layout points into it (its names)
+static std::vector<uint64_t> IconNames(uint64_t lay) {
+    std::vector<uint64_t> out;
+    uint64_t res = 0;
+    for (int o = 0; o < 0x200 && !res; o += 8) { const uint64_t v = Q(lay + o); if (v >= 0x7f00000000ull && v < 0x8000000000ull) res = v; }
+    static const char kWant[] = "OcarinaMelodyIcon_00";   // (with its terminating 0)
+    const uint64_t lo = (res & ~0xfffull) - 0x800000, hi = res + 0x800000;
+    if (!res || !GuestPtrOk(lo) || !GuestPtrOk(hi)) return out;
+    const uint8_t* m = (const uint8_t*)GPtr(lo);
+    const size_t n = hi - lo;
+    for (size_t i = 0; i + sizeof kWant <= n; i++)
+        if (m[i] == 'O' && !memcmp(m + i, kWant, sizeof kWant)) out.push_back(lo + i);
+    Log("[book] %zu copies of %s in the layout archive\n", out.size(), kWant);
+    return out;
+}
 // ctx: vt, layout, heap, screen, parent layout, resource; description: part name, len, instance name, len, layout
 // list, 0, 0, 1 (native_hud.cpp). The songbook's last button is Pa_MelodyBtn_10 (the panes' order).
 static void PartBuildHook(GuestCtx* c) {
@@ -133,6 +152,9 @@ static void PartBuildHook(GuestCtx* c) {
     if (!GuestPtrOk(d[4]) || GStr(d[0]) != "PaOcarinaMelodyTypeBtn_00" || GStr(d[2]) != "Pa_MelodyBtn_10") return;
     const GuestCtx saved = *c;
     std::vector<Button> built;
+    // the icons: the part's icon texture names (in the loaded layout archive, near the songbook's own resources) are
+    // renamed to the song's own texture while its button is built, so its "Type" animation's frame 1 shows that
+    const std::vector<uint64_t> iconNames = icons::Served() ? IconNames(c->x[0] - 0x40) : std::vector<uint64_t>();
     for (const songs::Song& s : songs::All()) {
         char inst[32];
         snprintf(inst, sizeof inst, "Pa_MelodyBtn_%02u", s.type);
@@ -143,14 +165,17 @@ static void PartBuildHook(GuestCtx* c) {
         W<uint64_t>(ctxm + 8, 0);                        // (no layout given: the builder makes one)
         W<uint64_t>(descm + 0x10, name);
         W<uint64_t>(descm + 0x18, strlen(inst));
+        for (uint64_t p : iconNames) { GWrite<uint8_t>(p + 18, (uint8_t)('0' + s.type / 10 % 10)); GWrite<uint8_t>(p + 19, (uint8_t)('0' + s.type % 10)); }
         c->x[0] = ctxm, c->x[1] = descm, c->x[30] = 0;
         o_PartBuild(c);
+        for (uint64_t p : iconNames) { GWrite<uint8_t>(p + 18, '0'); GWrite<uint8_t>(p + 19, '0'); }
         const uint64_t lay = c->x[0] - 0x40;
         *c = saved;
         if (Q(lay) != kLayoutVt || !GuestPtrOk(Q(lay + 0x80))) break;
         RegisterTree(c, d[4], lay);
         built.push_back({s.type, lay, 0});
     }
+    g_IconFrame = iconNames.empty() ? 0.0f : 1.0f;
     std::lock_guard<std::mutex> lk(g_Mu);
     g_Built = built;
     Log("[book] %zu buttons built with the songbook (screen %#llx, list %#llx)\n", built.size(), (unsigned long long)k[3],
@@ -307,7 +332,7 @@ static void ShowHook(GuestCtx* c) {
     for (Button& b : g_Book.buttons) {
         if (mode == 0) { g_Fn.Call(c, fLayHide, b.lay, 0); continue; }
         if (mode != 1 && mode != 2) continue;
-        CallF(c, fAnimFrame, b.type_, 0.0f);            // (the icon: none yet)
+        CallF(c, fAnimFrame, b.type_, g_IconFrame);     // (the icon: the song's own texture as frame 1, see PartBuildHook)
         const uint64_t model = Q(screen + 0x518 + 8 * kHolder);
         for (const char* n : kRestAnims) {
             guest::Scratch sc(c);
