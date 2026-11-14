@@ -2237,3 +2237,30 @@ language) the presentation title works natively.**
 7. **Animation / effect:** the AS variables above; decide later (default, or a data change).
 8. **Flows:** QueryMelodyTypeForNormal reports 14, so no Lullaby event fires (wanted). Ocarina-point events for the Song
    of Healing come with the MM content.
+
+### §79d. Text, icons, cursor, sound: where each lives
+- **Text:** LayoutMsg/Ocarina_00.msbt (MsgStdBn, about 2.3 KB) in each of 16 language archives
+  Mals/<lang>.Product.110.sarc.zs (CNzh EUde EUen EUes EUfr EUit EUnl EUpl EUru JPja KRko TWzh USen USes USfr USpt),
+  with labels Title_00..12 and Caption_00..12; EventFlowMsg/Dm_SY_Ocarina.msbt sits beside it. Adding Title_14 /
+  Caption_14 needs an MSBT writer (LBL1 hash buckets, ATR1, TXT2 UTF-16) and a repacked, recompressed archive. The
+  archive grows, so check the ResourceSizeTable entry (or keep the total size by trimming). Item Controls' vfs patches
+  in place (same size); a grown file needs GetFileSize served too. MM's official names exist for en / fr / es / de /
+  it / ja ("Song of Healing", "Chant de l'apaisement", "Canción de curación", "Lied der Befreiung", ...: check each);
+  nl / pl / ru / pt / ko / zh have none (MM was never released in them): decide with the user.
+- **Icons:** textures OcarinaMelodyIcon_00..12 (plus OcarinaMelodyBase/Bg/BgOutline/Deco/Glow_00) in
+  UI/Layout2Archive/Common.Product.100.Nin_Ounce_NVN2.bntx.zs (244 MB decompressed). The part
+  PaOcarinaMelodyTypeBtn_00 lists the 13 icon textures; pane P_Icon_00 shows one, switched by the button's "Type"
+  animation (frame = song). Options for a 14th icon:
+  - overwrite an unused texture of the same size and format in place (cheap vfs read patch), and give our button's
+    icon pane that texture;
+  - append a texture to the BNTX (rebuild the 244 MB file: heavy).
+  The icon art is original (the user asked for a newly drawn icon).
+- **Cursor:** "OneShotSetCurrentMelodyBtnIndexForCursor" is only used by AI/GameSystemActor.event.root.ainb (event
+  flows that point the songbook at a song, e.g. when a song is learned). Sequence/Ocarina.module.ainb has
+  SeqOneShotSetMoveCursorControllerMask only. The cursor movement is in the songbook screen's code (screen built by
+  f_8340ecf0): to be found from its vtable / per-frame method.
+- **Sound:** Sound/Resource/Ocarina.bars.zs (BARS, 756800 bytes) holds 12 ExampleMelody_<Name> entries (AMTA +
+  prefetch BWAV, no Scarecrow). "Melody_" and "ScoreExampleMelody_" are presumably aliases defined in
+  SLink2/slink2.Product.111.bslnk.zs. The streams are Sound/Resource/Stream/Ocarina_<Name>.bwav. A native Song of
+  Healing sound = a new BARS entry ExampleMelody_HealingSong + the slink2 definitions + Stream/Ocarina_HealingSong.bwav
+  (the BWAV and stream built at runtime from the game's Ocarina_<pitch>.bwav, as §61's builder did in Python).
