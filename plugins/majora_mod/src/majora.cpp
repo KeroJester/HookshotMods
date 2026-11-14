@@ -4,6 +4,7 @@
 #include "majora.h"
 #include "gamefiles.h"
 #include "platform.h"
+#include "rstb.h"
 #include "song_healing.h"
 #include "vfs.h"
 
@@ -14,6 +15,7 @@ bool Init(const std::string& modDir) {
     Log("[majora] MajoraMod in %s\n", modDir.c_str());
     if (!gamefiles::Init()) { Log("[majora] the game's files cannot be read: off\n"); return false; }
     song::Start();                                         // (registers its changed files before the server starts)
+    rstb::Start(modDir);                                   // (the grown files' sizes; see rstb.h)
     vfs::Start();
     return true;
 }

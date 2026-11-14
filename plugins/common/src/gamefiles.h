@@ -17,6 +17,9 @@ bool Init();
 // Host path of the file the game reads for a RomFS path ("UI/Tex/Icon/Item_Bow.bntx.zs"), or "" if none
 std::string RomfsPath(const std::string& rel);
 
+// The game's RomFS folder (no mod's files), "" if unknown
+std::string RomfsDir();
+
 bool ReadFile(const std::string& hostPath, Bytes& out);
 
 // Decompresses a .zs file (dictionary chosen by the frame's dictionary ID). False on error.

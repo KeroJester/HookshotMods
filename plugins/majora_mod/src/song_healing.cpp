@@ -278,12 +278,12 @@ bool Start() {
     }
     songtext::Start();
     songaudio::Start();
-    vfs::Register(kScoreBook, PatchScoreBook);
+    vfs::Register(kScoreBook, PatchScoreBook, rstb::Applied);   // (grown: waits for its size)
     // (the parsed book lives in the memory the size table sets aside for the file: 7768 bytes held the 12 vanilla
     // scores; with three more, the note arrays and the objects past the 13th failed to allocate)
     rstb::Require("GameParameter/MelodyScoreBook/Default.game__ocarina__MelodyScoreBook.bgyml", 7768 + 8192);
     for (const Flow& f : kFlows) {
-        vfs::Register(std::string(f.file) + ".zs", [&f](gamefiles::Bytes& file) { return PatchFlow(f, file); });
+        vfs::Register(std::string(f.file) + ".zs", [&f](gamefiles::Bytes& file) { return PatchFlow(f, file); }, rstb::Applied);
         rstb::Require(f.file, f.vanillaRoom + kFlowExtraRoom);
     }
     o_MelodySound = hook::Install(g_Fn.Host(fMelodySound), MelodySoundHook, "melody sound f_8337b730");

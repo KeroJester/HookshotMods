@@ -23,6 +23,7 @@ using gamefiles::Bytes;
 struct Entry {
     std::string rel, key;                 // RomFS path; lower case, for matching
     Patch patch;
+    std::function<bool()> when;           // (null: always)
     int state = 0;                        // 0 not made, 1 being made, 2 made
     std::shared_ptr<const Bytes> data;    // the changed copy (null: serve the original)
 };
@@ -41,8 +42,9 @@ static std::string Lower(std::string s) {
     return s;
 }
 
-void Register(const std::string& rel, Patch patch) {
+void Register(const std::string& rel, Patch patch, std::function<bool()> when) {
     Entry e;
+    e.when = std::move(when);
     e.rel = rel;
     e.key = Lower(rel);
     e.patch = std::move(patch);
@@ -102,6 +104,11 @@ static void OpenHook(GuestCtx* c) {
     std::unique_lock<std::mutex> lk(g_Mu);
     Entry* e = Find(key);
     if (!e) return;
+    if (e->when && !e->when()) {
+        static int waited;
+        if (waited++ < 20) Log("[vfs] the game opened %s: reads it unchanged (not ready this session)\n", e->rel.c_str());
+        return;
+    }
     Make(lk, *e);                         // (made here if the worker has not got to it yet)
     g_Made.wait(lk, [&] { return e->state == 2; });
     if (e->data) {

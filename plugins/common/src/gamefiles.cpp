@@ -41,6 +41,8 @@ std::string RomfsPath(const std::string& rel) {
     return "";
 }
 
+std::string RomfsDir() { return g_RomfsDir && *g_RomfsDir ? HostSeps(*g_RomfsDir) : std::string(); }
+
 bool ReadFile(const std::string& path, Bytes& out) {
     FILE* f = fopen(path.c_str(), "rb");
     if (!f) return false;

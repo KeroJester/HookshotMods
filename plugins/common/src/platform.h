@@ -38,6 +38,8 @@ inline bool GuestPtrOk(uint64_t a) { return a && a < kGuestSpan; }
 // Folder of this library, e.g. .../mods/050-ItemControls/layer/linux (with a trailing separator removed)
 std::string LibraryDir();
 char PathSep();
+// Creates a folder and its parents (true if it exists afterwards)
+bool MakeDirs(const std::string& dir);
 
 // Log file (opened by Init), printf style
 void LogOpen(const std::string& path);

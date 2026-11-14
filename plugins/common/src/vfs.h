@@ -13,7 +13,9 @@ namespace vfs {
 // patch(file bytes as stored in the RomFS) -> true if it made the changed copy (in place). False: the game reads the
 // file unchanged. Runs once, on a worker thread started by Start() (or at the first open, whichever comes first).
 using Patch = std::function<bool(gamefiles::Bytes& file)>;
-void Register(const std::string& romfsRel, Patch patch);
+// when: checked at each open; while it is false the game reads the file unchanged (e.g. rstb::Applied for files that
+// grow beyond their resource size table entry).
+void Register(const std::string& romfsRel, Patch patch, std::function<bool()> when = nullptr);
 
 // A file whose content depends on the moment: live() runs at each open of that path (on the opening thread; keep it
 // quick) and returns the bytes to serve for this open, or null for the file as it would be otherwise.

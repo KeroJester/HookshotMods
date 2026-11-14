@@ -1,4 +1,5 @@
 #include "platform.h"
+#include <filesystem>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -29,6 +30,12 @@ char PathSep() {
 #else
     return '/';
 #endif
+}
+
+bool MakeDirs(const std::string& dir) {
+    std::error_code ec;
+    std::filesystem::create_directories(std::filesystem::u8path(dir), ec);
+    return std::filesystem::is_directory(std::filesystem::u8path(dir), ec);
 }
 
 std::string LibraryDir() {

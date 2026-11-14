@@ -79,7 +79,7 @@ static bool Patch(const Lang& lang, gamefiles::Bytes& file) {
 void Start() {
     for (const Lang& lang : kLangs) {
         const std::string archive = std::string("Mals/") + lang.code + ".Product.110.sarc";
-        vfs::Register(archive + ".zs", [&lang](gamefiles::Bytes& file) { return Patch(lang, file); });
+        vfs::Register(archive + ".zs", [&lang](gamefiles::Bytes& file) { return Patch(lang, file); }, rstb::Applied);
         rstb::Grow(archive, kArchiveExtra);
     }
 }

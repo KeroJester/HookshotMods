@@ -2416,3 +2416,23 @@ language) the presentation title works natively.**
 - **A real Song of Healing effect** would be a new ELink asset (Ply_Ocarina_Correct_HealingSong_00, e.g. a recoloured
   copy of an existing one) chosen for a new value of +0x1ac0: needs an ELink2 (XLNK) writer. MM3D's own song effects
   (OCEFF_WIPE7) are drawn by code, not stored as assets.
+
+### §79j. Longshot reads the resource size table before the layer starts (ocarina broken)
+- **Symptom (user, Longshot):** with MajoraMod on, D-pad left drops the HUD for a moment and play resumes: the
+  ocarina event ends at once. MajoraMod off: fine. A headless run with the same save worked (luck).
+- **Cause:** Longshot's game thread opens System/Resource/ResourceSizeTable...rsizetable.zs (fs trace line ~103)
+  before the layer has installed its vfs hooks (the layer starts at vkCreateInstance, on another thread), so the
+  raised sizes were never seen. Dm_SY_Ocarina.bfevfl with case 13 is 115672 bytes against a vanilla entry of 115184:
+  whether it loads depends on heap slack. Hookshot opens the table later, through the hooks (it worked there).
+- **Longshot loads a mod folder's table at boot:** <mod>/romfs/System/Resource/ResourceSizeTable.*.rsizetable.zs; the
+  host merges its button-prompt sizes into it as prompts/rsizetable.mod.zs ("mods: ... <- ...060-MajoraMod\romfs\...
+  (with the button prompts' sizes merged in)"), and hos_mods_romfs then returns that file.
+- **Fix (plugins/common rstb.*, MajoraMod 0.1.1):** rstb::Start(modDir) builds the raised table from the game folder's
+  own (prompts/rsizetable.zs, else the RomFS one; never from a mod's, so Grow does not stack) and
+  - writes it to <mod>/romfs/System/Resource/... when it differs (made from the player's files at runtime; info.json
+    "keep" lists it);
+  - serves it through vfs::RegisterLive for runtimes that open the table later (Hookshot);
+  - rstb::Applied() = the table the game loaded at boot (hos_mods_romfs) already has every raised size, or the game
+    opened the vfs copy. vfs::Register(..., when) serves a changed file only while `when` is true, so the grown files
+    (score book, flows, the 16 message archives) wait for it: on Longshot the first launch after installing runs
+    vanilla (ocarina works, no Song of Healing) and everything is active from the next launch.
