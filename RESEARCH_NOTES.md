@@ -2398,3 +2398,21 @@ language) the presentation title works natively.**
   untested until the songbook has its 14th button.
 - **Still missing vs native songs:** the song effect (Zelda's Lullaby has a pink particle/ring effect during its
   presentation; ours has none), the songbook button and icon.
+
+### §79i. The song effect
+- **Effects per song:** ELink2 (ELink2/elink2.Product.110.belnk.zs) has Ply_Ocarina_Correct_<Song>_00 and
+  _End_00 for Zelda's Lullaby, Epona's Song, Saria's Song, Sun's Song, Song of Time, Song of Storms and the Scarecrow's
+  Song (the warp songs have their own Demo_SY_Ocarina_move_* effects). Dm_SY_Ocarina's flow has no effect action.
+- **Trigger:** f_828b4340 (player ocarina node enter) emits the ELink keys "Ocarina_Correct" (string 0x83deadbc via
+  the pointer at 0x84a03ff8, f_8045fd50(xlink, &key, node + 0x28, 2)) and later "Ocarina_Correct_End" (0x84a04010,
+  from 0x828b4910 / 0x828b85e0). The table at 0x84a03fe0 also names DemoOcarina, DemoOcarinaMelodyGet,
+  DemoOcarinaFinger, DemoOcarinaBreath, DemoOcarinaFace.
+- **The asset is chosen by the actor variable +0x1ac0** that f_80609d00 sets from OM+0x220 every frame
+  (f_83bf01a0(x22, actor + 0x1ac0, T), at 0x8060ab2c). Tested: showing f_806a9040 (AS OcarinaLastMelodyType) a native
+  type gives no effect; showing f_80609d00 (with or without f_80c225d0) a native type gives that song's effect
+  (0 Zelda's Lullaby: pink kaleidoscope; 4 Song of Time: blue light tunnel).
+- **MajoraMod:** hook f_80609d00; while OM+0x220 == 14 it sees kEffectFrom (0, Zelda's Lullaby's pink effect, the
+  closest native look to Majora's Mask's pink swirl), restored after. MAJORA_EFFECT_FROM=<type> tries another.
+- **A real Song of Healing effect** would be a new ELink asset (Ply_Ocarina_Correct_HealingSong_00, e.g. a recoloured
+  copy of an existing one) chosen for a new value of +0x1ac0: needs an ELink2 (XLNK) writer. MM3D's own song effects
+  (OCEFF_WIPE7) are drawn by code, not stored as assets.

@@ -67,6 +67,7 @@ enum : uint64_t {
     fQueryType = 0x82a7c980,    // flow query EventQueryMelodyTypeForNormal (x0 node): writes the played type (13 -> -1)
     fQueryOut = 0x80854e00,     // (node + 0x20, value): a query node's output
     fOmUpdate = 0x832b4df0,     // OcarinaMgr per-frame update (x0 OM, x1 pad state)
+    fPlayerMain = 0x80609d00,   // player: actor variable +0x1ac0 = song type (picks the song effect)
 };
 // The game makes at most 13 score objects (one per native song type): list slots 13 and 14 stay empty. The mod makes
 // them: a copy of slot 12's object (0x70 bytes) with its own notes (container at +0x38: data +0x50, count +0x58/+0x5c,
@@ -242,6 +243,21 @@ static void MelodySoundHook(GuestCtx* c) {
     }
 }
 
+// ---- the song effect -------------------------------------------------------------------------------------------------
+// The player's song effect (§79i): entering the ocarina node (f_828b4340) emits the ELink key "Ocarina_Correct", and
+// ELink picks Ply_Ocarina_Correct_<Song>_00 by an actor variable (+0x1ac0) that f_80609d00 sets from the song type
+// each frame. Type 14 has no asset, so f_80609d00 sees kEffectFrom while the Song of Healing plays: Zelda's Lullaby's
+// pink effect, the closest to Majora's Mask's (MAJORA_EFFECT_FROM=<type> tries another, for testing).
+static uint32_t g_EffectFrom = 0;
+static GuestFn o_PlayerMain;
+static void PlayerMainHook(GuestCtx* c) {
+    const uint64_t om = g_Om;
+    const bool swap = om && D(om + 0x220) == kHealingSong;
+    if (swap) GWrite<uint32_t>(om + 0x220, g_EffectFrom);
+    o_PlayerMain(c);
+    if (swap && D(om + 0x220) == g_EffectFrom) GWrite<uint32_t>(om + 0x220, kHealingSong);
+}
+
 static void OmUpdateHook(GuestCtx* c) {
     const uint64_t om = c->x[0];
     if (g_Replay.endNs && NowNs() >= g_Replay.endNs) {
@@ -256,7 +272,7 @@ static void OmUpdateHook(GuestCtx* c) {
 
 // ---- start -----------------------------------------------------------------------------------------------------------
 bool Start() {
-    if (!g_Fn.Resolve({fMatcher, fBookGet, fBookList, fListCount, fScoreMatch, fMelodySound, fNew, fQueryType, fQueryOut, fOmUpdate}, "song")) {
+    if (!g_Fn.Resolve({fMatcher, fBookGet, fBookList, fListCount, fScoreMatch, fMelodySound, fNew, fQueryType, fQueryOut, fOmUpdate, fPlayerMain}, "song")) {
         Log("[song] off\n");
         return false;
     }
@@ -271,6 +287,8 @@ bool Start() {
         rstb::Require(f.file, f.vanillaRoom + kFlowExtraRoom);
     }
     o_MelodySound = hook::Install(g_Fn.Host(fMelodySound), MelodySoundHook, "melody sound f_8337b730");
+    if (const char* v = getenv("MAJORA_EFFECT_FROM")) g_EffectFrom = (uint32_t)atoi(v) % 13;   // (testing)
+    o_PlayerMain = hook::Install(g_Fn.Host(fPlayerMain), PlayerMainHook, "player f_80609d00 (song effect)");
     o_OmUpdate = hook::Install(g_Fn.Host(fOmUpdate), OmUpdateHook, "ocarina update f_832b4df0");
     o_QueryType = hook::Install(g_Fn.Host(fQueryType), QueryTypeHook, "flow query f_82a7c980");
     o_Matcher = o_QueryType ? hook::Install(g_Fn.Host(fMatcher), MatcherHook, "song matcher f_832b7400") : nullptr;
