@@ -2108,3 +2108,29 @@ item (record +0xfa == 1: sticks, nuts, bombs), and weapons have no count of thei
 - **Mod:** the same steps; each box has two more strings (ammo, tmp).
 - Verified headless: the Bow in LB+X shows 50 (ammo Item_Arrow_Normal 50/50, green at max). The slingshot takes the
   same weapon path (untested: the test save has none).
+
+## 79. MajoraMod: Song of Healing as a 14th song type (research started 2026-11-13)
+The user's goal: the Song of Healing at "1:1 quality with the game's actual songs", in a new cross-platform code mod
+(MajoraMod, like Item Controls: Vulkan layer, symbol hooks, files served by vfs hooks; no dev overlay, no ImGui, no
+memory scanning). It needs its own song type, not the Zelda's Lullaby disguise of §61. Decisions: draw a NEW songbook
+icon; known from the start (later taught by the Happy Mask Salesman).
+- **Songbook:** in ocarina mode, hold LT ("Check songbook"). Layout Ocarina_00: 13 buttons Pa_MelodyBtn_00..12 (left
+  group 00-05 + 12, right group 06-11), part PaOcarinaMelodyTypeBtn_00 with icon panes OcarinaMelodyIcon_00..12, and a
+  notation panel: T_Title_00, T_Caption_00, Pa_Note_00..08. On screen: two rows, top 6 + Scarecrow's (dark until
+  learned), bottom 6 warp songs; the panel shows the title, the notes as button glyphs, the caption, then "Check song"
+  and "Listen to the melody". A 14th icon fits as the 7th of the bottom row.
+- **Enum names:** a static table at 0x83f1fdb0 (ZeldaLullaby .. ScarecrowSong, then offsets at +0xa8).
+  f_82fe4c70(enum, &out) is its ToText; types > 12 give the default string 0x83cfdd43.
+- **Readers of OcarinaMgr +0x220** (the matched type). HOS_WATCH on 0x1066df3430 (the manager is at 0x1066df3210 in
+  v2.0.14 too) while playing Zelda's Lullaby; watchloop.sh; host offsets mapped with nm bin/hookshot. Calls per 4 s
+  window:
+  - Every frame: f_80609d00 (3508 instr), f_806a9040, f_802d57c0 (6516), f_80c225d0 (6848), f_82a7c980
+    (QueryMelodyTypeForNormal), f_832b2af0 (10 refs to +0x220), f_8019bad0, f_833e47b0.
+  - Once or twice: f_828a9280, f_832b87f0, f_828b47f0, f_828b4340, f_8292a440.
+  - Each compares the type with 0xc, 0xd or 0xe.
+  - +0x230 (mode) readers: f_80609d00, f_806aa3b0, f_83319010, f_8019bad0, f_833e47b0, f_832b48a0, f_80795090 and
+    others.
+  - +0x264 (learned flags): no access while playing.
+- **Next:** for each reader, what it does with the type (bounds check, table index, sound/text name). A 14th type
+  means extending each table or hooking each check. Only one window was captured (match at an unknown time in it);
+  repeat with marks to pin the match-time readers.
