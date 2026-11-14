@@ -2361,3 +2361,40 @@ language) the presentation title works natively.**
 - **rstb::Grow:** raises an entry over its own value (archives differ by language). Mals/USen 2373752 -> 2377848.
 - **Verified headless (USen):** "You played the Song of Healing!" (name in red, as native titles), the notes on the
   staff, then the replay.
+
+### §79h. The Song of Healing's own replay sound (built at runtime, played through a host's stream)
+- **The game's replays are recorded performances**, not note sequences: Sound/Resource/Stream/Ocarina_<Song>.bwav,
+  48 kHz DSP-ADPCM, 2 channels (L/R: Lullaby, Epona, Saria, Sun, Time, Storm) or 3 (warp songs). Each ends about
+  1.2 s after its last loud note (ZeldaLullaby 10.74 s, last note above 5% at 9.49 s). Ocarina_<Pitch>.bwav = one held
+  note, mono, 7.2 s.
+- **Streams are played from the BARS prefetch:** Sound/Resource/Ocarina.bars.zs holds, per sound, a prefetch BWAV
+  (same header bytes 0..11 as the stream file; flag at +0x0c = 1) with 14336 samples (1024 ADPCM frames) per channel,
+  a byte prefix of the stream's channel data. Its header gives the sample count, coefficients and stream offsets the
+  engine uses; the stream file's own header is not read. Each channel has its own coefficient table.
+- **The stream file is opened at every play** (nn::fs OpenFile via Hookshot, so through plugins/common vfs). New
+  vfs::RegisterLive(path, fn): fn runs at each open and may hand back bytes for that open only.
+- **Melody sound handle:** f_8337b730(sound mgr, type, kind) returns a 16-byte handle through x8: i8 pool at +0, i16
+  slot at +2 (-1 none), u32 id at +4. Alive while object = [0x84c9e260][pool] + [0x84c9e268][pool] * slot has that id
+  at +0x20 (check at 0x832b4d24). The presentation replay (kind 0, from f_832b87f0) stores it at OcarinaMgr+0x20
+  (kind 1 from 0x832b2fc0/0x832b302c, kind 2 from 0x832b4c24 store there too) and the presentation lasts while it is
+  alive.
+- **MajoraMod (song_audio.cpp):**
+  - At startup a worker renders the replay from Ocarina_B/A/F/E/D following MM3D's NA_BGM_OCA_CURE_SEQ (11 notes:
+    B A F B A F B A E D E; start, key, velocity, length embedded as code), as the Python builder did (attack, 0.12 s
+    release, 64-sample declick, level 1.18x the RMS of a held B, peak <= 0.98), plus a 1.2 s tail: 7.68 s.
+  - It is put in Zelda's Lullaby's stream format: the host stream copied, the first 1024 frames per channel kept (the
+    prefetch plays the Lullaby's own opening B; both songs start on B), a 0.1 s equal-power crossfade from the
+    Lullaby to ours, then ours, the rest silence; encoded per channel with that channel's coefficients, starting from
+    the decoder history at sample 14336 (plugins/common bwav.*: DecodeDsp / EncodeDsp, best predictor and scale per
+    frame). Matches the Python render at 69 dB SNR; no step at the splice.
+  - The type-14 melody sound asks for type 0; the next open of Ocarina_ZeldaLullaby.bwav within 5 s reads ours. A
+    Lullaby played afterwards reads its own.
+  - When ours ends (7.68 s after the kind-0 call), the OcarinaMgr update hook (f_832b4df0) sets the handle's slot
+    (OM+0x22) to -1 if OM+0x20 still holds that handle: the presentation then ends as a native one does (14 shots at
+    30 frames = 7 s, was 19 with the Lullaby's length). The host voice plays out its silence unheard.
+  - MAJORA_DUMP_REPLAY=<file> writes the built stream (development).
+- **Verified headless:** both opens logged (ours, then the Lullaby's own), presentation length follows ours.
+  Not heard yet in a real session (headless runs have no audio): the user should listen. Songbook "listen" (kind 1)
+  untested until the songbook has its 14th button.
+- **Still missing vs native songs:** the song effect (Zelda's Lullaby has a pink particle/ring effect during its
+  presentation; ours has none), the songbook button and icon.

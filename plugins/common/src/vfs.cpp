@@ -27,6 +27,7 @@ struct Entry {
     std::shared_ptr<const Bytes> data;    // the changed copy (null: serve the original)
 };
 static std::vector<Entry> g_Entries;
+static std::vector<std::pair<std::string, Live>> g_Live;   // (lower-case path, live)
 static std::mutex g_Mu;
 static std::condition_variable g_Made;
 static std::unordered_map<uint64_t, std::shared_ptr<const Bytes>> g_Open;   // FileHandle -> served copy
@@ -48,6 +49,8 @@ void Register(const std::string& rel, Patch patch) {
     g_Entries.push_back(std::move(e));
 }
 
+void RegisterLive(const std::string& rel, Live live) { g_Live.emplace_back(Lower(rel), std::move(live)); }
+
 static void Make(std::unique_lock<std::mutex>& lk, Entry& e) {   // (g_Mu held; released while working)
     if (e.state) return;
     e.state = 1;                          // (claimed: others wait on g_Made)
@@ -66,12 +69,15 @@ static void Make(std::unique_lock<std::mutex>& lk, Entry& e) {   // (g_Mu held; 
     g_Made.notify_all();
 }
 
-static Entry* Find(const char* guestPath) {
+static std::string Key(const char* guestPath) {   // "content:/A/B" -> "a/b"; "" for other paths
     const char* rest = strstr(guestPath, ":/");
-    if (!rest) return nullptr;
+    if (!rest) return std::string();
     rest += 2;
     while (*rest == '/') rest++;
-    std::string key = Lower(rest);
+    return Lower(rest);
+}
+
+static Entry* Find(const std::string& key) {
     for (auto& e : g_Entries) if (e.key == key) return &e;
     return nullptr;
 }
@@ -84,8 +90,17 @@ static void OpenHook(GuestCtx* c) {
     size_t n = 0;
     for (; n + 1 < sizeof path; n++) { path[n] = (char)GRead<uint8_t>(pathp + n); if (!path[n]) break; }
     path[n] = 0;
+    const std::string key = Key(path);
+    for (auto& [k, live] : g_Live) {
+        if (k != key) continue;
+        if (auto d = live()) {
+            std::lock_guard<std::mutex> lk(g_Mu);
+            g_Open[GRead<uint64_t>(outp)] = std::move(d);
+            return;
+        }
+    }
     std::unique_lock<std::mutex> lk(g_Mu);
-    Entry* e = Find(path);
+    Entry* e = Find(key);
     if (!e) return;
     Make(lk, *e);                         // (made here if the worker has not got to it yet)
     g_Made.wait(lk, [&] { return e->state == 2; });

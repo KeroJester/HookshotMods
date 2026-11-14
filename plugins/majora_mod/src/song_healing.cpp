@@ -11,6 +11,7 @@
 //   - size table: the score book and the flows grow, so their entries are raised (rstb.*);
 //   - melody sounds f_8337b730: no "Melody_HealingSong" exists yet, so type 14 plays through a stand-in.
 #include "song_healing.h"
+#include "song_audio.h"
 #include "song_text.h"
 #include "byml.h"
 #include "evfl.h"
@@ -22,6 +23,7 @@
 #include "vfs.h"
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <thread>
 #include <cstdlib>
 #include <cstring>
@@ -64,6 +66,7 @@ enum : uint64_t {
     fNew = 0x8005eca0,          // operator new(align, size) on the default heap
     fQueryType = 0x82a7c980,    // flow query EventQueryMelodyTypeForNormal (x0 node): writes the played type (13 -> -1)
     fQueryOut = 0x80854e00,     // (node + 0x20, value): a query node's output
+    fOmUpdate = 0x832b4df0,     // OcarinaMgr per-frame update (x0 OM, x1 pad state)
 };
 // The game makes at most 13 score objects (one per native song type): list slots 13 and 14 stay empty. The mod makes
 // them: a copy of slot 12's object (0x70 bytes) with its own notes (container at +0x38: data +0x50, count +0x58/+0x5c,
@@ -71,7 +74,7 @@ enum : uint64_t {
 constexpr uint32_t kPitchF = 7, kPitchA = 11, kPitchB = 13, kPitchD = 4;
 constexpr uint64_t kBookSingleton = 0x84e8c7a8;          // * score book holder
 static guest::Functions g_Fn;
-static GuestFn o_Matcher, o_MelodySound, o_QueryType;
+static GuestFn o_Matcher, o_MelodySound, o_QueryType, o_OmUpdate;
 static std::atomic<uint64_t> g_Om{0};
 static void QueryTypeHook(GuestCtx* c) {
     const uint64_t node = c->x[0];
@@ -216,21 +219,49 @@ static void MatcherHook(GuestCtx* c) {
 }
 
 // ---- melody sounds ---------------------------------------------------------------------------------------------------
+// The sound plays through the host's (Zelda's Lullaby's) sound, whose stream then reads ours (song_audio.cpp). The
+// result is a 16-byte handle (x8 = where it goes): pool index i8 at +0, slot i16 at +2 (-1 none), id u32 at +4; the
+// sound is alive while the pool's object at that slot still has that id. The presentation waits for the replay
+// (OcarinaMgr+0x20, kind 0) to be gone; the host's stream is longer than ours, so the handle is let go when ours ends.
+struct Replay { uint64_t lo = 0, hi = 0; int64_t endNs = 0; };
+static Replay g_Replay;                                  // (game thread only)
+static int64_t NowNs() { return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
+
 static void MelodySoundHook(GuestCtx* c) {
-    if ((uint32_t)c->x[1] == kHealingSong) {
-        Log("[song] melody sound kind %llu for the Song of Healing (stand-in: Zelda's Lullaby)\n", (unsigned long long)c->x[2]);
+    const uint64_t out = c->x[8], kind = c->x[2];
+    const bool ours = (uint32_t)c->x[1] == kHealingSong;
+    if (ours) {
+        songaudio::Asked(kind);
         c->x[1] = 0;
     }
     o_MelodySound(c);
+    const float secs = songaudio::Seconds();
+    if (ours && kind == 0 && secs > 0 && GuestPtrOk(out)) {
+        g_Replay = {Q(out), Q(out + 8), NowNs() + (int64_t)(secs * 1e9)};
+        Log("[song] replay handle %016llx %016llx, ends in %.2f s\n", (unsigned long long)g_Replay.lo, (unsigned long long)g_Replay.hi, secs);
+    }
+}
+
+static void OmUpdateHook(GuestCtx* c) {
+    const uint64_t om = c->x[0];
+    if (g_Replay.endNs && NowNs() >= g_Replay.endNs) {
+        if (Q(om + 0x20) == g_Replay.lo && Q(om + 0x28) == g_Replay.hi) {
+            GWrite<int16_t>(om + 0x22, -1);
+            Log("[song] replay over: handle released\n");
+        }
+        g_Replay = {};
+    }
+    o_OmUpdate(c);
 }
 
 // ---- start -----------------------------------------------------------------------------------------------------------
 bool Start() {
-    if (!g_Fn.Resolve({fMatcher, fBookGet, fBookList, fListCount, fScoreMatch, fMelodySound, fNew, fQueryType, fQueryOut}, "song")) {
+    if (!g_Fn.Resolve({fMatcher, fBookGet, fBookList, fListCount, fScoreMatch, fMelodySound, fNew, fQueryType, fQueryOut, fOmUpdate}, "song")) {
         Log("[song] off\n");
         return false;
     }
     songtext::Start();
+    songaudio::Start();
     vfs::Register(kScoreBook, PatchScoreBook);
     // (the parsed book lives in the memory the size table sets aside for the file: 7768 bytes held the 12 vanilla
     // scores; with three more, the note arrays and the objects past the 13th failed to allocate)
@@ -240,6 +271,7 @@ bool Start() {
         rstb::Require(f.file, f.vanillaRoom + kFlowExtraRoom);
     }
     o_MelodySound = hook::Install(g_Fn.Host(fMelodySound), MelodySoundHook, "melody sound f_8337b730");
+    o_OmUpdate = hook::Install(g_Fn.Host(fOmUpdate), OmUpdateHook, "ocarina update f_832b4df0");
     o_QueryType = hook::Install(g_Fn.Host(fQueryType), QueryTypeHook, "flow query f_82a7c980");
     o_Matcher = o_QueryType ? hook::Install(g_Fn.Host(fMatcher), MatcherHook, "song matcher f_832b7400") : nullptr;
     Log("[song] Song of Healing %s\n", o_Matcher ? "on" : "off (hooks failed)");
