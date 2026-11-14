@@ -16,7 +16,7 @@ MOD=$MAJORA_MOD_DIR
 COMMON=$ROOT/plugins/common/src
 ZSTD=$ROOT/third_party/zstd/lib
 SRCS="$HERE/src/layer.cpp $HERE/src/majora.cpp $HERE/src/song_healing.cpp
-      $COMMON/hook.cpp $COMMON/platform.cpp $COMMON/gamefiles.cpp $COMMON/vfs.cpp $COMMON/byml.cpp"
+      $COMMON/hook.cpp $COMMON/platform.cpp $COMMON/gamefiles.cpp $COMMON/vfs.cpp $COMMON/byml.cpp $COMMON/evfl.cpp $COMMON/rstb.cpp"
 CSRCS="$ZSTD/common/entropy_common.c $ZSTD/common/error_private.c $ZSTD/common/fse_decompress.c
        $ZSTD/common/xxhash.c $ZSTD/common/zstd_common.c $ZSTD/decompress/huf_decompress.c
        $ZSTD/decompress/zstd_ddict.c $ZSTD/decompress/zstd_decompress.c $ZSTD/decompress/zstd_decompress_block.c"

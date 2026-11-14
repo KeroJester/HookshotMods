@@ -2302,3 +2302,34 @@ language) the presentation title works natively.**
 - **Plan:** patch the flow at load: give each of these switches a case 14 with Zelda's Lullaby's target (to be
   checked per switch). The new case table is appended at the end of the file and the switch's existing pointer
   changed (no new pointer, so the relocation table stays). Needs the bfevfl layout (from the evfl wheel's source).
+
+### §79f. The Song of Healing presentation works (type 14 in the game, 13 in the flows)
+- **Size table:** the parsed score book lives in the memory the size table sets aside for its file (7768 bytes for
+  12 scores). With 15 scores the note arrays failed to allocate: every score's data pointer (+0x50) was null, so
+  *no* song matched (Zelda's Lullaby included), and objects past the 13th were never made. Raising the entry
+  (rstb::Require, +8192) fixes all of it: the game makes 15 objects with notes itself (the mod's objects are now a
+  fallback). Slot 14's parsed type is 0 (HealingSong is not in the enum); the mod writes 14.
+- rstb.*: the table is patched through vfs (System/Resource/ResourceSizeTable.Product.111.Nin_Ounce_NVN2.rsizetable.zs).
+  The game reads it after the layer starts. Hookshot serves its own copy (prompts/rsizetable.zs) underneath; the
+  patch applies on top.
+- **Flows that ask the played song:** 18 event flows. Dm_SY_Ocarina (free play: PlayOcarinaFree -> Event13, 137,
+  31, 14), Dm_SY_Ocarina_move (warp songs only), Dm_SY_Ocarina_move_Ed (Event12, Event109: cases 0..13); the rest
+  react to particular songs (Animal_Cow*, GossipStone, TriForcePoint, TriggerSongOfTimeBlock, MiniGame_FrogTenors,
+  sages, Npc_SkullKid*, ...).
+- **The event system only takes query answers inside the MelodyType enum.** With case 14 added to every
+  presentation switch, a 14 still ended the flow after its first query. The same appended tables with case 13 and
+  the query answering 13 ran the whole presentation. So the appended case tables work, and 14 is rejected before the
+  switch.
+- **Solution:** in the flows the song is 13. 13 ("none") never reaches a flow natively (QueryMelodyTypeForNormal
+  turns 13 into -1). Hook f_82a7c980: after it runs, if OM+0x220 == 14, f_80854e00(node + 0x20, 13). The
+  presentation flows get case 13 -> case 0's event (7 switches in Dm_SY_Ocarina, Event45 excluded;
+  Dm_SY_Ocarina_move_Ed already has case 13). Flows for particular songs have no case 13.
+- The "song played" key-item message (f_8325f420, "Item_Melody_" + name) is not needed: with an empty name the
+  presentation runs all the same, so no stand-in item.
+- **Verified headless (shop):** B A F B A F -> Link plays, the staff shows the Song of Healing's notes, "You played
+  !" (title still missing: Title_14 next), the replay (stand-in sound) runs, play resumes. A real Zelda's Lullaby
+  afterwards: "You played Zelda's Lullaby!", its pink wave, and the shopkeeper's "Excellent playing.".
+- **No song effect** for the Song of Healing (Zelda's Lullaby's pink wave comes from its own branch / actor). Later.
+- **Test pitfalls:**
+  - drive_test runs need 380+ s when the boot is slow (screenshots then stop at the timeout, not a freeze);
+  - a background memory scan crashed the game (a page unmapped under it): don't scan.
