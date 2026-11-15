@@ -266,3 +266,25 @@ if __name__ == '__main__':
     out = write(V, T, sys.argv[1])
     open(sys.argv[2], 'wb').write(out)
     print(len(out))
+
+
+def read_mesh(d: bytes, shape_at: int):
+    """An hknpMeshShape's triangles back (any tagfile DATA, the shape's absolute offset) -> (V (n,3) metres, T)."""
+    a, n = struct.unpack_from('<ii', d, shape_at + 0x88)
+    g0 = shape_at + 0x88 + a
+    V, T = [], []
+    for s in range(n):
+        g = g0 + 64 * s
+        def rv(k):
+            o, c = struct.unpack_from('<ii', d, g + 8 * k); return g + 8 * k + o, c
+        (po, pn), (vo, vn) = rv(1), rv(2)
+        off = np.array([x if x < 2 ** 31 else x - 2 ** 32 for x in struct.unpack_from('<3I', d, g + 0x20)]) / Q
+        nv = vn // 6
+        P = np.array(struct.unpack_from(f'<{nv * 3}H', d, vo)).reshape(-1, 3) / Q + off
+        base = len(V)
+        V.extend(P.tolist())
+        for i in range(pn):
+            a_, b, c, dd = d[po + 4 * i:po + 4 * i + 4]
+            T.append((base + a_, base + b, base + c))
+            if c != dd: T.append((base + a_, base + c, base + dd))
+    return np.array(V), np.array(T)

@@ -2762,3 +2762,24 @@ Town's mesh in the Physical layer.
   `mm3d_room.scene_collision` (triangles wound to their stored normals), for the compound instead of render triangles.
 - Test pitfalls: /tmp is a 16 GB RAM disk: take screenshots every 40-60 frames and delete each run's shots after
   looking (it filled up once); `pkill -f` patterns must not match the shell running them.
+
+### §80k. Combining Clock Town's compound with the light: open problem (E21-E27)
+- The lit picture (E20) used the SageRoom's own compound (its collision: a 11 x 13 m platform at y 100) and the
+  SageRoom's full placement files (Saria, Base_A_02, the Master Sword pedestal prop, EftLoc light actors, AiGroups).
+- With a compound carrying Clock Town's collision instead, every run stayed dark:
+  - `rebuild_layer` (layer re-serialised: instance tree with an inner root, pedestal replaced by a stand-in) +
+    full placements (E22-E24): dark; Link stands. Rebuilding with the SageRoom's own triangles is dark too (E24),
+    so the re-serialisation itself was wrong, not Clock Town's collision.
+  - `patch_layer` (new): the template layer's DATA and items stay byte for byte (an identity patch reproduces the
+    file except for sub-millimetre bound padding), the new mesh is appended and instance 0's shape pointer moved to
+    it, the instance tree / AABB updated in place (small trees: the root node is itself the leaf, as the game's).
+  - patch_layer + full placements + start (0, 101, 0) (E25): dark, no HUD, Link does not move. South Clock Town's
+    Clock Tower stands at the plaza centre, so (0, 101, 0) is inside it.
+  - patch_layer + start (-8, 101, 1) (E26, full placements; E27, only Base_A_01 + EftLoc lights): still dark, no
+    HUD, Link does not move: the arrival seems not to finish. E21 (rebuild_layer, lights only, same start) reached
+    the HUD and Link ran, but dark.
+- Next to try: start points checked against the MM3D collision mesh (not the render mesh); take the light from an
+  outdoor setup (Market_Child's environment / bake files, now that placements are right) instead of SageRoom's
+  effect actors; find what the arrival waits for (the OcarinaWarp_Arrive flow, Dm_SY_Ocarina_move_Ed).
+- Development switch (uncommitted): MAJORA_PROBE_QUERY dumps the query node in the melody query hook; the node does
+  not obviously identify the asking event (most queries come from one node polled repeatedly).

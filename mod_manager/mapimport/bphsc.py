@@ -46,9 +46,18 @@ def _quat_rotate(q, v):
     return v + 2 * np.cross(u, np.cross(u, v) + w * v)
 
 
+def box_mesh(half=0.25):
+    """A closed box (12 triangles, counter-clockwise from outside) around the origin."""
+    h = half
+    V = np.array([[x, y, z] for x in (-h, h) for y in (-h, h) for z in (-h, h)], float)
+    T = np.array([[0, 1, 3], [0, 3, 2], [4, 6, 7], [4, 7, 5], [0, 4, 5], [0, 5, 1], [2, 3, 7], [2, 7, 6],
+                  [0, 2, 6], [0, 6, 4], [1, 5, 7], [1, 7, 3]])
+    return V, T
+
+
 def rebuild_layer(tag0: bytes, shapes: Dict[int, tuple]) -> bytes:
     """tag0: one layer tagfile of a template; shapes: {instance index: (V, T) in the instance's space}. Instances
-    not listed get a tiny stand-in triangle (their original shapes are not copied)."""
+    not listed get a small closed box (their original shapes are not copied)."""
     t = Tag(_wrap(tag0))
     D = t.data[0]
     d = t.d
@@ -64,7 +73,7 @@ def rebuild_layer(tag0: bytes, shapes: Dict[int, tuple]) -> bytes:
     # the instance tree comes after the instances (as the game's files); its size depends only on the count
     from .phsh import _bvh4
     for k in range(icount):
-        V, T = shapes.get(k, (np.array([[0, 0, 0], [0.01, 0, 0], [0, 0, 0.01]], float), np.array([[0, 2, 1]])))
+        V, T = shapes.get(k) or box_mesh()
         q = struct.unpack_from("<4f", inst[k], 0)
         tr = np.array(struct.unpack_from("<3f", inst[k], 0x10))
         sc = np.array(struct.unpack_from("<3f", inst[k], 0x20))
@@ -73,7 +82,7 @@ def rebuild_layer(tag0: bytes, shapes: Dict[int, tuple]) -> bytes:
     tree_nodes = _instance_tree(boxes)
     o_tree = td.put("hkcdSimdTreeNamespace::Node", b"".join(tree_nodes), len(tree_nodes))
     for k in range(icount):
-        V, T = shapes.get(k, (np.array([[0, 0, 0], [0.01, 0, 0], [0, 0, 0.01]], float), np.array([[0, 2, 1]])))
+        V, T = shapes.get(k) or box_mesh()
         s, _lo, _hi = phsh.add_mesh(td, V, T)
         shape_at.append(s)
     dd = td.data
@@ -93,6 +102,10 @@ def _instance_tree(boxes):
     """hkcdSimdTree nodes over instance boxes (leaf data = instance indices), as phsh._simd_tree for sections."""
     secs = [dict(lo=np.asarray(a, float), hi=np.asarray(b, float)) for a, b in boxes]
     nodes = phsh._simd_tree(secs)
+    if len(boxes) <= 4:                                  # (the game's compounds: the root itself is the leaf)
+        leaf = bytearray(nodes[2])
+        struct.pack_into("<II", leaf, 0x78, 0, len(boxes))
+        nodes = [nodes[0], bytes(leaf)]
     return nodes
 
 
@@ -107,3 +120,53 @@ def replace_layer(bphsc: bytes, layer: int, new_tag0: bytes) -> bytes:
         v = struct.unpack_from("<I", out, at)[0]
         if v > start: struct.pack_into("<I", out, at, v + delta)
     return bytes(out)
+
+
+def patch_layer(tag0: bytes, shapes: Dict[int, tuple]) -> bytes:
+    """Surgical version of rebuild_layer: the template layer's DATA and items stay byte for byte; each listed
+    instance gets a new mesh shape appended after them and its shape pointer moved to it; the instance tree and the
+    compound's AABB are updated (a new tree array is appended if the node count changes)."""
+    t = Tag(_wrap(tag0))
+    D, E = t.data
+    td = phsh.Data(t)
+    td.data = bytearray(t.d[D:E])
+    td.items = [(it['type'], it['flags'], it['off'], it['count']) for it in t.items]
+    dd = td.data
+    comp = 0                                               # (item 1, the compound, is at DATA offset 0)
+    ioff, icount, _cap = struct.unpack_from("<qii", dd, comp + 0x38)
+    inst = comp + 0x38 + ioff
+    boxes = []
+    for k in range(icount):
+        e = inst + 0x40 * k
+        q = struct.unpack_from("<4f", dd, e)
+        tr = np.array(struct.unpack_from("<3f", dd, e + 0x10)); sc = np.array(struct.unpack_from("<3f", dd, e + 0x20))
+        if k in shapes:
+            V, T = shapes[k]
+            s, _lo, _hi = phsh.add_mesh(td, V, T)
+            dd = td.data
+            struct.pack_into("<q", dd, e + 0x30, s - (e + 0x30))
+        else:
+            sa = e + 0x30 + struct.unpack_from("<q", dd, e + 0x30)[0]
+            V, _T = phsh.read_mesh(bytes(dd), sa) if t.tname(next(i['type'] for i in t.items if i['off'] == sa)) == 'hknpMeshShape' else (None, None)
+            if V is None:                                   # (not a mesh: keep its old tree box)
+                V = None
+        if V is not None:
+            W = np.array([_quat_rotate(q, np.asarray(v) * sc) for v in np.asarray(V, float)]) + tr
+            boxes.append((W.min(0), W.max(0)))
+        else:
+            boxes.append(None)
+    # instance tree
+    soff, scount, _ = struct.unpack_from("<qii", dd, comp + 0x50)
+    old_tree = comp + 0x50 + soff
+    if any(b is None for b in boxes):
+        raise ValueError("instance without a mesh shape: tree box unknown")
+    nodes = _instance_tree(boxes)
+    blob = b"".join(nodes)
+    if len(nodes) == scount:
+        dd[old_tree:old_tree + len(blob)] = blob
+    else:
+        o = td.put("hkcdSimdTreeNamespace::Node", blob, len(nodes)); dd = td.data
+        struct.pack_into("<qii", dd, comp + 0x50, o - (comp + 0x50), len(nodes), 0)
+    lo = np.min([b[0] for b in boxes], 0); hi = np.max([b[1] for b in boxes], 0)
+    struct.pack_into("<6f", dd, comp + 0x78, hi[0], hi[1], hi[2], lo[2], lo[0], lo[1])
+    return phsh.tagfile(td)
