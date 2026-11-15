@@ -2897,3 +2897,24 @@ the town.
   test. Deployed to Longshot with the size entries in MajoraMod's majora/dev_rstb.txt.
 - **For distribution:** the replaced BGM_LonLonRanch stream is acceptable only while nothing plays that asset;
   the clean way is an SLink2 asset of our own (needs an XLNK writer) or a runtime swap in MajoraMod.
+
+### §80r. Light probes: the format, and Clock Town's own bake (2026-11-15)
+- **Copied probes were the harsh shadows:** probes hold the donor map's occlusion and cover the donor's area
+  (Kakariko's grid: x -130..62, z -38..154; Clock Town reaches z -90), so Link facing away from the sun was a
+  silhouette (user screenshot). Moving Hyrule Field's grid over the town did not settle it either.
+- **Format** (Bake/Probe/Scene/<banc>/): `meta.bkprmb` (64 bytes): u32 2, +0x10 grid origin float3, cell size 64,
+  +0x20 cell counts u32 x3, ... `X<i>_Y<j>_Z<k>_<lod>.bkprb` (lod 0..2, one brick per grid cell) and
+  `resident.bkprcb`: octree cells (8 corner-probe indices + a local box), then a footer {u32 4, u32 probe count,
+  6 zero words}, then one 72-byte record per probe: float3 world position, u32 flag (1 lit / 0 occluded or inside),
+  28 float16 = 7 groups of (R, G, B, x): group 0 the ambient (DC) colour, the next ones directional terms in the same
+  colour ratios, x a separate term. Kakariko: 167649 probes in 52 files; lit ambient median 0.2, 70-90th percentile
+  ~1.2 (warm), long tail to 4.5 near sunlit ground; occluded ~0.09.
+- **Own bake (mod_manager/mapimport/dev/bake_probes.py):** Kakariko's layout with the grid moved to (-100, 78, -120)
+  (covers x -100..92, y 78..206, z -120..72); per probe, 48 cosine-weighted rays and 6 axis rays against Clock
+  Town's MM3D triangles (10507): sky visibility v, inside = >= 3 axis rays hit back faces (flag 0). Data = occluded
+  sample + (0.15 + 0.85 v) x (open-sky sample - occluded sample), the samples being Kakariko's own (median of the
+  occluded probes; mean of the lit ones between the 70th and 90th percentile). Mean visibility 0.78, 18% inside.
+  ~10 min ray casting, cached (probe_vis_cache.npy, valid for one PROBE_ORIGIN).
+- **Result:** Link facing the camera with the sun behind him is lit (tunic, face readable):
+  screenshots/clocktown_probes_baked.png. The town's shaded walls stay dark: static geometry takes its indirect light
+  from the bake textures (CmnTex_BakeDefault), not the probes; that needs our own scene bake.

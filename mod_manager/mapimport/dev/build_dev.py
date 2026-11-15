@@ -160,3 +160,9 @@ if os.environ.get('DEV_PROBE_FROM'):
     os.makedirs(dst_dir, exist_ok=True)
     for f in os.listdir(src_dir): shutil.copy(os.path.join(src_dir, f), os.path.join(dst_dir, f))
     print('  + light probes (copies of', os.environ['DEV_PROBE_FROM'] + ')', len(os.listdir(dst_dir)), 'files')
+    if os.environ.get('DEV_PROBE_ORIGIN'):                   # the probe grid moved (meta.bkprmb: +0x10 origin xyz, cell)
+        rel = f'Bake/Probe/Scene/{NAME}/meta.bkprmb.zs'
+        meta = bytearray(rf(f"Bake/Probe/Scene/{os.environ['DEV_PROBE_FROM']}/meta.bkprmb.zs"))
+        struct.pack_into('<3f', meta, 0x10, *[float(v) for v in os.environ['DEV_PROBE_ORIGIN'].split(',')])
+        open(os.path.join(dst_dir, 'meta.bkprmb.zs'), 'wb').write(compress_zs(bytes(meta), rel, ROMFS))
+        print('  probe grid origin ->', os.environ['DEV_PROBE_ORIGIN'])
