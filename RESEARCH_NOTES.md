@@ -2858,3 +2858,42 @@ the town.
 - **MM3D's music is streamed:** sound/streaming/stream/*.dspadpcm.bcstm (CSTM: DSP-ADPCM, block-interleaved), e.g.
   029NA_BGM_MARKET = Clock Town Day 1 (2 channels, 32 kHz, loop 1519616..3172856 samples), 005NA_BGM_CLOCK_TOWER.
   Conversion to BWAV needs no synthesis.
+
+### §80q. Clock Town's music: how a map picks its BGM; MM3D's stream plays in the game (2026-11-15)
+- **The chain:** GameBancParam `SoundSceneryName` is the *Label* (Japanese) of a sound scenery,
+  `Sound/Scenery/<X>.game__sound__SceneryParam.bgyml` (inside `Pack/Bootup.Nin_Ounce_NVN2.pack`), and the scenery
+  must also be listed in `Sound/Product.111.alto__AltoConfig.bgyml` → `Scenery` (a loose file; a scenery missing
+  from the list, or only loose, is never used). Its `BgmName` goes to global BGM property 10 (String); a bgm.byml BGM
+  under MainLayerSet/L_Scene/Field starts when its `StartConditionBin` says "property 10 == <its name>". Market_Child's
+  scenery has no BgmName (its music is the area-linked BGM_Market actor, L_Area). Verified first with Kakariko's label
+  in Clock Town (BGM_KakarikoVillage_Child_Daytime_* stream).
+- **Conditions:** `C1`, u16 total size, `08 00 01 0a`, op (06 ==, 07 !=), `01 02 00 09 01 0a 00 0a 00 04 00`,
+  the name, NUL (size = 21 + name length).
+- **Keys go through SLink2:** an Asset node's `Key` must be an asset of the BGM's `SLinkUserName` user; that asset's
+  parameter names the BGM_Static.bars entry / Stream/<name>.bwav. A key the user lacks opens nothing (tested: a new
+  BARS entry + stream under BGM_ZoraDomain's user stays silent). Every graph key of the game is an SLink2 asset.
+  Spare assets (in a user, played by no graph) can carry new music without touching SLink2: user BGM_LonLonRanch
+  has assets for all ranch streams, and "BGM_LonLonRanch" (the full song) is played by neither ranch BGM.
+  (SLink2 users: CRC32(name) table at 0x60, sorted, 0x62d users; asset calls 0x30 bytes: key name offset, index, ...,
+  then the user's hash.)
+- **BARS / BWAV:** small BGM AMTA = 0x50 bytes of header + the name (size at +8, CRC32(name) at +0x28). A BGM's
+  prefetch BWAV in the BARS is the header only (192 bytes for 2 channels, prefetch samples 0, prefetch offsets
+  0xc0); the stream file has everything. Channel record +0x44: the *loop* context (predictor/scale, history 1, 2).
+  The engine plays a 32 kHz BWAV as it is.
+- **MM3D's BCSTM** (029NA_BGM_MARKET = Clock Town day 1): INFO refs from INFO+8 (stream info, track table, channel
+  table); codec 2 (DSP-ADPCM), loop, 2 channels, 32000 Hz, loop 1519616 .. 3172856 (= sample count), 222 blocks of
+  0x2000 bytes / 14336 samples (last 0xa8e / 4600, padded 0xaa0); per channel 16 coefficients, initial and loop
+  contexts; DATA + 0x20: blocks interleaved per channel. The loop start is a frame boundary (14 x 108544), so the
+  ADPCM is copied as it is (no re-encoding).
+- **Build (mod_manager/mapimport/dev/build_ct_bgm.py):** BGM "BGM_ClockTown" (copy of BGM_ZoraDomain, user
+  BGM_LonLonRanch, key BGM_LonLonRanch, NodeVolume 0.13: MM3D's stream RMS ~5500 vs ~700 for the game's town
+  streams), a Player in L_Scene/Field; BGM_LonLonRanch's BARS entry (small AMTA, header-only prefetch) and stream
+  replaced; the scenery "ClockTown" (Kakariko's base ambience, label 時計じかけの町) inserted into the Bootup pack
+  (one SFAT node + name; the data start moves in 16-byte steps so the other 217 files keep their offsets) and added to
+  the AltoConfig list; the map's SoundSceneryName. Size table: bgm.byml (250696) and BGM_Static.bars (683304) raised
+  in the dev list; Bootup (675992) is exactly full after the insertion (raised too).
+- **Result (headless):** after the Song of Soaring, Clock Town's theme plays from its start (envelope correlation 1.0
+  with the source), level ~750-990 RMS like Kakariko's music. The loop (at 47.5 s, end 99 s) is not yet heard in a
+  test. Deployed to Longshot with the size entries in MajoraMod's majora/dev_rstb.txt.
+- **For distribution:** the replaced BGM_LonLonRanch stream is acceptable only while nothing plays that asset;
+  the clean way is an SLink2 asset of our own (needs an XLNK writer) or a runtime swap in MajoraMod.
