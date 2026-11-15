@@ -24,6 +24,14 @@ Hold LB or RB and press X, Y or B to use one of six items; on the pause menu's I
 same combo to put it there. The game draws the six item boxes in its own HUD and on the Items tab. RT is for movement
 only (roll, sprint, side hop), and a sprint keeps going once started. The mod carries no game files: it reads what it
 needs from your copy.
+
+**MajoraMod** (separate download, `MajoraMod.zip` on the Releases page; unzip it into `mods/` or drag it onto the app):
+Majora's Mask's nine songs as real songs of their own (Song of Healing, Song of Soaring, Sonata of Awakening, Goron
+Lullaby, New Wave Bossa Nova, Elegy of Emptiness, Oath to Order, Inverted Song of Time, Song of Double Time), each with
+its own replay, name, caption and songbook button with a new icon. All are known from the start; they have no effect in
+the world yet. On Longshot, the first launch after installing or updating plays without the songs. Like Item Controls,
+it carries no game files.
+
 **Code mods** (like Item Controls) load only when you start the game with the app's **Launch** button: Hookshot and
 Longshot never load code from mod folders themselves. On Linux, `eval "$(./HookshotMods-x86_64.AppImage env)"` before
 starting the game another way does the same.
@@ -35,6 +43,8 @@ Installing `.rar` mods needs [7-Zip](https://www.7-zip.org) on Windows (or `unra
 | --- | --- |
 | `mod_manager/` | The mod manager (PyQt6 GUI + CLI). It enables, orders and installs mods, and loads code mods (their Vulkan layers) when it starts the game. Also holds the mod builders (`build_*.py`). |
 | `plugins/item_controls/` | The **Item Controls** code mod: six item slots on LB/RB + X/Y/B, roll and sprint on RT, item boxes drawn by the game itself. `src/` is its Vulkan layer (Linux `.so`, Windows `.dll`; the layer only loads the mod), `mod/` its other files; `package.sh` makes the mod zip. |
+| `plugins/majora_mod/` | **MajoraMod**: Majora's Mask content (so far its songs). Same layout as Item Controls; `art/make_icons.py` draws the songbook icons. |
+| `plugins/common/` | Code shared by the code mods (hooks, file serving, game file formats). |
 | `overlay/` | Linux-only developer overlay (LD_PRELOAD), used for research. Not shipped to players. |
 | `re/` | Small reverse-engineering helper scripts. |
 | `RESEARCH_NOTES.md` | Everything learned about the game and Hookshot so far. |
@@ -60,9 +70,9 @@ plugins/item_controls/package.sh     # (optional) the included mod, bundled when
 python packaging/build_app.py        # Windows: dist/HookshotMods.exe · Linux: dist/AppDir (then appimagetool)
 ```
 
-GitHub Actions (`.github/workflows/build.yml`) builds the Item Controls mod, then the Windows app and the Linux
-AppImage with that mod inside, on every push; download them from the run's Artifacts. Pushing a tag like `v0.9.4` also
-creates a draft Release with those files attached.
+GitHub Actions (`.github/workflows/build.yml`) builds the Item Controls mod and MajoraMod, then the Windows
+app and the Linux AppImage with Item Controls inside, on every push; download them from the run's Artifacts. Pushing a
+tag like `v0.9.4` also creates a draft Release with those files attached.
 
 ## Rules for commits
 
