@@ -15,6 +15,7 @@ from .hktag import Tag
 
 Q = 512.0                      # vertex units per metre
 MAXV, MAXP = 250, 250          # per section (indices are bytes)
+INTERIOR_FILL = int(os.environ.get('PHSH_INTERIOR', '0'), 0)   # (research) the interiorPrimitiveBitField's bytes
 FLT_MAX = 3.40282e38
 
 def al(n, a=16): return (n + a - 1) // a * a
@@ -63,7 +64,7 @@ def _section(tris, V):
     off = np.round(lo * Q).astype(np.int64)               # section origin, 1/512 m
     vu = np.round((P - lo) * Q).astype(np.int64)
     assert vu.max() < 65536
-    prims = [(remap[a], remap[b], remap[c], remap[c]) for a, b, c in tris]
+    prims = [tuple(remap[x] for x in (f if len(f) == 4 else (f[0], f[1], f[2], f[2]))) for f in tris.tolist()]
     # 8-bit quantization
     ext = np.maximum(P.max(0) - lo, 1e-3)
     inv = ext / 250.0
@@ -71,17 +72,31 @@ def _section(tris, V):
     def q(x, up):
         v = (np.ceil(x / inv) if up else np.floor(x / inv)) - bitoff
         return np.clip(v, 0, 255).astype(int)
-    boxes = np.array([[P[[remap[a], remap[b], remap[c]]].min(0), P[[remap[a], remap[b], remap[c]]].max(0)] for a, b, c in tris])
-    tree = _bvh4(boxes, list(range(len(prims))))
+    boxes = np.array([[P[[remap[x] for x in f]].min(0), P[[remap[x] for x in f]].max(0)] for f in tris.tolist()])
+    nodes = build_tree(boxes, inv, bitoff)
+    vb = struct.pack(f'<{vu.size}H', *vu.flatten().tolist()) + b'\0\0'
+    return dict(nodes=nodes, prims=prims, vb=vb, off=off, inv=inv, bitoff=bitoff, tris=[tuple(x) for x in tris.tolist()],
+                lo=P.min(0), hi=P.max(0), interior=bytes([INTERIOR_FILL]) * ((2 * len(prims) + 7) // 8))
+
+
+def build_tree(boxes, inv, bitoff):
+    """The 8-bit 4-wide tree over face boxes (world metres) -> node bytes (28 each), depth-first."""
+    def q(x, up):
+        v = (np.ceil(x / inv) if up else np.floor(x / inv)) - bitoff
+        return np.clip(v, 0, 255).astype(int)
+    prims = list(range(len(boxes)))
+    tree = _bvh4(boxes, prims)
     nodes = []
     def emit(t):
         idx = len(nodes); nodes.append(None)
         kids = t[1]
         if t[0] == 'leaf':
+            kids = list(kids)
+            if len(kids) == 3 and kids[2] == 0: kids = [kids[2], kids[0], kids[1]]
+            if len(kids) == 4 and not kids[2] > kids[3]: kids[2], kids[3] = kids[3], kids[2]
             bxs = [(boxes[i, 0], boxes[i, 1]) for i in kids]; data = list(kids)
             data = data + {1: [0, 1, 0], 2: [1, 0], 3: [0], 4: []}[len(kids)]
-            if len(kids) == 4 and not data[2] > data[3]: data[2], data[3] = data[3], data[2]; bxs[2], bxs[3] = bxs[3], bxs[2]
-            if len(kids) == 4 and data[2] == data[3]: raise ValueError('leaf with equal faces')
+            assert data[2] > data[3], data
         else:
             bxs = [_box_of(c, boxes) for c in kids]; data = []
             for c in kids: data.append(emit(c))
@@ -100,9 +115,8 @@ def _section(tris, V):
         return idx
     emit(tree if tree[0] == 'node' else ('node', [tree]))
     assert len(nodes) <= 255, len(nodes)
-    vb = struct.pack(f'<{vu.size}H', *vu.flatten().tolist()) + b'\0\0'
-    return dict(nodes=nodes, prims=prims, vb=vb, off=off, inv=inv, bitoff=bitoff,
-                lo=P.min(0), hi=P.max(0), interior=bytes((2 * len(prims) + 7) // 8))
+    return nodes
+
 
 def _simd_tree(secs):
     """hkcdSimdTree nodes (128 bytes each) over the sections; returns (nodes, root=1)."""
@@ -184,13 +198,25 @@ def _prepare(V, T):
     return [secs[i] for i in order], fixed
 
 
-def add_mesh(td: Data, V, T, tag=0):
-    """Appends an hknpMeshShape (its root item and arrays) -> (offset of the shape, lo, hi)."""
+def add_mesh(td: Data, V, T, tag=0, root_at=None, tags=None):
+    """Appends an hknpMeshShape (its root item and arrays) -> (offset of the shape, lo, hi). root_at: an
+    already-reserved root (put('hknpMeshShape', ...)) to fill instead of appending one."""
     secs, tnodes = _prepare(V, T)
     nsec = len(secs)
     keybits = (max(1, nsec) - 1).bit_length() + 9
-    s = td.put('hknpMeshShape', bytes(0xa0), 1, 0x10)
-    tags = [(i << 9, tag) for i in range(nsec)] + [((nsec << 9) | 510, 0xFFFF)]
+    tri_tag = {}
+    if tags is not None:
+        for tri, tg in zip(np.asarray(T, np.int64).tolist(), tags):
+            tri_tag[tuple(tri)] = int(tg)
+    s = root_at if root_at is not None else td.put('hknpMeshShape', bytes(0xa0), 1, 0x10)
+    tagrows = []
+    for i, sc in enumerate(secs):
+        cur = None
+        for j, tri in enumerate(sc['tris']):
+            tg = tri_tag.get(tuple(tri), tag)
+            if j == 0 or tg != cur:
+                tagrows.append(((i << 9) | (j << 1), tg)); cur = tg
+    tags = tagrows + [((nsec << 9) | 510, 0xFFFF)]
     o_tags = td.put('hknpMeshShape::ShapeTagTableEntry', b''.join(struct.pack('<IHH', k, t, 0) for k, t in tags), len(tags))
     o_nodes = td.put('hkcdSimdTreeNamespace::Node', b''.join(tnodes), len(tnodes))
     o_secs = td.put('hknpMeshShape::GeometrySection', bytes(64 * nsec), nsec)
@@ -268,11 +294,19 @@ if __name__ == '__main__':
     print(len(out))
 
 
-def read_mesh(d: bytes, shape_at: int):
-    """An hknpMeshShape's triangles back (any tagfile DATA, the shape's absolute offset) -> (V (n,3) metres, T)."""
+def read_mesh(d: bytes, shape_at: int, with_tags=False, quads=False):
+    """An hknpMeshShape's triangles back (any tagfile DATA, the shape's absolute offset) -> (V (n,3) metres, T)
+    (and per-triangle shape tags with with_tags)."""
     a, n = struct.unpack_from('<ii', d, shape_at + 0x88)
     g0 = shape_at + 0x88 + a
-    V, T = [], []
+    ta, tn = struct.unpack_from('<ii', d, shape_at + 0x60)
+    tagtab = [struct.unpack_from('<IH', d, shape_at + 0x60 + ta + 8 * i) for i in range(tn)]
+    def tag_of(key):
+        t = 0
+        for k, v in tagtab:
+            if k <= key and v != 0xFFFF: t = v
+        return t
+    V, T, TG = [], [], []
     for s in range(n):
         g = g0 + 64 * s
         def rv(k):
@@ -285,6 +319,10 @@ def read_mesh(d: bytes, shape_at: int):
         V.extend(P.tolist())
         for i in range(pn):
             a_, b, c, dd = d[po + 4 * i:po + 4 * i + 4]
-            T.append((base + a_, base + b, base + c))
-            if c != dd: T.append((base + a_, base + c, base + dd))
+            tg = tag_of((s << 9) | (i << 1))
+            if quads:
+                T.append((base + a_, base + b, base + c, base + dd)); TG.append(tg); continue
+            T.append((base + a_, base + b, base + c)); TG.append(tg)
+            if c != dd: T.append((base + a_, base + c, base + dd)); TG.append(tg)
+    if with_tags: return np.array(V), np.array(T), np.array(TG)
     return np.array(V), np.array(T)

@@ -20,6 +20,7 @@ from . import phsh
 from .hktag import Tag
 
 HEADER_OFFSETS = 0x0c          # u32 section offsets follow the Phive magic / version
+HEADER_SIZES = 0x28c           # u32 section sizes (offset k+1 - offset k), parallel to the offsets
 
 
 def _wrap(tag0: bytes) -> bytes:
@@ -119,6 +120,11 @@ def replace_layer(bphsc: bytes, layer: int, new_tag0: bytes) -> bytes:
         at = HEADER_OFFSETS + 4 * k
         v = struct.unpack_from("<I", out, at)[0]
         if v > start: struct.pack_into("<I", out, at, v + delta)
+    # the section sizes (parallel to the offsets, at 0x28c): size k = offset k+1 - offset k
+    offs = list(struct.unpack_from("<24I", out, HEADER_OFFSETS))
+    for k in range(23):
+        if offs[k + 1] == 0: break
+        struct.pack_into("<I", out, HEADER_SIZES + 4 * k, offs[k + 1] - offs[k])
     return bytes(out)
 
 
@@ -169,4 +175,50 @@ def patch_layer(tag0: bytes, shapes: Dict[int, tuple]) -> bytes:
         struct.pack_into("<qii", dd, comp + 0x50, o - (comp + 0x50), len(nodes), 0)
     lo = np.min([b[0] for b in boxes], 0); hi = np.max([b[1] for b in boxes], 0)
     struct.pack_into("<6f", dd, comp + 0x78, hi[0], hi[1], hi[2], lo[2], lo[0], lo[1])
+    return phsh.tagfile(td)
+
+
+def rebuild_layer2(tag0: bytes, shapes: Dict[int, tuple]) -> bytes:
+    """Re-serialises a layer in the game's own layout: compound, instances, instance tree, then every instance's mesh
+    root (in instance order), then the meshes' arrays. Listed instances get the given triangles; the others keep their
+    own (read back from the template). Only for layers whose instances are all mesh shapes."""
+    t = Tag(_wrap(tag0))
+    D = t.data[0]
+    d = t.d
+    comp = bytearray(d[D:D + 0xb8])
+    ioff, icount, _cap = struct.unpack_from("<qii", comp, 0x38)
+    inst = [bytearray(d[D + 0x38 + ioff + 0x40 * k:D + 0x38 + ioff + 0x40 * (k + 1)]) for k in range(icount)]
+    meshes = []
+    for k in range(icount):
+        if k in shapes:
+            meshes.append(shapes[k])
+        else:
+            e = D + 0x38 + ioff + 0x40 * k + 0x30
+            sa = e + struct.unpack_from("<q", d, e)[0]
+            meshes.append(phsh.read_mesh(d, sa, with_tags=True, quads=True))
+    boxes = []
+    for k, m in enumerate(meshes):
+        V = m[0]
+        q = struct.unpack_from("<4f", inst[k], 0)
+        tr = np.array(struct.unpack_from("<3f", inst[k], 0x10)); sc = np.array(struct.unpack_from("<3f", inst[k], 0x20))
+        W = np.array([_quat_rotate(q, np.asarray(v) * sc) for v in np.asarray(V, float)]) + tr
+        boxes.append((W.min(0), W.max(0)))
+    td = phsh.Data(t)
+    o_comp = td.put("hknpCompoundShape", bytes(comp), 1, 0x10)
+    o_inst = td.put("hkFreeListArrayElement<hknpShapeInstance>", b"".join(inst), icount)
+    tree = _instance_tree(boxes)
+    o_tree = td.put("hkcdSimdTreeNamespace::Node", b"".join(tree), len(tree))
+    roots = [td.put("hknpMeshShape", bytes(0xa0), 1, 0x10) for _ in meshes]
+    for m, r in zip(meshes, roots):
+        phsh.add_mesh(td, m[0], m[1], root_at=r, tags=m[2] if len(m) > 2 else None)
+    dd = td.data
+    struct.pack_into("<qii", dd, o_comp + 0x38, o_inst - (o_comp + 0x38), icount, 0)
+    struct.pack_into("<iI", dd, o_comp + 0x48, -1, icount)
+    struct.pack_into("<qii", dd, o_comp + 0x50, o_tree - (o_comp + 0x50), len(tree), 0)
+    struct.pack_into("<IIIB", dd, o_comp + 0x60, 1, 0, 0, 1)
+    lo = np.min([b[0] for b in boxes], 0); hi = np.max([b[1] for b in boxes], 0)
+    struct.pack_into("<6f", dd, o_comp + 0x78, hi[0], hi[1], hi[2], lo[2], lo[0], lo[1])
+    for k in range(icount):
+        f = o_inst + 0x40 * k + 0x30
+        struct.pack_into("<q", dd, f, roots[k] - f)
     return phsh.tagfile(td)

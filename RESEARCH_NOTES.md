@@ -2783,3 +2783,19 @@ Town's mesh in the Physical layer.
   effect actors; find what the arrival waits for (the OcarinaWarp_Arrive flow, Dm_SY_Ocarina_move_Ed).
 - Development switch (uncommitted): MAJORA_PROBE_QUERY dumps the query node in the melody query hook; the node does
   not obviously identify the asking event (most queries come from one node polled repeatedly).
+
+### §80l. Solved: the compound body's section sizes (2026-11-15)
+- **The cause of every dark / stuck run with a changed compound body:** the .bphsc header holds, at 0x28c, the size
+  of every section, parallel to the offsets at 0x0c (size k = offset k+1 - offset k; sections are 16-byte padded,
+  e.g. Market's 0x9ff8-byte tagfile spans 0xa000). The splice moved the offsets but left the old sizes: any layer
+  whose length changed (even the game's own tree moved into an appended item) broke the scene: the arrival never
+  finished (no HUD), the picture stayed dark. Only same-length edits had worked. `bphsc.replace_layer` now
+  recomputes the sizes; splicing a file's own layers back reproduces SageRoom and Market byte for byte.
+- So my tree / quantisation / interior-bit / tag suspicions (§80k) were wrong: those encodings work.
+- `bphsc.rebuild_layer2` re-serialises a layer in the game's layout (compound, instances, instance tree with a leaf
+  root, every instance's mesh root in order, then their arrays) with new triangles for chosen instances; `phsh`
+  takes quads or triangles and per-face shape tags; `phsh.build_tree` is the 8-bit tree builder.
+- **E/O11 result:** Clock Town's own collision (MM3D's collision mesh, 731 polygons) in layer 0, the SageRoom's light
+  actors, start at MM3D's spawn 0 (-7, 0, -18.25 -> world y 100.6): Link arrives, walks the plaza and the boardwalk,
+  is stopped by walls, HUD shown, lit.
+- MM3D spawn points: scene command 0x00, 16 bytes each {u16 actor, s16 x, y, z, s16 rx, ry, rz, u16 params}.
