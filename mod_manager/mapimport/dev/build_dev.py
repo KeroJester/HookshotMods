@@ -28,6 +28,11 @@ BAKE = os.environ.get('DEV_BAKE', '1') == '1'     # (E4) borrow Market_Child's b
 for k in ([] if BAKE else ['IsEnableBakeAO', 'IsEnableBakeLight', 'IsEnableBakeLightResource']) + ['UseNpcIgnoreFootIKArea',
           'IsRaffleRichardAppearPos', 'IsGenerateAutogenGameData']:
     if k in gbp: gbp[k] = False
+# (lighting) single keys copied from another map's parameters: DEV_SET_FROM=<map>, DEV_SET_KEYS=a,b,...
+if os.environ.get('DEV_SET_FROM'):
+    other = parse_byml(open(os.path.join(ROMFS, f"Banc/GameBancParam/{os.environ['DEV_SET_FROM']}.game__banc__GameBancParam.bgyml"), 'rb').read())
+    for k in os.environ.get('DEV_SET_KEYS', '').split(','):
+        if k in other: gbp[k] = other[k]; print('  set', k, '<-', os.environ['DEV_SET_FROM'])
 put(f'Banc/GameBancParam/{NAME}.game__banc__GameBancParam.bgyml', write_byml(gbp))
 
 # ---- placement: the ground piece and the start position, as Market places them
@@ -123,10 +128,11 @@ if os.environ.get('DEV_COMPOUND', '1') == '1':
 
 if BAKE:
     import glob
-    for src, dst in [(f, f.replace('Market_Child', NAME)) for f in
-                     glob.glob(os.path.join(ROMFS, 'Bake/Scene/Market_Child_G_*')) +
-                     [os.path.join(ROMFS, 'Bake/Light/Market_Child.bklight.zs'),
-                      os.path.join(ROMFS, 'Game/BakeSceneLayerConfig/Market_Child.game__bake__SceneLayerConfig.bgyml')]]:
+    BAKE_FROM = os.environ.get('DEV_BAKE_FROM', 'Market_Child')
+    for src, dst in [(f, f.replace(BAKE_FROM, NAME)) for f in
+                     glob.glob(os.path.join(ROMFS, f'Bake/Scene/{BAKE_FROM}_G_*')) +
+                     [os.path.join(ROMFS, f'Bake/Light/{BAKE_FROM}.bklight.zs'),
+                      os.path.join(ROMFS, f'Game/BakeSceneLayerConfig/{BAKE_FROM}.game__bake__SceneLayerConfig.bgyml')]]:
         dst = os.path.join(OUT, 'romfs', os.path.relpath(dst, ROMFS))
         os.makedirs(os.path.dirname(dst), exist_ok=True); shutil.copy(src, dst)
-    print('  + bake files (copies of Market_Child)')
+    print(f'  + bake files (copies of {BAKE_FROM})')

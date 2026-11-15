@@ -2823,3 +2823,15 @@ index them directly. A software render of the moon showed it: flipped, the eye (
 the whole sphere; unflipped, the face (glaring eyes, teeth) is on +z and the body gets the crater tile. All MM3D
 materials checked use GL_REPEAT (0x2901) with texture-coordinate scale 1, so wrap modes / UV transforms were not the
 problem. The moon now needs no turn (face +z towards the town from the north) and only a light tint (1.05, 1.0, 0.92).
+
+### §80o. Lighting like Kakariko; the moon over the Clock Tower (2026-11-15)
+User: Link's shadows were harsh compared with Kakariko; moon should be right over the Clock Tower, higher, facing
+the town.
+- Using Kakariko's whole map parameters (with its terrain, foliage and height map dropped) broke the arrival (white
+  void, no HUD): something else in them (StaticCompoundMode / bake tied to its terrain) does not carry over.
+- What works: Market_Child's parameters with only Kakariko's **EnvSetName (KakarikoVillage), WorldMgrName
+  (KakarikoVillage_Child WorldParam), CloudEnvType, EnvEffectType** copied in, Market's bake kept. The haze is gone,
+  colours are rich, and Link's shading is soft (Market's "Master_Field" environment was the harsh one).
+- Moon: centre (-7, 108, -45) m (right above the Clock Tower, ~20 m clear of its head), scale 0.008, pitched down
+  1.04 rad so its face looks at the plaza, texture brightened (1.7, 1.6, 1.45) because the sun lights it from behind.
+  Screenshot: screenshots/clocktown_moon4.png.
