@@ -61,6 +61,9 @@ constexpr uint32_t kFlowExtraRoom = 4096;               // (size table: the vani
 constexpr uint32_t kFlowValue = 13;
 constexpr uint32_t kFirstSwitchAs = 0;
 static uint32_t g_Matched;                               // an added song matched, its replay not started yet (game thread)
+static std::map<uint32_t, uint32_t> g_FlowAs;            // (development) per song: answer this instead of kFlowValue
+
+void SetFlowAnswer(uint32_t type, uint32_t value) { g_FlowAs[type] = value; Log("[song] type %u answers %u to the flows\n", type, value); }
 
 enum : uint64_t {
     fMatcher = 0x832b7400,      // (OM, MelodyType* out) -> bool, free play
@@ -115,9 +118,34 @@ static void QueryTypeHook(GuestCtx* c) {
     const uint64_t node = c->x[0];
     o_QueryType(c);
     const uint32_t t = D(g_Om + 0x220);
-    if (songs::ByType(t)) g_Fn.Call(c, fQueryOut, node + 0x20, g_Matched == t ? kFirstSwitchAs : kFlowValue);
+    const uint32_t later = g_FlowAs.count(t) ? g_FlowAs[t] : kFlowValue;
+    if (songs::ByType(t)) g_Fn.Call(c, fQueryOut, node + 0x20, g_Matched == t ? kFirstSwitchAs : later);
     if (getenv("MAJORA_TRACE_SONG") && songs::ByType(t))   // (development)
         Log("[trace] flow query: type %u -> %u\n", t, g_Matched == t ? kFirstSwitchAs : kFlowValue);
+    if (getenv("MAJORA_PROBE_QUERY")) {                    // (development: what identifies the asking event?)
+        auto str = [](uint64_t a) {                        // a BFEVFL string {u16 length, chars} or a C string
+            std::string out;
+            if (!a) return out;
+            for (int k = 0; k < 2; k++) {
+                const uint64_t p = a + (k ? 2 : 0);
+                std::string sv;
+                for (int i = 0; i < 40; i++) { const uint32_t w = D(p + (i & ~3)); const char ch = (char)(w >> (8 * (i & 3))); if (!ch) break; if (ch < 32 || ch > 126) { sv.clear(); break; } sv += ch; }
+                if (sv.size() >= 4) return sv;
+            }
+            return out;
+        };
+        Log("[probe] query node %llx type %u\n", (unsigned long long)node, t);
+        for (int k = 0; k < 16; k++) {
+            const uint64_t v = Q(node + 8 * k);
+            std::string a = str(v), b, c;
+            const uint64_t v2 = Q(v);
+            b = str(v2);
+            const uint64_t v3 = Q(v2);
+            c = str(v3);
+            Log("[probe]  +%02x %llx '%s' -> %llx '%s' -> %llx '%s'\n", 8 * k, (unsigned long long)v, a.c_str(),
+                (unsigned long long)v2, b.c_str(), (unsigned long long)v3, c.c_str());
+        }
+    }
 }
 
 // ---- score book ------------------------------------------------------------------------------------------------------
