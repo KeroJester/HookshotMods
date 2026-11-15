@@ -273,6 +273,7 @@ class CMB:
                 p = np.array(self._attr(A, "pos", i, 3))
                 n = np.array(self._attr(A, "nrm", i, 3)) if sh["flags"] & 2 else np.array([0.0, 1.0, 0.0])
                 uv = self._attr(A, "uv0", i, 2) if sh["flags"] & 0x10 else [0.0, 0.0]
+                col = self._attr(A, "col", i, 4) if sh["flags"] & 0x8 else [1.0, 1.0, 1.0, 1.0]
                 bi = [int(round(v)) for v in self._attr(A, "bidx", i, dim)] if self.streams["bidx"][1] else [0]
                 bw = self._attr(A, "bwt", i, dim) if (pr["skin"] == 2 and self.streams["bwt"][1]) else [1.0] + [0.0] * (dim - 1)
                 bones = [(pr["bone_table"][b] if b < len(pr["bone_table"]) else 0, w) for b, w in zip(bi, bw) if w > 0]
@@ -282,7 +283,7 @@ class CMB:
                     p = M[:3, :3] @ p + M[:3, 3]
                     n = M[:3, :3] @ n
                     bones = [(bone, 1.0)]
-                v = dict(p=p, n=n / (np.linalg.norm(n) or 1), uv=uv, bones=bones)
+                v = dict(p=p, n=n / (np.linalg.norm(n) or 1), uv=uv, col=col, bones=bones)
                 verts[i] = v
                 return v
 

@@ -2736,3 +2736,29 @@ filters), then one Havok tagfile per collision layer, each a single hknpCompound
 (hkFreeListArrayElement<hknpShapeInstance>) hold the actors' own shapes (copies of their .bphsh mesh / box / convex
 shapes). Market has 7 layer tagfiles. Next: decode the instance and the C/D/E/F tables, then write one with Clock
 Town's mesh in the Physical layer.
+
+### §80j. South Clock Town drawn and lit (E19-E20); what was wrong before (2026-11-14)
+![first light](../../Games/Hookshot/screenshots/clocktown_first_light.png) (game folder screenshot, not in the repo)
+- **The compound body works.** `mapimport/bphsc.py` rebuilds a template's layer tagfile with new shapes for its
+  instances (Clock Town's 10507 triangles as layer 0 instance 0 of the SageRoom template): Link walks on it.
+- **Placement entries must be the ones the compound was baked for.** Static actors whose placement entry was
+  copied from another map (Market's ground with Market's `SRTHash`) loaded their pack and model but never drew; the
+  SageRoom's own entry for `Land_SageRoom_Base_A_01` (Hash = placement ID 4508210412473462298, SRTHash 0xc9a76a4b,
+  Translate (0, 100, 0), Bakeable, no Rotate key) draws. SRTHash depends only on the transform (two SageRoom actors at
+  (0, 100, 0) share it); its function is not found yet (not CRC32 / murmur3 of the floats). The static bcett should
+  also keep `PhiveHeader` and `AiGroups`.
+- **A new map needs light.** With only the land actor placed, everything was black (indoor "Dungeon" environment) or
+  hidden in bright fog (Market's outdoor environment with its bake turned off): the model was drawn (the frame's draw
+  count rose by ~106 for 41 shapes) but unlit. With the SageRoom's light / effect actors (EftLoc_SageRoom_*,
+  LightPillar, BlueLight) placed too, Clock Town appears lit, with shadows.
+- **Model builder bugs fixed:** mesh +0x18 is the index buffer size in bytes (was the template's); normals and
+  tangents set the 2-bit w to 1 as the game's own vertices do; `_c0` is not a colour multiplier in land materials
+  (the game's vertices hold (0, 0, 0, 1)), so MM3D's vertex colours are not written there (yet).
+- E2's Clock Town walls were most likely Market's ground actor, still alive from before the warp, drawing the
+  replaced model (the replacement applied to every user of that model file).
+- `bfres_build.extract_meshes` reads a land model back (used to check the builder on the SageRoom's own floor: it
+  draws).
+- MM3D's own collision mesh (scene command 0x03: 651 vertices, 731 polygons of 20 bytes, offsets from 0x10) is read by
+  `mm3d_room.scene_collision` (triangles wound to their stored normals), for the compound instead of render triangles.
+- Test pitfalls: /tmp is a 16 GB RAM disk: take screenshots every 40-60 frames and delete each run's shots after
+  looking (it filled up once); `pkill -f` patterns must not match the shell running them.

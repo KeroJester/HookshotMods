@@ -48,13 +48,14 @@ def room_meshes(cmb: CMB, scale: float = SCALE):
         tris = cmb.mesh_triangles(mi)
         if not tris: continue
         verts, index = {}, []
-        P, N, U = [], [], []
+        P, N, U, C = [], [], [], []
         for tri in tris:
             for v in tri:
-                key = (tuple(np.round(v["p"], 4)), tuple(np.round(v["n"], 3)), tuple(np.round(v["uv"], 5)))
+                key = (tuple(np.round(v["p"], 4)), tuple(np.round(v["n"], 3)), tuple(np.round(v["uv"], 5)),
+                       tuple(np.round(v["col"], 3)))
                 if key not in verts:
                     verts[key] = len(P)
-                    P.append(v["p"]); N.append(v["n"]); U.append(v["uv"])
+                    P.append(v["p"]); N.append(v["n"]); U.append(v["uv"]); C.append(v["col"])
                 index.append(verts[key])
         P = np.array(P) * scale
         N = np.array(N)
@@ -63,6 +64,7 @@ def room_meshes(cmb: CMB, scale: float = SCALE):
         T = np.array(index).reshape(-1, 3)
         tex = cmb.materials[mesh["material"]]["binders"][0]["tex"]
         meshes.append(dict(name=f"Mesh{mi:02d}", texture=tex, pos=P, nrm=N, tan=_tangents(P, U, T, N), uv=U,
+                           col=np.clip(np.array(C, float), 0, 1),
                            idx=np.array(index, np.uint16), tris=T))
         all_tris.append(P[T])
     return meshes, (np.concatenate(all_tris) if all_tris else np.zeros((0, 3, 3)))
@@ -74,3 +76,34 @@ def texture_rgba(cmb: CMB, i: int) -> np.ndarray:
     if img.shape[-1] == 3:
         img = np.concatenate([img, np.full(img.shape[:2] + (1,), 255, img.dtype)], -1)
     return img.astype(np.uint8)
+
+
+def scene_collision(scene: bytes, scale: float = SCALE):
+    """A scene file's collision mesh (scene command 0x03) -> (V (n,3) metres, T (m,3), polygon types (m,)).
+    ZSI: commands from 0x10 {u8 cmd, u8 arg, u16, u32 offset from 0x10}; the collision header at 0x10 + offset:
+    u16, min s16 x3, max s16 x3, u16 vertices, u16 polygons, u16 surface types, u16 cameras, u16 water boxes, u16,
+    then u32 offsets (from 0x10) of the vertices (s16 x3), polygons (20 bytes: u16 type, u16 a | flags << 13, u16 b
+    | flags << 13, u16 c, s16 normal x3 (0x7fff = 1), u16, f32 distance), surface types, cameras, water boxes.
+    Triangles are returned counter-clockwise seen from the side the stored normal points to."""
+    if scene[:3] == b"LzS":
+        scene = lzs_decompress(scene)
+    base = 0x10
+    off = None
+    for i in range(64):
+        c, _a, _p, o = struct.unpack_from("<BBHI", scene, base + 8 * i)
+        if c == 0x03: off = o
+        if c == 0x14: break
+    assert off is not None, "no collision"
+    h = base + off
+    nv, npoly = struct.unpack_from("<HH", scene, h + 14)
+    o_v, o_p = struct.unpack_from("<II", scene, h + 24)
+    V = np.array(struct.unpack_from(f"<{nv * 3}h", scene, base + o_v), float).reshape(-1, 3)
+    T, types = [], []
+    for i in range(npoly):
+        typ, a, b, c, nx, ny, nz = struct.unpack_from("<HHHH3h", scene, base + o_p + 20 * i)
+        a, b, c = a & 0x1FFF, b & 0x1FFF, c & 0x1FFF
+        n = np.array([nx, ny, nz], float)
+        if np.dot(np.cross(V[b] - V[a], V[c] - V[a]), n) < 0:
+            b, c = c, b
+        T.append((a, b, c)); types.append(typ)
+    return V * scale, np.array(T, np.int64), np.array(types)

@@ -19,7 +19,8 @@ Structures used (offsets within each):
   FSHP (0x60): +0x08 name, +0x10 FVTX, +0x18 meshes, +0x38 bounding boxes {centre, extent} 0x18 each, +0x40
           bounding spheres {centre, radius} 0x10 each, +0x50 u16 index, +0x52 material, +0x54 bone, +0x56 vertex
           buffer, +0x5b mesh (LOD) count
-  mesh (0x38): +0x00 submeshes {u32 offset, u32 count}, +0x08 memory pool, +0x10 / +0x18 runtime, +0x20 index
+  mesh (0x38): +0x00 submeshes {u32 offset, u32 count}, +0x08 memory pool, +0x10 runtime, +0x18 index buffer
+          size in bytes {u32, ...}, +0x20 index
           offset in the GPU data, +0x24 primitive (3 triangles), +0x28 index format (1 = u16), +0x2c index count,
           +0x30 first vertex, +0x34 submesh count
   FMAT (0xb0): +0x08 name, +0x20 texture names, +0x18 / +0x28 / +0x58 / +0x80 runtime, +0xa0 u16 index,
@@ -32,7 +33,37 @@ import numpy as np
 
 from . import resdic
 
-TEMPLATE_SHAPE = 24          # Land_HrlCity_Ground_A_01: Mt_Land_HrlCity_Soil_A_01 (_p0 half4, _n0, _t0, _u0 half2)
+TEMPLATE_SHAPE = 24          # default: Land_HrlCity_Ground_A_01's Mt_Land_HrlCity_Soil_A_01 (_p0 half4, _n0, _t0, _u0 half2)
+
+# vertex attribute formats seen in land models -> (numpy dtype, components, kind)
+FORMATS = {0x1505: ("<f2", 4, "f"), 0x1205: ("<f2", 2, "f"), 0x1201: ("<u2", 2, "unorm"), 0x0B01: ("u1", 4, "unorm"),
+           0x0E02: ("<u4", 1, "1010102"), 0x1705: ("<f2", 4, "f")}
+
+
+def encode_vertices(attrs, stride, m):
+    """attrs: [(name, format, offset)] of the template's buffer 0 -> vertex bytes for mesh m (pos, nrm, tan, uv,
+    optional col (n,4) 0..1; anything else, such as the bake UV, is zero)."""
+    n = len(m["pos"])
+    out = np.zeros((n, stride), np.uint8)
+    # (_c0 is not a colour multiplier in these materials: the game's land vertices hold (0, 0, 0, 1) there)
+    src = {"_p0": np.c_[m["pos"], np.ones(n)], "_u0": m["uv"],
+           "_c0": m.get("c0", np.tile([0.0, 0.0, 0.0, 1.0], (n, 1))), "_n0": m["nrm"], "_t0": m["tan"]}
+    for name, fmt, off in attrs:
+        dt, comps, kind = FORMATS[fmt]
+        if kind == "1010102":
+            v = np.array([pack_10_10_10_2(x) for x in src[name]], "<u4") if name in src else np.zeros(n, "<u4")
+            raw = v.view(np.uint8).reshape(n, 4)
+        else:
+            a = np.zeros((n, comps))
+            if name in src:
+                x = np.asarray(src[name], float)
+                a[:, :min(comps, x.shape[1])] = x[:, :comps]
+            if kind == "unorm":
+                mx = 255 if dt == "u1" else 65535
+                a = np.clip(np.round(np.clip(a, 0, 1) * mx), 0, mx)
+            raw = a.astype(dt).view(np.uint8).reshape(n, -1)
+        out[:, off:off + raw.shape[1]] = raw
+    return out.tobytes()
 STR_POOL_END = None          # (found from the _STR block)
 
 
@@ -59,10 +90,11 @@ def rlt_sections(d):
     return out
 
 
-def pack_10_10_10_2(v):
+def pack_10_10_10_2(v, w=1):
+    """Normals and tangents: 10-10-10-2 SNORM; the game's own vertices set the 2-bit w to 1 (+1)."""
     v = np.clip(np.asarray(v, float), -1, 1)
     x, y, z = (int(round(c * 511)) & 0x3FF for c in v[:3])
-    return x | (y << 10) | (z << 20)
+    return x | (y << 10) | (z << 20) | ((w & 3) << 30)
 
 
 class Writer:
@@ -129,17 +161,26 @@ class Writer:
             if src + k in self.set4: self.ptrs_pool.add(at + k)
 
     # ---- build
-    def build(self, meshes: List[dict], materials: List[dict]) -> bytes:
+    def build(self, meshes: List[dict], materials: List[dict], template_shape: int = TEMPLATE_SHAPE,
+              model_name: str = None) -> bytes:
         """meshes: {name, material (index), pos (n,3) metres, nrm (n,3), tan (n,3), uv (n,2), idx (m,) u16};
         materials: {name, textures: [albedo, normal, roughness]}."""
         t = self.t
         fmdl = u64(t, 0x28)
         fvtx0, fshp0, fmat0 = u64(t, fmdl + 0x20), u64(t, fmdl + 0x28), u64(t, fmdl + 0x38)
-        sh_t = fshp0 + 0x60 * TEMPLATE_SHAPE
+        sh_t = fshp0 + 0x60 * template_shape
         mat_t = fmat0 + 0xb0 * u16(t, sh_t + 0x52)
         vtx_t = fvtx0 + 0x58 * u16(t, sh_t + 0x56)
         mesh_t = u64(t, sh_t + 0x18)
         n, nm = len(meshes), len(materials)
+        at0 = u64(t, vtx_t + 8)
+        attrs = []
+        for a in range(t[vtx_t + 0x4c]):
+            o = at0 + 0x10 * a
+            nm_ = t[u64(t, o) + 2:u64(t, o) + 2 + u16(t, u64(t, o))].decode()
+            assert u16(t, o + 0xe) == 0, "one vertex buffer expected"
+            attrs.append((nm_, u32(t, o + 8), u16(t, o + 0xc)))
+        stride = u32(t, u64(t, vtx_t + 0x38))
         # ---- GPU data: indices first (section 1), then vertex buffers (section 2), as the template
         gpu = bytearray()
         idx_off, vtx_off = [], []
@@ -150,13 +191,7 @@ class Writer:
         idx_size = len(gpu)
         for m in meshes:
             gpu += b"\0" * ((-len(gpu)) % 0x1000); vtx_off.append(len(gpu))
-            k = len(m["pos"])
-            v = np.zeros(k, dtype=[("p", "<f2", 4), ("n", "<u4"), ("t", "<u4"), ("u", "<f2", 2)])
-            v["p"][:, :3] = m["pos"]; v["p"][:, 3] = 1.0
-            v["n"] = [pack_10_10_10_2(x) for x in m["nrm"]]
-            v["t"] = [pack_10_10_10_2(x) for x in m["tan"]]
-            v["u"] = m["uv"]
-            gpu += v.tobytes()
+            gpu += encode_vertices(attrs, stride, m)
         gpu += b"\0" * ((-len(gpu)) % 0x1000)
         # ---- arrays first (each must be contiguous)
         fvtx_arr = self.alloc(bytes(0x58 * n), 8)
@@ -170,8 +205,8 @@ class Writer:
             self.copy_into(fv, vtx_t, 0x58)
             for f in (0x20, 0x28, 0x30, 0x38):
                 self.copy_block(fv + f, vtx_t + f)
-            struct.pack_into("<I", self.out, u64(self.out, fv + 0x30), 20 * len(m["pos"]))   # buffer size
-            struct.pack_into("<I", self.out, u64(self.out, fv + 0x38), 20)                    # stride
+            struct.pack_into("<I", self.out, u64(self.out, fv + 0x30), stride * len(m["pos"]))   # buffer size
+            struct.pack_into("<I", self.out, u64(self.out, fv + 0x38), stride)
             struct.pack_into("<I", self.out, fv + 0x48, vtx_off[i])
             struct.pack_into("<H", self.out, fv + 0x4e, i)
             struct.pack_into("<I", self.out, fv + 0x50, len(m["pos"]))
@@ -184,6 +219,7 @@ class Writer:
             for f in (0x10, 0x18):
                 self.copy_block(me + f, mesh_t + f)
             struct.pack_into("<IIIIII", self.out, me + 0x20, idx_off[i], 3, 1, len(m["idx"]), 0, 1)
+            struct.pack_into("<I", self.out, u64(self.out, me + 0x18), 2 * len(m["idx"]))      # index buffer size
             pool_loc.append(me + 0x08)
             # shape
             s = fshp_arr + 0x60 * i
@@ -227,6 +263,11 @@ class Writer:
         self.setp(fmdl + 0x38, fmat_arr)
         self.setp(fmdl + 0x40, mat_dic)
         struct.pack_into("<HHH", self.out, fmdl + 0x68, n, n, nm)
+        if model_name:                                   # the model's own name and the file's model dictionary
+            self.setp(fmdl + 8, self.string(model_name))
+            mdic = u64(t, 0x30)
+            self.setp(mdic + 8 + 16 + 8, self.string(model_name))
+            resdic.write(self.out, mdic, [model_name.encode()], [self.string(model_name)], u64(t, mdic + 8 + 8))
         # ---- sections after the main one
         main_end = len(self.out)
         self.out += b"\0" * ((-len(self.out)) % 0x1000)
@@ -259,3 +300,40 @@ class Writer:
         struct.pack_into("<I", self.out, 0x18, rlt_at)
         struct.pack_into("<I", self.out, 0x1c, len(self.out))
         return bytes(self.out)
+
+
+def extract_meshes(d: bytes):
+    """Reads a land model's shapes back (LOD 0) -> (meshes, materials) in build()'s input form (for tests and
+    templates)."""
+    fm = u64(d, 0x28)
+    FV, SH, MT = u64(d, fm + 0x20), u64(d, fm + 0x28), u64(d, fm + 0x38)
+    gpu = u64(d, 0x170)
+    def s(o): return d[o + 2:o + 2 + u16(d, o)].decode()
+    meshes, mats = [], []
+    for i in range(u16(d, fm + 0x6c)):
+        m = MT + 0xb0 * i
+        tn = u64(d, m + 0x20)
+        mats.append(dict(name=s(u64(d, m + 8)), textures=[s(u64(d, tn + 8 * k)) for k in range(d[m + 0xa3])]))
+    for i in range(u16(d, fm + 0x6a)):
+        f = SH + 0x60 * i
+        v = FV + 0x58 * u16(d, f + 0x56)
+        at0 = u64(d, v + 8)
+        attrs = {s(u64(d, at0 + 0x10 * a)): (u32(d, at0 + 0x10 * a + 8), u16(d, at0 + 0x10 * a + 0xc)) for a in range(d[v + 0x4c])}
+        stride = u32(d, u64(d, v + 0x38)); n = u32(d, v + 0x50); base = gpu + u32(d, v + 0x48)
+        raw = np.frombuffer(d, np.uint8, n * stride, base).reshape(n, stride)
+        def col(name, dt, k):
+            off = attrs[name][1]
+            return raw[:, off:off + np.dtype(dt).itemsize * k].copy().view(dt).reshape(n, k).astype(float)
+        def unpack(name):
+            off = attrs[name][1]
+            w = raw[:, off:off + 4].copy().view("<u4").reshape(n)
+            out = np.stack([((w >> s_) & 0x3FF).astype(np.int64) for s_ in (0, 10, 20)], 1)
+            out = np.where(out >= 512, out - 1024, out) / 511.0
+            return out
+        me = u64(d, f + 0x18)
+        ioff, _p, fmt, cnt, first = struct.unpack_from("<IIIII", d, me + 0x20)
+        idx = np.frombuffer(d, "<u2", cnt, gpu + ioff).astype(np.int64) + first
+        meshes.append(dict(name=s(u64(d, f + 8)), material=u16(d, f + 0x52), pos=col("_p0", "<f2", 4)[:, :3],
+                           nrm=unpack("_n0"), tan=unpack("_t0"), uv=col("_u0", "<f2", 2) if attrs["_u0"][0] == 0x1205
+                           else col("_u0", "<u2", 2) / 65535.0, idx=idx.astype(np.uint16)))
+    return meshes, mats
