@@ -34,7 +34,7 @@ if os.environ.get('CT_MOON', '1') == '1':
     MOON_AT = np.array([float(x) for x in os.environ.get('CT_MOON_AT', '60,130,-150').split(',')])
     moon, _ = mm3d_room.room_meshes(mc, MOON_SCALE)
     moon = [m for m in moon if not mc.textures[m['texture']]['name'].startswith('moon_sp')]   # (the halo sprite)
-    ry = float(os.environ.get('CT_MOON_ROTY', '3.14159'))   # (its face is on -z in the model: turn it to the town)
+    ry = float(os.environ.get('CT_MOON_ROTY', '0'))   # (its face is on +z: towards the town from the north)
     R = np.array([[np.cos(ry), 0, np.sin(ry)], [0, 1, 0], [-np.sin(ry), 0, np.cos(ry)]])
     for k, m in enumerate(moon):
         m['pos'] = m['pos'] @ R.T + MOON_AT
@@ -45,7 +45,7 @@ if os.environ.get('CT_MOON', '1') == '1':
         p = os.path.join(OUT, rel)
         if not os.path.exists(p):
             img = mm3d_room.texture_rgba(mc, m['texture']).astype(float)
-            tint = [float(x) for x in os.environ.get('CT_MOON_TINT', '1.25,0.85,0.5').split(',')]   # (MM3D tints it in its material)
+            tint = [float(x) for x in os.environ.get('CT_MOON_TINT', '1.05,1.0,0.92').split(',')]   # (MM3D tints it in its material)
             img[..., :3] = np.clip(img[..., :3] * np.array(tint), 0, 255)
             open(p, 'wb').write(compress_zs(bntx1.build(tmpl_tex, name, img.astype(np.uint8)), rel, ROMFS))
         m['texture'] = 1000 + m['texture']

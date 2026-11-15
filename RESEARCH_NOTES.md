@@ -2815,3 +2815,11 @@ Town's mesh in the Physical layer.
   (1.25, 0.85, 0.5) for now. In MM the moon is room actor 0x114 at y 11000 above the tower.
 - Room actor list: room command 0x01, 16 bytes {u16 actor | flags, s16 pos x3, s16 rot x3, u16 params}.
 - Screenshots (game folder): screenshots/clocktown_tower_sky.png, clocktown_moon2.png.
+
+### §80n. Texture mapping fixed: no V flip for CMB UVs (2026-11-15)
+User report: many of Clock Town's textures were mapped wrong, the moon especially. Cause: `mm3d_room` flipped V
+(1 - v), assuming 3DS bottom-up textures; but `cmb.decode_texture` already returns images top row first and CMB UVs
+index them directly. A software render of the moon showed it: flipped, the eye (top-left of its atlas texture) covered
+the whole sphere; unflipped, the face (glaring eyes, teeth) is on +z and the body gets the crater tile. All MM3D
+materials checked use GL_REPEAT (0x2901) with texture-coordinate scale 1, so wrap modes / UV transforms were not the
+problem. The moon now needs no turn (face +z towards the town from the north) and only a light tint (1.05, 1.0, 0.92).

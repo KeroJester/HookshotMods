@@ -2,7 +2,8 @@
 
 A room file (scenes/<scene>_<n>_info.zsi, LzS-compressed) holds a CMB model at the "cmb " magic; cmb.CMB reads it.
 Every CMB mesh becomes one mesh here (its material's first texture is the albedo). MM3D coordinates are Majora's Mask's
-units (about 0.025 m); UVs are flipped vertically (3DS textures start at the bottom row).
+units (about 0.025 m). UVs are used as they are: with cmb.decode_texture's top-row-first images they map directly
+(a vertical flip put the moon's eye on every face of the sphere: RESEARCH_NOTES.md §80n).
 """
 import struct
 from typing import List
@@ -59,8 +60,7 @@ def room_meshes(cmb: CMB, scale: float = SCALE):
                 index.append(verts[key])
         P = np.array(P) * scale
         N = np.array(N)
-        U = np.array(U, float)
-        U[:, 1] = 1.0 - U[:, 1]
+        U = np.array(U, float)          # (CMB UVs start at the image's top row, as cmb.decode_texture returns it)
         T = np.array(index).reshape(-1, 3)
         tex = cmb.materials[mesh["material"]]["binders"][0]["tex"]
         meshes.append(dict(name=f"Mesh{mi:02d}", texture=tex, pos=P, nrm=N, tan=_tangents(P, U, T, N), uv=U,
