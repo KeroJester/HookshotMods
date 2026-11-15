@@ -2799,3 +2799,19 @@ Town's mesh in the Physical layer.
   actors, start at MM3D's spawn 0 (-7, 0, -18.25 -> world y 100.6): Link arrives, walks the plaza and the boardwalk,
   is stopped by walls, HUD shown, lit.
 - MM3D spawn points: scene command 0x00, 16 bytes each {u16 actor, s16 x, y, z, s16 rx, ry, rz, u16 params}.
+
+### §80m. Sky, Clock Tower and moon (2026-11-15)
+- **Sky / light:** Market_Child's map parameters (EnvSetName Master_Field, its WorldParam: the remake's own sky,
+  sun, clouds and time of day) with Market's bake files copied under the new name. Market's `HeightMapParam`
+  (FtxbName Market_Child: a height texture for Market's terrain) made a thick white haze over Clock Town: dropping
+  it clears the view. Still somewhat bright (no bake of our own).
+- **Clock Tower top and clock face** are not in the room model: they are Obj_Tokeidai (room actor 0x132, object
+  zelda2_obj_tokeidai) placements: head z2_atama_model at (-280, 1103, -1020) MM units (param 0x307f), clock face
+  z2_tannsin / z2_paneru / z2_hari / z2_hagu at (-280, 555, -833) (param 0x207f). The object models are authored at
+  10x (scale 0.1). Added as extra shapes of the Clock Town model (no collision yet).
+- **Moon:** zelda2_lodmoon model/moon.cmb (+-5000 units), its face on -z: turned 180 degrees, scale 0.011, at
+  (60, 130, -150) m from the model origin (north-east of the Clock Tower, ~38 degrees up from the plaza); the halo
+  sprite meshes (texture moon_sp00) dropped. Its texture is grey (MM3D tints it in the material): tinted
+  (1.25, 0.85, 0.5) for now. In MM the moon is room actor 0x114 at y 11000 above the tower.
+- Room actor list: room command 0x01, 16 bytes {u16 actor | flags, s16 pos x3, s16 rot x3, u16 params}.
+- Screenshots (game folder): screenshots/clocktown_tower_sky.png, clocktown_moon2.png.
