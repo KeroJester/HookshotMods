@@ -20,6 +20,7 @@ import numpy as np
 
 # format high byte -> (block w, block h, bytes per block)
 FORMATS = {
+    0x0B: (1, 1, 4),    # R8G8B8A8
     0x1A: (4, 4, 8),    # BC1
     0x1B: (4, 4, 16),   # BC2
     0x1C: (4, 4, 16),   # BC3

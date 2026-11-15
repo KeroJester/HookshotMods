@@ -2702,3 +2702,37 @@ from the field, i32 count}).
 - FMAT: +0x20 texture name array (5 string pointers: _Alb, _Nrm, _Rgh, CmnTex_BakeDefault, CmnTex_BakeLightDefault),
   +0x18 / +0x28 / +0x58 / +0x80 zero-filled arrays (runtime data), +0x38 sampler dict (_a0, _n0, ...), +0x40 render
   info (e.g. "field_ground"), counts at +0xa2/+0xa3.
+
+### §80g. Players supply MM3D; the mod manager builds the map (user decision, 2026-11-14)
+"Just have them include the MM3D copy in a dedicated folder and let the mod manager do the work." So map import is a
+Python builder in the mod manager (`mod_manager/mapimport/`), run on the player's own MM3D copy; the layer only does
+runtime work (flows, songs). Folder name / UX still to choose.
+- `mapimport/bntx1.py`: one-texture BNTX from a small game texture as template (Etc_Gray50_A_Alb: name length 16 is
+  kept, so names like `MMClockTown07Alb`); RGBA8 sRGB (0x0b06) with a full mip chain, block-linear (Switch 2 GOBs),
+  dictionary and relocation table rebuilt. Round-trips through mod_manager/bntx.Texture (which now knows RGBA8).
+- `mapimport/resdic.py`: the ResDic builder from the icon work (rebuilds the game's dictionaries byte for byte).
+- `mapimport/mm3d_room.py`: CMB room -> one mesh per CMB mesh (positions x 0.025 m, V flipped), tangents, textures.
+- `mapimport/bfres_build.py`: new land models, append-only on a template (Land_HrlCity_Ground_A_01, shape 24's
+  material Mt_Land_HrlCity_Soil_A_01: _p0 half4, _n0/_t0 10-10-10-2, _u0 half2; textures albedo / normal / roughness).
+  Relocation sections group pointers by the region they point into (0 main, 1 GPU data: only the buffer info at
+  0x170, 4 memory pool: every FVTX +0x18, mesh +0x08 and header +0xa8). FVTX +0x48 and mesh +0x20 offsets are relative
+  to the start of the GPU data (indices first, then vertex buffers).
+
+### §80h. E2: South Clock Town drawn in the game
+South Clock Town's room (41 meshes, 14763 vertices, 41 textures, about 117 x 112 x 25 m) converts in ~2 s. In the dev
+map, the model replaced Market's ground model (same actor and placement, so it spawns through the copied compound
+body): the game loads the model and all 41 textures and draws Clock Town's walls, stairs and painted houses with
+their own textures. Still wrong: the picture is over-exposed (light settings), and the collision is still Market's
+(the compound body embeds its shapes), so Link stands on invisible Market ground and the camera ends up in a wall.
+Normals use the game's Dummy_Flat_Normal_CmnTex_Chara_DetailMap_Nrm, roughness Land_HrlCity_Soil_A_01_Rgh. Not yet:
+MM3D vertex colours (its baked shading), cut-out (alpha) textures, mirrored wrap.
+
+### §80i. The static compound body (.bphsc): structure so far
+Phive header version 02 02 with 22 section offsets. SageRoom (2 land actors + Saria, 76 KB) is the smallest
+template. After the header: a fixed block 0x510..0xcfc0 (same size in every file), then small tables (SageRoom: C
+0x80 = 4 x 0x20 entries holding the placement IDs as u64 plus indices, D 0x40 = 2 x 0x20 pairs of IDs, E 0x10 of
+u16, F/G/H/I 0x50 each = 5 x 0x10: per-layer settings, H all {ff ff 3f 00 ..., ff ff ff ee ff ff ff 07} = collision
+filters), then one Havok tagfile per collision layer, each a single hknpCompoundShape whose instances
+(hkFreeListArrayElement<hknpShapeInstance>) hold the actors' own shapes (copies of their .bphsh mesh / box / convex
+shapes). Market has 7 layer tagfiles. Next: decode the instance and the C/D/E/F tables, then write one with Clock
+Town's mesh in the Physical layer.
