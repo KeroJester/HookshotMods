@@ -13,7 +13,7 @@ folder's `mods/`. Nothing of either game is stored here.
 - `rf.py`: read a romfs file decompressed.
 
 Last good setup (2026-11-15): lighting from Kakariko's environment on Market's map parameters:
-`DEV_DIR=070-ClockTownDev DEV_SET_FROM=KakarikoVillage_Child DEV_SET_KEYS=EnvSetName,WorldMgrName,CloudEnvType,EnvEffectType
+`DEV_DIR=070-ClockTownDev DEV_SHADOW_BOX=-70,95,-90,60,140,35 DEV_PROBE_FROM=KakarikoVillage_Child DEV_SET_FROM=KakarikoVillage_Child DEV_SET_KEYS=EnvSetName,WorldMgrName,CloudEnvType,EnvEffectType
 DEV_DROP=HeightMapParam DEV_GBP=Market_Child DEV_START_ROTY=3.14159 DEV_START=-7,100.6,-6 DEV_SAGE_BCETT=1
 DEV_ONLY_BASE=1 DEV_BAKE=1 python3 build_dev.py` then `python3 build_ct_dev.py 070-ClockTownDev`,
 with MajoraMod's `majora/dev_flow.txt` = `15=11` and `majora/dev_rstb.txt` raising StartPos and GameBancInfo.

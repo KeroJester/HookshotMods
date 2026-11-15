@@ -30,18 +30,20 @@ if os.environ.get('CT_MOON', '1') == '1':
     mm3d.ROMFS = os.path.dirname(MM.rstrip('/'))
     from mod_manager.cmb import CMB
     mc = CMB(mm3d.actor_archive('zelda2_lodmoon')['model/moon.cmb'])
-    MOON_SCALE = float(os.environ.get('CT_MOON_SCALE', '0.008'))
-    MOON_AT = np.array([float(x) for x in os.environ.get('CT_MOON_AT', '-7,108,-45').split(',')])
+    MOON_SCALE = float(os.environ.get('CT_MOON_SCALE', '0.045'))
+    MOON_AT = np.array([float(x) for x in os.environ.get('CT_MOON_AT', '-7,520,-200').split(',')])
     moon, _ = mm3d_room.room_meshes(mc, MOON_SCALE)
     moon = [m for m in moon if not mc.textures[m['texture']]['name'].startswith('moon_sp')]   # (the halo sprite)
     ry = float(os.environ.get('CT_MOON_ROTY', '0'))   # (its face is on +z: towards the town from the north)
-    rx = float(os.environ.get('CT_MOON_PITCH', '1.04'))     # (tilted down: its face looks at the plaza below)
+    rx = float(os.environ.get('CT_MOON_PITCH', '1.2'))     # (tilted down: its face looks at the plaza below)
     Ry = np.array([[np.cos(ry), 0, np.sin(ry)], [0, 1, 0], [-np.sin(ry), 0, np.cos(ry)]])
     Rx = np.array([[1, 0, 0], [0, np.cos(rx), -np.sin(rx)], [0, np.sin(rx), np.cos(rx)]])
     R = Ry @ Rx
     for k, m in enumerate(moon):
         m['pos'] = m['pos'] @ R.T + MOON_AT
         m['nrm'] = m['nrm'] @ R.T; m['tan'] = m['tan'] @ R.T
+        up = float(os.environ.get('CT_MOON_UP', '2.5'))      # (normals bent upwards: the sun lights its face too)
+        nn = m['nrm'] + np.array([0.0, up, 0.0]); m['nrm'] = nn / np.linalg.norm(nn, axis=1, keepdims=True)
         m['name'] = f'Moon{k:02d}'
         name = f'MMClockMoon{m["texture"]:02d}Alb'
         rel = f'Tex/{name}.bntx.zs'

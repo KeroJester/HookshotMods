@@ -2835,3 +2835,26 @@ the town.
 - Moon: centre (-7, 108, -45) m (right above the Clock Tower, ~20 m clear of its head), scale 0.008, pitched down
   1.04 rad so its face looks at the plaza, texture brightened (1.7, 1.6, 1.45) because the sun lights it from behind.
   Screenshot: screenshots/clocktown_moon4.png.
+
+### §80p. Soft shadows: the missing light probes; the moon high and lit; BGM research (2026-11-15)
+- **The ambient light was missing:** the game looks for `Bake/Probe/Scene/<banc>/meta.bkprmb` (light probes: the
+  ambient / indirect light on characters); the new map had none, so Link got only sun and shadow. Kakariko_Child's
+  probe folder (53 files) copied under the new name is loaded and softens Link's shading.
+- **The moon shaded the town:** the static depth shadows cover a box from the map parameters
+  (SceneShadowSetting.ManualStaticDepthShadowAABBMin/Max; Market's reaches y 154): now Clock Town's own box
+  (-70, 95, -90)..(60, 140, 35), and the moon is far beyond the shadow ranges: centre (-7, 520, -200) m from the
+  model origin (~69 degrees up from the plaza, ~560 m away), scale 0.045 (radius ~225 m), pitched 1.2 rad towards the
+  plaza, normals bent upwards (n + (0, 2.5, 0)) so the sun lights its face; texture brightened (1.7, 1.6, 1.45).
+  Screenshot: screenshots/clocktown_moon5.png.
+- **Static actors without collision also need a compound entry:** the SageRoom compound's table lists Saria and the
+  StartPos with tags (-1, -1) (no shapes). Explains why placed pots never appeared.
+- **BGM, how this game does it:** Sound/Bgm/bgm.Product.111.byml defines each BGM as a node graph over stream keys
+  (BGM_Market: Intro, DayTime_01..03, Evening_*... with durations and Day / Night conditions); streams are
+  Sound/Resource/Stream/<key>.bwav with metadata in Sound/Resource/BGM_Static.bars; SLink2 users start them. The music
+  is placed in a map as an actor named after the BGM (Market_Child_Static has a `BGM_Market` actor linked to area
+  actors and a rail; also SoundSettingActor {SceneryName, Distance} for area sceneries). A `BGM_Market` actor on
+  Saria's compound entry (no links) loads its pack and streams in the new map but plays nothing (probably needs its
+  linked areas).
+- **MM3D's music is streamed:** sound/streaming/stream/*.dspadpcm.bcstm (CSTM: DSP-ADPCM, block-interleaved), e.g.
+  029NA_BGM_MARKET = Clock Town Day 1 (2 channels, 32 kHz, loop 1519616..3172856 samples), 005NA_BGM_CLOCK_TOWER.
+  Conversion to BWAV needs no synthesis.

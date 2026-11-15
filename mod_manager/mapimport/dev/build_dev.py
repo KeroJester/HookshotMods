@@ -33,6 +33,13 @@ if os.environ.get('DEV_SET_FROM'):
     other = parse_byml(open(os.path.join(ROMFS, f"Banc/GameBancParam/{os.environ['DEV_SET_FROM']}.game__banc__GameBancParam.bgyml"), 'rb').read())
     for k in os.environ.get('DEV_SET_KEYS', '').split(','):
         if k in other: gbp[k] = other[k]; print('  set', k, '<-', os.environ['DEV_SET_FROM'])
+# (lighting) static depth shadows only from Clock Town itself (the moon above must not shade the town)
+if os.environ.get('DEV_SHADOW_BOX') and 'SceneShadowSetting' in gbp:
+    x0, y0, z0, x1, y1, z1 = [float(v) for v in os.environ['DEV_SHADOW_BOX'].split(',')]
+    sss = gbp['SceneShadowSetting']
+    sss['ManualStaticDepthShadowAABBMin'] = {'X': x0, 'Y': y0, 'Z': z0}
+    sss['ManualStaticDepthShadowAABBMax'] = {'X': x1, 'Y': y1, 'Z': z1}
+    print('  static shadow box', sss['ManualStaticDepthShadowAABBMin'], sss['ManualStaticDepthShadowAABBMax'])
 put(f'Banc/GameBancParam/{NAME}.game__banc__GameBancParam.bgyml', write_byml(gbp))
 
 # ---- placement: the ground piece and the start position, as Market places them
@@ -56,6 +63,7 @@ for k, pot in enumerate([a for a in mst['Actors'] if a.get('Gyaml') == 'Obj_Pot_
     pot['Translate'] = [START_T[0] + 1.5 * (k + 1), START_T[1] + 0.5, START_T[2] + 2.0]
     pots.append(pot)
 static = {'Actors': [ground, start] + (pots if os.environ.get('DEV_POTS', '1') == '1' else []), 'FilePath': SCENE}
+DEV_EXTRA_STATIC = []
 if os.environ.get('DEV_SAGE_BCETT') == '1':                  # (E10) the Sage room's own placement files
     sst = parse_byml(rf('Banc/SageRoom/SageRoom_Static.bcett.byml.zs'))
     sdy = parse_byml(rf('Banc/SageRoom/SageRoom_Dynamic.bcett.byml.zs'))
@@ -65,8 +73,16 @@ if os.environ.get('DEV_SAGE_BCETT') == '1':                  # (E10) the Sage ro
         sst['Actors'] = [a for a in sst['Actors'] if keep(a)]
         sdy['Actors'] = [a for a in sdy['Actors'] if keep(a)]
         sst['AiGroups'] = []
+    if os.environ.get('DEV_BGM_ACTOR'):                       # (music) a BGM actor on Saria's placement entry
+        saria = [a for a in sst['Actors'] + sdy['Actors'] if a['Gyaml'] == 'Npc_Kokiri_Saria_Child'][0]
+        bgm = [a for a in mst['Actors'] if a.get('Gyaml') == os.environ['DEV_BGM_ACTOR']]
+        bgm = copy.deepcopy(bgm[0]) if bgm else {'Gyaml': os.environ['DEV_BGM_ACTOR']}
+        for k in ('Links', 'Rails', 'Rotate', 'Presence'): bgm.pop(k, None)
+        for k in ('Hash', 'Phive', 'SRTHash', 'Translate'): bgm[k] = copy.deepcopy(saria[k])
+        DEV_EXTRA_STATIC.append(bgm)
+        print('  BGM actor', bgm['Gyaml'], 'on Saria\'s placement')
     if os.environ.get('DEV_ONLY_BASE') == '1':                # keep only Land_SageRoom_Base_A_01 (it carries Clock Town)
-        sst['Actors'] = [a for a in sst['Actors'] if a['Gyaml'] == 'Land_SageRoom_Base_A_01']
+        sst['Actors'] = [a for a in sst['Actors'] if a['Gyaml'] == 'Land_SageRoom_Base_A_01'] + DEV_EXTRA_STATIC
         sdy['Actors'] = []
         sst['AiGroups'] = []
     sdy['Actors'].append(start)
@@ -136,3 +152,11 @@ if BAKE:
         dst = os.path.join(OUT, 'romfs', os.path.relpath(dst, ROMFS))
         os.makedirs(os.path.dirname(dst), exist_ok=True); shutil.copy(src, dst)
     print(f'  + bake files (copies of {BAKE_FROM})')
+
+# ---- light probes (Bake/Probe/Scene/<banc>/: the ambient light for characters): another map's, copied
+if os.environ.get('DEV_PROBE_FROM'):
+    src_dir = os.path.join(ROMFS, 'Bake/Probe/Scene', os.environ['DEV_PROBE_FROM'])
+    dst_dir = os.path.join(OUT, 'romfs', 'Bake/Probe/Scene', NAME)
+    os.makedirs(dst_dir, exist_ok=True)
+    for f in os.listdir(src_dir): shutil.copy(os.path.join(src_dir, f), os.path.join(dst_dir, f))
+    print('  + light probes (copies of', os.environ['DEV_PROBE_FROM'] + ')', len(os.listdir(dst_dir)), 'files')
