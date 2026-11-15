@@ -2595,3 +2595,110 @@ language) the presentation title works natively.**
 - **Verified headless:** shop save (all learned) and the user's save (none learned): 22 buttons, cursor through all,
   titles / captions / notes, listening (own stream, own glow), cursor restored on reopen, then a presentation; HUD and
   Item Controls' boxes unaffected.
+
+## 80. Importing a Majora's Mask 3D map: South Clock Town (research started 2026-11-14)
+Goal (user): bring MM3D's central Clock Town into the game as a real map, reached for now by one of the new songs (the
+Song of Soaring, as in Majora's Mask). "Central Clock Town" is taken to be South Clock Town (the Clock Tower plaza),
+MM3D scene `z2_clocktower`. Nothing of MM3D may ship: the map has to be built from the player's own MM3D copy.
+
+### §80a. The MM3D side
+- `mods/_MajoraAssets/extracted/mm3d_romfs/scenes/`: `z2_clocktower_info.zsi` (scene), `z2_clocktower_0_info.zsi`
+  (room 0), `z2_clocktower_info.ctxb` (shared textures), `.gar` (a material animation). North / East / West are
+  `z2_backtown`, `z2_town`, `z2_ichiba`. Files are LzS (mod_manager/mm3d.lzs_decompress).
+- ZSI = the N64 scene command list (8 bytes: cmd, arg, 0, 0, u32 offset from the end of the 0x10 header); collision is
+  scene command 0x03 (at 0x4bc0 in the scene file).
+- The room file holds an ordinary CMB at 0x134 that mod_manager/cmb.py reads as is: `Z2_clocktower_0`, 1 bone,
+  41 meshes / materials / ETC1(A4) textures (cmb.decode_texture), 15116 vertices, 10507 triangles.
+
+### §80b. How this game stores a map (TotK-style engine)
+- A map ("banc") is registered in: `RSDB/GameBancInfo` (row: BancMain scene path, sound scenery; sorted by __RowId),
+  `Banc/GameBancParam/<banc>.game__banc__GameBancParam.bgyml` (scene path, location, env, world param, bake flags,
+  OptimizeChangeBancUnits...), `Banc/BancBasedResource/{StartPos,MapParam,LocationArea,GmdReset}.byml.zs` (keyed by
+  banc), and the placements `Banc/<folder>/<banc>_{Static,Dynamic}.bcett.byml.zs` ({Actors, FilePath, ...}).
+  Optional: Bake/Scene, Foliage, WorldMgr/WorldParam, PreComputedCulling, MapMenuInfo.
+- StartPos.byml: {banc: {name: {Rot, Trans}}}; the bcett also places StartPos actors by Name. Units are metres
+  (Market's plaza is at y ~100).
+- Geometry = `Land_*` actors placed in the static bcett (Gyaml = actor name, Phive.Placement.ID, Bakeable...). A land
+  actor pack (Pack/Actor/<name>.pack.zs) has ActorParam, ModelInfo (FmdbName -> Model/<project>.<fmdb>.bfres.zs),
+  PhysicsParam -> ControllerSetParam (static body Ptm_FldObjStatic_06) -> ShapeParam per layer (Physical, StairStep,
+  StairSlope, Airwall) -> `Phive/Shape/Dcc/<name>__<layer>.Nin_Ounce_NVN2.bphsh.zs`.
+- The map also has a baked static compound body: `Phive/StaticCompoundBody/<folder>/<banc>.Nin_Ounce_NVN2.bphsc.zs`
+  (looked up by name when the map loads; a missing one is tolerated, see §80d).
+- Textures are one-texture BNTX files `Tex/<name>.bntx.zs`, named by the materials (PBR: _Alb, _Nrm, _Rgh/_RAH,
+  CmnTex_BakeDefault, CmnTex_BakeLightDefault).
+
+### §80c. The warp songs: how a song takes Link to a map
+- After the presentation, switch Event14 of `Dm_SY_Ocarina` (EventQueryMelodyTypeForNormal) sends cases 6..11
+  (the warp songs) through a BGM duck and a 60-frame wait into a sub flow to the entry point `OcarinaWarp`, whose
+  parameters are the destination: `ChildBanc`, `AdultBanc`, `NextStartPos`, `MessageId` (e.g. Prelude of Light:
+  Market_Child / Market_Adult / LightPrelude / EventFlowMsg/Dm_SY_Ocarina:Talk_07).
+- OcarinaWarp: EventQueryPlayerIsAbleWarp -> SystemTextNPC talk with the message (Warp / Cancel) -> on Warp, a sub
+  flow to `EventTransition` "Dm_SY_Ocarina_move" (SpecialEventActionType 1): the warp cutscene, then the map
+  changes. On arrival `OcarinaWarp_Arrive` -> `Dm_SY_Ocarina_move_Ed`.
+- (Code side, not needed: f_832b4260 after a match calls f_832ba540(scene changer, &"Work/Banc/Scene/X/X.bcett.json",
+  1, 0) for types 6..11.)
+- So a song warps to a new map with a flow change only: a new OcarinaWarp sub flow event with the new map's names.
+
+### §80d. Experiment E1: a new map, reached by a song (development mod `mods/070-ClockTownDev`, scratch builder)
+- Files: GameBancParam (Market_Child's, with bake / foliage / OptimizeChangeBanc / height map removed), static bcett
+  (Market's Land_HrlCity_Ground_A_01 + a StartPos), empty dynamic bcett, GameBancInfo row, StartPos entry. For the
+  test, the Prelude's ChildBanc string was changed in place and Event14's case 0 pointed at the Prelude's warp chain
+  (so the added songs, whose case 13 copies case 0, warp too).
+- mod_manager/byml.py now shares identical containers when writing (as the game's files do): a rewritten StartPos
+  is byte-for-byte the original size again (it had grown 25 KB -> 35 KB, past its size table entry).
+- MajoraMod: development switch `MAJORA_DEV_RSTB="path=size;..."` raises size table entries (new files without an
+  entry are sized by the game itself: "[rstb] ...: no entry").
+- **Result:** Song of Soaring (R Y X R Y X) -> "You played the Song of Soaring!" -> "Warp to the Temple of Time?"
+  (the borrowed message) -> warp cutscene -> the new map loads, Link stands in it with the HUD, no crash. But nothing
+  is drawn (bright fog) and Link falls (falling-wind sounds): the ground actor's pack is never opened. The game looks
+  for `Phive/StaticCompoundBody/ClockTownDev/ClockTownDev.Nin_Ounce_NVN2.bphsc` and goes on without it.
+- A first test with the Prelude of Light itself did nothing: the test save has not learned it.
+- **E1d:** with a static compound body for the new map (a copy of Market_Child's .bphsc; the ground keeps its
+  Market placement ID) the ground actor spawns: Link lands and stands on Market's paving, with a shadow, in the new
+  map. **Static land actors only exist through the map's compound body** (their Phive placement ID must be in it),
+  so a new map needs its own .bphsc (format next). The picture is heavily over-exposed: bake / light settings were
+  turned off in the copied GameBancParam (next to sort out).
+
+### §80e. Collision: Phive shapes are Havok hknpMeshShape tagfiles (fully decoded)
+`.bphsh` = Phive header 0x30 {"Phive\0", 01 00, ff fe, 00 04, u32 tagfile offset 0x30, u32 materials offset, u32
+filters offset, u32 file size, u32 tagfile size, u32 materials size, u32 filters size} + a Havok TAG0 tagfile
+(SDK "20250200") + 16 bytes per material {u64 id, u64 flags} + 16 bytes 0xff per material. Reader:
+scratch tools/hktag.py (TAG0 sections: size word big-endian with 0x40000000 = leaf; TST1/FST1 string tables, TNA1
+type names with template args, TBDY bodies: parent, flags (1 format, 2 subtype, 4 version, 8 size+align, 0x10, 0x20
+members {name, flags, offset, type}, 0x40 interfaces), THSH, TPAD padding; ITEM = {u32 type | flags << 24, u32 data
+offset, u32 count}; this file type has no pointer patches: all references are relative (hkRelArrayView {i32 offset
+from the field, i32 count}).
+- Even simple boxes are hknpMeshShape (size 0xa0): +0x18 type 7, +0x19 dispatch 2, +0x1a flags 0x4000, +0x1c shape
+  key bits = ceil(log2(sections)) + 9, +0x20 properties (empty), +0x38 0xffffffff, +0x40 bitScale16 (512 x3),
+  +0x50 its inverse, +0x60 shape tag table, +0x68 top-level tree (hkcdSimdTree: nodes rel array, root 1),
+  +0x88 geometry sections, +0x90 primitive mapping (0).
+- GeometrySection (64 bytes): sectionBvh (hknpAabb8TreeNode, 28 bytes), primitives ({a,b,c,d} u8: quads, triangles
+  have c == d, counter-clockwise from outside: normal = (b-a) x (c-a)), vertexBuffer (u16 x3 per vertex at 1/512 m
+  from sectionOffset, + 2 bytes padding), interiorPrimitiveBitField (2 bits per face; zeros are fine to start),
+  sectionOffset u32 x3 (1/512 m), bitScale8Inv float x3 (metres per 8-bit step), bitOffset i16 x3.
+- 8-bit tree node: lx[4] hx[4] ly[4] hy[4] lz[4] hz[4] data[4]; q = floor/ceil(world_m / bitScale8Inv) - bitOffset;
+  an empty child slot is lx = 255, hx = 0. Nodes are stored depth-first (an inner node's first child is the next
+  node). **A node's children are faces when data[2] > data[3]**, else nodes; builders pad leaf nodes [a,b,1,0] /
+  [a,0,1,0] and inner nodes [a,b,0,0] / [a,b,c,c]. Verified on 250 sections of 6 files.
+- Top tree (hkcdSimdTree, 128-byte nodes: hkcdFourAabb float lx..hz, data u32[4], masks, flags (1 = leaf), maxDepth
+  (leaf 1), parent, numLeaves): node 0 is an empty dummy, root 1; leaf data = section indices (-1 padding), inner
+  data = node indices (0 padding); sections are stored in leaf order.
+- Shape tag table {u32 key, u16 tag}: key = section << 9 | face << 1; an entry at every section start and where the
+  material changes; ends with {(sections << 9) | 510, 0xffff}. The tag indexes the material block after the tagfile.
+- Writer prototype (scratch tools/phsh_write.py): triangles -> sections (<= 250 faces / vertices, < 120 m) -> trees;
+  the template's TYPE section is reused as is; DATA, ITEM and the Phive header are new. Its output reads back with
+  the same rules.
+
+### §80f. Models: BFRES v10.4 (Land_HrlCity_Ground_A_01)
+- Sections (relocation table _RLT): 0 main (structures, dictionaries, strings `_STR`), 1 index buffers (0x30000),
+  2 vertex buffers, 4 memory pool info; every pointer location is listed in _RLT, so inserting bytes and fixing
+  pointers is possible generically.
+- FMDL @0xf0: +0x18 skeleton, +0x20 vertex buffers (FVTX, 0x58 each), +0x28 shapes (FSHP, 0x60), +0x30 shape dict,
+  +0x38 materials (FMAT, 0xb0), +0x40 material dict; counts at +0x68 (vertex buffers, shapes, materials, ...).
+- FVTX: +0x08 attributes {name, u32 format, u16 offset, u16 buffer} (0x10 each), +0x30 buffer sizes, +0x38 strides,
+  +0x48 offset in the vertex buffer region, +0x4c attribute count, +0x4d buffer count, +0x50 vertex count. Formats
+  seen: _p0 0x1505 (half x4), _n0 / _t0 0xe02 (10-10-10-2 snorm), _u0 0x1205 (half x2) or 0x1201 (unorm16 x2), _c0,
+  bake.
+- FMAT: +0x20 texture name array (5 string pointers: _Alb, _Nrm, _Rgh, CmnTex_BakeDefault, CmnTex_BakeLightDefault),
+  +0x18 / +0x28 / +0x58 / +0x80 zero-filled arrays (runtime data), +0x38 sampler dict (_a0, _n0, ...), +0x40 render
+  info (e.g. "field_ground"), counts at +0xa2/+0xa3.

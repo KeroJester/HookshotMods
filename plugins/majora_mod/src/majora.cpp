@@ -9,6 +9,8 @@
 #include "songbook.h"
 #include "icons.h"
 #include "vfs.h"
+#include <cstdlib>
+#include <string>
 
 namespace majora {
 using namespace plat;
@@ -19,6 +21,21 @@ bool Init(const std::string& modDir) {
     song::Start();                                         // (registers its changed files before the server starts)
     songbook::Start();
     icons::Start();
+    // (development: MAJORA_DEV_RSTB="romfs/path=size;..." raises size-table entries for files under test)
+    if (const char* dev = getenv("MAJORA_DEV_RSTB")) {
+        std::string all = dev;
+        for (size_t at = 0; at < all.size();) {
+            size_t end = all.find(';', at);
+            if (end == std::string::npos) end = all.size();
+            const std::string item = all.substr(at, end - at);
+            const size_t eq = item.find('=');
+            if (eq != std::string::npos) {
+                rstb::Require(item.substr(0, eq), (uint32_t)strtoul(item.c_str() + eq + 1, nullptr, 0));
+                Log("[majora] dev size: %s\n", item.c_str());
+            }
+            at = end + 1;
+        }
+    }
     rstb::Start(modDir);                                   // (the grown files' sizes; see rstb.h)
     vfs::Start();
     return true;

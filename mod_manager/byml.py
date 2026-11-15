@@ -274,7 +274,30 @@ def write_byml(val: Any, version: int = 7, big_endian: bool = False) -> bytes:
             return 0, None
         return 0, v
 
+    # Identical containers and payloads are written once and shared (as the game's own files do), which keeps a
+    # rewritten file about the size of the original.
+    memo = {}
+
+    def skey(v):
+        t = _type_of(v)
+        if t in (T_DICT, T_HASH32, T_HASH64):
+            return (t, tuple(sorted((k, skey(x)) for k, x in v.items())))
+        if t == T_ARRAY:
+            return (t, tuple(skey(x) for x in v))
+        if t in (T_BIN, T_BIN_ALIGN):
+            return (t, bytes(v), getattr(v, "alignment", 0))
+        if t in (T_F32, T_F64):
+            return (t, struct.pack("<d", v))
+        return (t, v)
+
     def write_payload(v, t):
+        k = skey(v)
+        if k in memo:
+            return memo[k]
+        memo[k] = p = write_payload_new(v, t)
+        return p
+
+    def write_payload_new(v, t):
         if t in (T_I64, T_U64, T_F64):
             align(8)
             p = len(out)
