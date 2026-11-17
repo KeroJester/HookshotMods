@@ -3006,8 +3006,10 @@ A checklist for the next map (North / East / West Clock Town, other MM3D scenes)
   tile; bake UVs per material (bfres_build writes `bake` when the mesh has it).
 - **Map parameters copied from another map** bring its HeightMapParam (haze; drop it), bake files, probes, locational
   lights, sound scenery and world param: replace each with the new map's own.
-- **Two runtimes**: Longshot reads the size table before mods load (first launch after a size change may be vanilla);
-  same romfs as Hookshot (cmp verified), deploy with HOOKSHOT_GAME_DIR.
+- **Two runtimes; Longshot is the main one (user, 2026-11-17)**: test headless on Hookshot, then deploy every passing
+  build to Longshot (HOOKSHOT_GAME_DIR=~/Games/Longshot/nightly-80-7315957c, mod 070-ClockTownDev, size entries in its
+  060-MajoraMod/majora/dev_rstb.txt). Longshot reads the size table before mods load (first launch after a size
+  change may be vanilla); same romfs as Hookshot (cmp verified).
 
 ### §81.3 Testing method
 - Headless: overlay/tools/drive_test.sh with HOS_TEST_USER=re/testuser_shop (save in a Market shop; only save that can
@@ -3026,7 +3028,8 @@ A checklist for the next map (North / East / West Clock Town, other MM3D scenes)
 
 ### §81.4 Still to do for a shippable import
 - The mod manager's Build step (MM3D folder -> all of the above) and the distribution format (no game data in the repo).
-- Ambient value per time of day (BgDifIntensity sweep: x1.6 / x2.2 under test), cloud shadows decision, own
+- Ambient: BgDifIntensity x1.6 chosen (doorway shade 49 -> 72, sunlit floor 195 -> 220; x2.2 hazy, x4 washed out;
+  screenshots/lighting/04_*); per time of day still to check, cloud shadows decision, own
   LocationalLight placement, the sun direction for the bake (WorldParam MainLightAzimuth / Elevation: 347 / 55).
 - An own SLink2 asset for the music instead of the spare BGM_LonLonRanch one (XLNK writer).
 - Soaring's own warp entry and message, the arrival banner, props / NPCs, Clock Tower parts collision.
