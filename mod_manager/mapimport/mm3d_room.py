@@ -40,23 +40,56 @@ def _tangents(p, uv, tris, n):
     return t
 
 
-def room_meshes(cmb: CMB, scale: float = SCALE):
+def recompute_normals(P, T, crease_deg=35.0):
+    """Per-corner normals from the faces: each corner averages (area-weighted) the faces around its position whose
+    normal is within crease_deg of its own face, so harder edges stay sharp. MM3D rooms carry N64-style normals
+    smoothed across walls and floors (RESEARCH_NOTES.md §80u). P (n,3), T (m,3) -> (m, 3, 3) corner normals."""
+    fn = np.cross(P[T[:, 1]] - P[T[:, 0]], P[T[:, 2]] - P[T[:, 0]])          # (length = 2 x area)
+    unit = fn / np.maximum(np.linalg.norm(fn, axis=1, keepdims=True), 1e-12)
+    key = {}
+    vid = np.array([key.setdefault(tuple(np.round(p, 4)), len(key)) for p in P])
+    around = {}
+    for t, tri in enumerate(T):
+        for v in tri: around.setdefault(vid[v], []).append(t)
+    around = {k: np.array(v) for k, v in around.items()}
+    cos = np.cos(np.radians(crease_deg))
+    out = np.zeros((len(T), 3, 3))
+    for t, tri in enumerate(T):
+        for j, v in enumerate(tri):
+            fs = around[vid[v]]
+            n = fn[fs[unit[fs] @ unit[t] >= cos]].sum(0)
+            ln = np.linalg.norm(n)
+            out[t, j] = n / ln if ln > 1e-12 else unit[t]
+    return out
+
+
+def room_meshes(cmb: CMB, scale: float = SCALE, crease_deg=None):
     """-> (meshes [{name, texture (index into cmb.textures), pos, nrm, tan, uv, idx}], triangles (positions) for
-    collision)."""
+    collision). crease_deg: normals recomputed from the faces of the whole room (recompute_normals) instead of the
+    CMB's (smoothed across hard edges in MM3D's rooms)."""
     meshes = []
     all_tris = []
-    for mi, mesh in enumerate(cmb.meshes):
-        tris = cmb.mesh_triangles(mi)
+    raw = [(mi, mesh, cmb.mesh_triangles(mi)) for mi, mesh in enumerate(cmb.meshes)]
+    corner_n = {}
+    if crease_deg is not None:
+        RP = np.array([v["p"] for _, _, tris in raw for tri in tris for v in tri], float)
+        RN = recompute_normals(RP, np.arange(len(RP)).reshape(-1, 3), crease_deg)
+        k = 0
+        for mi, _, tris in raw:
+            corner_n[mi] = RN[k:k + len(tris)]
+            k += len(tris)
+    for mi, mesh, tris in raw:
         if not tris: continue
         verts, index = {}, []
         P, N, U, C = [], [], [], []
-        for tri in tris:
-            for v in tri:
-                key = (tuple(np.round(v["p"], 4)), tuple(np.round(v["n"], 3)), tuple(np.round(v["uv"], 5)),
+        for ti, tri in enumerate(tris):
+            for j, v in enumerate(tri):
+                n = corner_n[mi][ti, j] if crease_deg is not None else v["n"]
+                key = (tuple(np.round(v["p"], 4)), tuple(np.round(n, 3)), tuple(np.round(v["uv"], 5)),
                        tuple(np.round(v["col"], 3)))
                 if key not in verts:
                     verts[key] = len(P)
-                    P.append(v["p"]); N.append(v["n"]); U.append(v["uv"]); C.append(v["col"])
+                    P.append(v["p"]); N.append(n); U.append(v["uv"]); C.append(v["col"])
                 index.append(verts[key])
         P = np.array(P) * scale
         N = np.array(N)

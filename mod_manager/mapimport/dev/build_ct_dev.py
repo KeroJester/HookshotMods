@@ -10,7 +10,8 @@ MM = os.path.expanduser('~/Games/Hookshot/mods/_MajoraAssets/extracted/mm3d_romf
 OUT = os.path.join(os.path.expanduser(os.environ.get('HOOKSHOT_GAME_DIR', '~/Games/Hookshot')), 'mods', sys.argv[1] if len(sys.argv) > 1 else '070-ClockTownDev', 'romfs')
 t0 = time.time()
 cmb = mm3d_room.load_room(open(MM + 'z2_clocktower_0_info.zsi', 'rb').read())
-meshes, tris = mm3d_room.room_meshes(cmb)
+CREASE = float(os.environ.get('CT_CREASE', '35')) if os.environ.get('CT_CREASE', '35') != 'off' else None   # (normals from the faces, §80u)
+meshes, tris = mm3d_room.room_meshes(cmb, crease_deg=CREASE)
 P = np.concatenate([m['pos'] for m in meshes])
 print('meshes', len(meshes), 'verts', len(P), 'bounds', P.min(0).round(2), P.max(0).round(2), f'{time.time()-t0:.1f}s')
 tmpl_tex = rf('Tex/Etc_Gray50_A_Alb.bntx.zs')
@@ -72,7 +73,7 @@ if os.environ.get('CT_TOWER', '1') == '1':
              ('z2_hagu_model', (-280, 555, -833))]
     for name, at in parts:
         c = CMB(ar[f'model/{name}.cmb'])
-        pm, _ = mm3d_room.room_meshes(c, 0.1 * U)
+        pm, _ = mm3d_room.room_meshes(c, 0.1 * U, crease_deg=CREASE)
         for k, m in enumerate(pm):
             m['pos'] = m['pos'] + np.array(at) * U
             m['name'] = f'Tower_{name}_{k}'

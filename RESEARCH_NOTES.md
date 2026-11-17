@@ -2986,6 +2986,7 @@ A checklist for the next map (North / East / West Clock Town, other MM3D scenes)
 - **bphsc section sizes** (header 0x28c, size k = offset k+1 - offset k) must be recomputed after replacing a layer
   or the map loads dark / Link is stuck (§80l).
 - **CMB UVs need no V flip** with cmb.decode_texture's top-row-first images (§80n).
+- **MM3D room normals are smoothed across hard edges**: recompute them from the faces (crease 35 degrees, §80u).
 - **byml writing must share identical containers** like the game does, or files outgrow their size entries (§80d).
 - **Same-length string patches** keep flows / BNTX names / pack names valid without relocation (banc name 12 chars,
   bake texture names patched in place, BGM names any length: the condition binary carries the length).
@@ -3035,3 +3036,16 @@ A checklist for the next map (North / East / West Clock Town, other MM3D scenes)
   LocationalLight placement, the sun direction for the bake (WorldParam MainLightAzimuth / Elevation: 347 / 55).
 - An own SLink2 asset for the music instead of the spare BGM_LonLonRanch one (XLNK writer).
 - Soaring's own warp entry and message, the arrival banner, props / NPCs, Clock Tower parts collision.
+
+### §80u. MM3D room normals are smoothed across hard edges: recomputed from the faces (2026-11-17)
+- The CMB's vertex normals (unit length, never flipped) are N64-style smooth normals: against each triangle's own
+  face normal, 48 % of the corners are off by more than 20 degrees and 18 % by more than 45 (walls and floors share
+  averaged normals at their edges: light bleeds round corners, flat walls get gradients; worst meshes 22-44 %).
+- mapimport/mm3d_room.py `room_meshes(..., crease_deg=35)` / `recompute_normals`: each corner averages the
+  area-weighted normals of the faces around its position (over the whole room, across materials) that are within the
+  crease angle of its own face; harder edges stay sharp (vertices split: 15116 -> 16239). Result: 0.9 % of corners
+  off by more than 20 degrees, none by more than 45. Tangents follow from the new normals. dev/build_ct_dev.py
+  CT_CREASE (default 35; "off" keeps the CMB's), also for the Clock Tower parts (not the moon: its normals are bent on
+  purpose, §80o).
+- The scene bake traces from each texel along its normal: a normals change needs a new ray pass (the hit cache is
+  keyed only by texel count).
