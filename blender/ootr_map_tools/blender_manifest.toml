@@ -1,0 +1,17 @@
+schema_version = "1.0.0"
+
+id = "ootr_map_tools"
+version = "0.1.0"
+name = "OoT Remake Map Tools"
+tagline = "Load Ocarina of Time remake maps into Blender (and later build new ones)"
+maintainer = "KeroJester"
+type = "add-on"
+website = "https://github.com/KeroJester/HookshotMods"
+tags = ["Import-Export", "Game Engine"]
+
+blender_version_min = "4.2.0"
+license = ["SPDX:GPL-3.0-or-later"]
+
+# reads the user's own game folder (chosen in the preferences); writes only where the user exports
+[permissions]
+files = "Read the game folder and the texture cache; write exported maps"
