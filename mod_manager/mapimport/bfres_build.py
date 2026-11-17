@@ -48,6 +48,7 @@ def encode_vertices(attrs, stride, m):
     # (_c0 is not a colour multiplier in these materials: the game's land vertices hold (0, 0, 0, 1) there)
     src = {"_p0": np.c_[m["pos"], np.ones(n)], "_u0": m["uv"],
            "_c0": m.get("c0", np.tile([0.0, 0.0, 0.0, 1.0], (n, 1))), "_n0": m["nrm"], "_t0": m["tan"]}
+    if "bake" in m: src["bake"] = m["bake"]        # (lightmap UV into the scene bake atlas, lightmap.py)
     for name, fmt, off in attrs:
         dt, comps, kind = FORMATS[fmt]
         if kind == "1010102":

@@ -85,11 +85,46 @@ if os.environ.get('CT_TOWER', '1') == '1':
     used = sorted(set(m['texture'] for m in meshes))
     print('tower parts', len(parts))
 mat_of = {i: k for k, i in enumerate(used)}
+# (scene bake) lightmap UVs for the room's meshes: charts per material, packed into one atlas (lightmap.py); the
+# model's bake UV is the atlas position over the bake textures' size (BAKE_TEX), bake_scene.py bakes the texels
+if os.environ.get('CT_BAKE_UV', '1') == '1':
+    from mod_manager.mapimport import lightmap
+    DENS = float(os.environ.get('CT_BAKE_DENSITY', '2.0'))
+    BAKE_TEX = int(os.environ.get('CT_BAKE_TEX', '2048'))
+    room = [m for m in meshes if m['name'].startswith('Mesh')]
+    rest = [m for m in meshes if not m['name'].startswith('Mesh')]
+    groups = {}
+    for m in room: groups.setdefault(m['texture'], []).append(m)
+    sheets, unwrapped = [], []
+    for tex, ms in groups.items():
+        um, size = lightmap.unwrap(ms, DENS)
+        unwrapped.append(um); sheets.append(size)
+    (AW, AH), offs = lightmap.pack_sheets(sheets)
+    assert AW <= BAKE_TEX and AH <= BAKE_TEX, (AW, AH)
+    rec = dict(atlas=np.array([AW, AH]), density=DENS, tex=BAKE_TEX)
+    meshes = []
+    for g, (um, (sw, sh), (ox, oy)) in enumerate(zip(unwrapped, sheets, offs)):
+        for m in um:
+            texel = m['bake'] * np.array([sw, sh]) + np.array([ox, oy])
+            m['bake'] = texel / BAKE_TEX
+            k = len(meshes)
+            rec[f'm{k}_pos'] = m['pos']; rec[f'm{k}_nrm'] = m['nrm']; rec[f'm{k}_texel'] = texel
+            rec[f'm{k}_tris'] = m['tris']; rec[f'm{k}_tex'] = np.array([m['texture']])
+            rec[f'm{k}_albedo'] = mm3d_room.texture_rgba(cmb, m['texture'])[..., :3].reshape(-1, 3).mean(0)
+            meshes.append(m)
+    rec['count'] = np.array([len(meshes)])
+    meshes += rest
+    print(f'bake UVs: atlas {AW} x {AH} texels at {DENS} per metre ({len(unwrapped)} materials)')
 SAGE = os.environ.get('CT_TEMPLATE', 'sage') == 'sage'
 extra = ['CmnTex_BakeDefault', 'CmnTex_BakeLightDefault'] if SAGE else []
 materials = [dict(name=f'Mt_MMClockTown{i:04d}', textures=[tex_name[i], 'Dummy_Flat_Normal_CmnTex_Chara_DetailMap_Nrm',
                                                           'Land_HrlCity_Soil_A_01_Rgh'] + extra) for i in used]
 for m in meshes: m['material'] = mat_of[m['texture']]
+if os.environ.get('CT_BAKE_UV', '1') == '1':
+    for k in range(int(rec['count'][0])):
+        rec[f'm{k}_mat'] = np.array([meshes[k]['material']])
+    rec['mat_names'] = np.array([mt['name'] for mt in materials])
+    np.savez(os.path.join(os.path.dirname(__file__), '..', 'ct_bake_uv.npz'), **rec)
 if os.environ.get('CT_GAME_TEX') == '1':                 # (E14) existing game textures only
     materials = [dict(m, textures=['Rock_SageRoom_Floor_A_Alb', 'Rock_SageRoom_Floor_A_Nrm', 'Rock_SageRoom_Floor_A_Rgh',
                                    'CmnTex_BakeDefault', 'CmnTex_BakeLightDefault']) for m in materials]

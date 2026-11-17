@@ -2918,3 +2918,115 @@ the town.
 - **Result:** Link facing the camera with the sun behind him is lit (tunic, face readable):
   screenshots/clocktown_probes_baked.png. The town's shaded walls stay dark: static geometry takes its indirect light
   from the bake textures (CmnTex_BakeDefault), not the probes; that needs our own scene bake.
+
+### §80s. The scene bake (static GI): format, binding, and our own bake (2026-11-17)
+- **What the game's static lighting is:** every lit land model has a `bake` vertex attribute (u16 unorm UV, format
+  0x1201) and its materials name `CmnTex_BakeDefault` / `CmnTex_BakeLightDefault`, replaced at runtime by the map's
+  bake atlases. Bake/Scene/<banc>_G_<x>_<z>.bkres (near tiles, LevelOfDetail 0) and <banc>_G1_<x>_<z> (coarse, LOD 1)
+  are SARCs with `bkdat.byaml`: {Version 10, ExternalTexture, LevelOfDetail, DataElements: [element 0 DataType 3
+  (d0_t0), element 1 DataType 5 (d1_shgi0_uf3 + _un3, MonoSH, SkyVisibility, BouncedSkyLight)]}, each element
+  listing ModelElements {Guid "<placement hash>_0", ModelName, OriginalMaterialCount, MaterialElements
+  {MaterialName, OriginalMaterialIndex, TexcoordOffset, TexcoordScale, TextureIndex, TextureIndex1 -1}}: atlas UV =
+  bake UV x scale + offset. Game/BakeSceneLayerConfig/<banc> lists the tiles (Grid X, Z, LoadDistance).
+- **Atlases (Tex/RBake_Scene_<tile>_*):** d0_t0 BC5 (0x1e01): R ambient occlusion, **G a baked sun-visibility mask
+  (0 = never sunlit)** (Kakariko: up-facing 36 % fully lit, down-facing 1 %). d1_shgi0_uf3 BC6H UF16 (0x1f0a), 3
+  array layers, and d1_shgi0_un3 BC7 (0x2001), 3 layers: three mono-SH terms, layer i = HDR colour (uf3) + world
+  direction (un3, L1 order y z x stored R G B, 127.5 = 0, alpha unused): 0 bounced (sun) light (warm, median 0.8,
+  90 % 31), 1 sky visibility (grey, up to 1.137, direction along the normal and up), 2 a small ground-bounce term.
+  Array layers follow each other (image_size / layers apart). d1 is half d0's resolution.
+- **Tools:** dev/bc6.py (BC6H decoder, all 14 modes from the D3D11 bit layouts), dev/bake_rd.py (BC5/BC7 decoders,
+  array layers), dev/bake_truth.py (Kakariko models sampled in their atlas: the format fits), mapimport/bcenc.py (BC5,
+  BC7 mode 6, BC6H mode 11 encoders), mapimport/lightmap.py (planar charts per material, shelf packing, raster),
+  dev/bake_scene.py (ray traced bake: 64 cosine rays per texel against the MM3D triangles, 14 processes; the ray hits
+  are cached so relighting takes seconds; textures written into Kakariko's G1_0_0 atlases renamed in place).
+- **Binding pitfalls found:** the template tile is LOD 1 (must be 0 for near tiles); tiles that do not bind the
+  model must name no textures (else they can release ours); G = 0 removed direct sunlight wherever the bake was
+  bound (looked like random dark / bright runs, mixed with moving cloud shadows: WorldParam CloudShadowOnOff).
+- **Result:** with G = 255 the bake binds and keeps the sun, but its bounce barely lifts shaded areas (walls under a
+  cloud stay ~39 even at 10x): the base ambient is not in the bake (§80t).
+
+### §80t. The ambient light: WorldParam and the environment palettes (2026-11-17)
+- GameBancParam.WorldMgrName -> WorldMgr/WorldParam/<x>.game__wm__WorldParam (loose): MainLightAzimuth /
+  MainLightElevation (Kakariko 347 / 55), CloudShadowOnOff, BasePalette_Bluesky (a ResEnvPaletteTimeTable),
+  AreaUniquePalette (exposure, white balance, fog), IndoorFixedEnvPalette. The palettes are in Pack/EnvPalette.pack
+  (274 bgyml, 8-aligned): a time table of ResEnvPalette per hour (Sunrise 5, Morning1 6, Morning2 7, Noon 9,
+  Evening1 15, Evening2 16, Sunset 17, Night 19, MidNight 23), each inheriting by $parent (FixedField_* ->
+  MainField_* -> Parent_Field -> Default). Ambient knobs: AmbientIntensity (Default 1), HemiLightIntensity (field noon
+  100, Kakariko noon 50), BgDifColor / BgDifIntensity (Default 2.8), SkyLightAdhocScale, SkyLightBounceScale,
+  DirectionalLightBounceScale, ExposureShadowCorrect (noon -1), ExposureBakeLight*, ExposureValue (14), CharaLight*.
+  Env/GameScene genvb (EnvSetName) is only the sky's scattering table (one skybin for every set).
+- dev/build_ct_env.py: WorldParam "ClockTownDev" (Kakariko's, cloud shadows off), time table "ClockTown_Bluesky" and
+  palettes (the donor's, knobs applied to the resolved values) inserted into EnvPalette.pack (size table raised).
+  Verified active: all knobs x20 washes the whole picture out.
+- The map parameters copied from Market still name Market's LocationalLightScenePlacement (to replace).
+
+## §81. Map import handbook (everything learned importing South Clock Town, §80-§80t)
+A checklist for the next map (North / East / West Clock Town, other MM3D scenes). Details in the § cited.
+
+### §81.1 What a map is made of, and how we make each part
+| Part | File(s) | How we make it | § |
+|---|---|---|---|
+| Registration | RSDB/GameBancInfo row (sorted by __RowId), Banc/GameBancParam/<banc>, StartPos.byml entry | dev/build_dev.py (copy Market_Child's, BancMain = Work/Banc/Scene/<banc>/<banc>.bcett.json) | 80b, 80d |
+| Placements | Banc/<folder>/<banc>_{Static,Dynamic}.bcett.byml.zs | SageRoom's bcett (DEV_SAGE_BCETT) keeping only Land_SageRoom_Base_A_01 | 80j |
+| Ground actor / model | Model/Land_SageRoom_Base_A.Land_SageRoom_Base_A_01.bfres.zs | mapimport/mm3d_room.py (CMB -> meshes, 0.025 m/unit, NO V flip) + bfres_build.py (append-only writer on the template; shape 1, material Mt_Rock_SageRoom_Floor_A) | 80f, 80h, 80n |
+| Textures | Tex/<16-char name>.bntx.zs | mapimport/bntx1.py (template Etc_Gray50_A_Alb, RGBA8 sRGB 0x0b06 + mips) | 80h |
+| Collision | Phive/StaticCompoundBody/<banc>/<banc>.Nin_Ounce_NVN2.bphsc.zs | dev/build_ct_compound.py: MM3D scene collision (cmd 0x03) -> phsh.py (hknpMeshShape) -> bphsc.py replace_layer in the SageRoom compound | 80e, 80i, 80l |
+| Sky / moon / props | extra meshes in the same model (moon, Clock Tower parts from actor CMBs) | dev/build_ct_dev.py (CT_MOON_*, CT_TOWER) | 80m |
+| Warp in | Dm_SY_Ocarina flow (OcarinaWarp ChildBanc/AdultBanc/NextStartPos/MessageId) | MajoraMod majora/dev_flow.txt "15=11" + the Prelude's ChildBanc string (same length: banc names of 12 chars, "ClockTownDev") | 80c, 80d |
+| Music | Sound/Scenery (Bootup pack) + AltoConfig list + bgm.byml BGM + BGM_Static.bars entry + Stream/<key>.bwav | dev/build_ct_bgm.py (MM3D BCSTM copied as DSP-ADPCM) | 80q |
+| Character light | Bake/Probe/Scene/<banc>/ (meta, resident, X_Y_Z_lod bricks) | dev/bake_probes.py (donor layout moved, ray-traced from our mesh) | 80p, 80r |
+| Static GI | Bake/Scene/<banc>_G_*.bkres + Tex/RBake_Scene_* (BC5, BC6H x3, BC7 x3) + the model's `bake` UVs | mapimport/lightmap.py + bcenc.py + dev/bake_scene.py | 80s |
+| Ambient / sun / time of day | WorldMgr/WorldParam/<banc> + EnvPalette.pack time table + palettes | dev/build_ct_env.py (BgDifIntensity is the ambient) | 80t |
+| Size table | RSTB entries of grown files | MajoraMod dev list (MAJORA_DEV_RSTB / majora/dev_rstb.txt); new files without an entry are sized by the game | 80d |
+
+### §81.2 Pitfalls that cost time (and their fixes)
+- **Static land actors exist only through the compound body**: their Phive placement ID must be in the .bphsc, and
+  static actors without shapes still need a table-C entry (-1, -1) (Saria, StartPos). The SRTHash of the placement
+  must match the template's (we reuse Land_SageRoom_Base_A_01: ID 4508210412473462298, SRT 0xc9a76a4b, at (0,100,0)).
+- **bphsc section sizes** (header 0x28c, size k = offset k+1 - offset k) must be recomputed after replacing a layer
+  or the map loads dark / Link is stuck (§80l).
+- **CMB UVs need no V flip** with cmb.decode_texture's top-row-first images (§80n).
+- **byml writing must share identical containers** like the game does, or files outgrow their size entries (§80d).
+- **Same-length string patches** keep flows / BNTX names / pack names valid without relocation (banc name 12 chars,
+  bake texture names patched in place, BGM names any length: the condition binary carries the length).
+- **Packs (Bootup, EnvPalette): insert files without repacking**: add one SFAT node + name, move the data start in
+  16-byte steps so every existing file keeps its offset (verified byte-identical); then raise the pack's RSTB entry.
+  Loose copies of pack-only resources (sceneries, palettes) are never read.
+- **Lists that gate resources**: a sound scenery must also be in Sound/Product.111.alto__AltoConfig.bgyml `Scenery`;
+  a bgm.byml BGM must be a Player in the Hierarchy; a BGM Asset key must be an asset of its SLink2 user (spare asset:
+  BGM_LonLonRanch in user BGM_LonLonRanch).
+- **Lighting is four separate systems**; copying another map's data for any of them gives that map's lighting:
+  1. sun + time of day + **ambient** = WorldParam + EnvPalette palettes (BgDifIntensity / BgDifColor = base ambient;
+     HemiLightIntensity a weaker fill; ExposureShadowCorrect darkens; CloudShadowOnOff moving cloud shadows),
+  2. characters = light probes (copied probes carry the donor's buildings and coverage: harsh, wrong),
+  3. static GI = scene bake atlases bound per model (BakeDefault without them),
+  4. local lights = GameBancParam.LocationalLightScenePlacement (still Market's: replace).
+- **Scene bake binding**: near tiles need LevelOfDetail 0 (the coarse G1 template says 1); tiles that do not bind
+  the model must name no textures; d0 G is a sun mask (0 = never sunlit: removes direct sun); bind the model in one
+  tile; bake UVs per material (bfres_build writes `bake` when the mesh has it).
+- **Map parameters copied from another map** bring its HeightMapParam (haze; drop it), bake files, probes, locational
+  lights, sound scenery and world param: replace each with the new map's own.
+- **Two runtimes**: Longshot reads the size table before mods load (first launch after a size change may be vanilla);
+  same romfs as Hookshot (cmp verified), deploy with HOOKSHOT_GAME_DIR.
+
+### §81.3 Testing method
+- Headless: overlay/tools/drive_test.sh with HOS_TEST_USER=re/testuser_shop (save in a Market shop; only save that can
+  play the Song of Soaring), notes R Y X R Y X, then A x3; ~8 min per run. Rename the dev mod to 070-... only for
+  the run. Back up / cmp item_controls/slots.txt. Shots every 40-60 frames; delete run folders after use (RAM disk).
+- **Compare lighting only at a fixed view and with cloud shadows off**: the camera and the moving cloud shadows
+  change region brightness by 3x; measure regions (dev/pngstat.py: sky, walls, tower base, doorway shade, sunlit
+  floor, Link) on the same frame index after arrival (the arrival frame varies run to run: find it from the model's
+  OpenFile line and the "present N" log lines).
+- **Check that new files load**: grep the run's stdout for `mods: <path>` / `OpenFile(content:/<path>)`. A file that
+  is opened can still be unused (the bake was opened but G = 0 killed the sun).
+- Isolate knobs one at a time; an extreme value (x20) first proves a file is live at all.
+- Post each test's key frames to ~/Games/Hookshot/screenshots/<topic>/ with a README (user request).
+- Long ray-traced bakes: cache the ray hits (bake_scene_hits.npz) so relighting takes seconds; run with 14
+  processes (multiprocessing 'fork' context: Python 3.14 defaults to forkserver).
+
+### §81.4 Still to do for a shippable import
+- The mod manager's Build step (MM3D folder -> all of the above) and the distribution format (no game data in the repo).
+- Ambient value per time of day (BgDifIntensity sweep: x1.6 / x2.2 under test), cloud shadows decision, own
+  LocationalLight placement, the sun direction for the bake (WorldParam MainLightAzimuth / Elevation: 347 / 55).
+- An own SLink2 asset for the music instead of the spare BGM_LonLonRanch one (XLNK writer).
+- Soaring's own warp entry and message, the arrival banner, props / NPCs, Clock Tower parts collision.
