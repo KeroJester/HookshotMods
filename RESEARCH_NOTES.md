@@ -2997,7 +2997,7 @@ A checklist for the next map (North / East / West Clock Town, other MM3D scenes)
   BGM_LonLonRanch in user BGM_LonLonRanch).
 - **Lighting is four separate systems**; copying another map's data for any of them gives that map's lighting:
   1. sun + time of day + **ambient** = WorldParam + EnvPalette palettes (BgDifIntensity / BgDifColor = base ambient;
-     HemiLightIntensity a weaker fill; ExposureShadowCorrect darkens; CloudShadowOnOff moving cloud shadows),
+     HemiLightIntensity the fill for surfaces facing away from the sun (the fix for harsh shadows, x20); ExposureShadowCorrect darkens; CloudShadowOnOff moving cloud shadows),
   2. characters = light probes (copied probes carry the donor's buildings and coverage: harsh, wrong),
   3. static GI = scene bake atlases bound per model (BakeDefault without them),
   4. local lights = GameBancParam.LocationalLightScenePlacement (still Market's: replace).
@@ -3028,8 +3028,10 @@ A checklist for the next map (North / East / West Clock Town, other MM3D scenes)
 
 ### §81.4 Still to do for a shippable import
 - The mod manager's Build step (MM3D folder -> all of the above) and the distribution format (no game data in the repo).
-- Ambient: BgDifIntensity x1.6 chosen (doorway shade 49 -> 72, sunlit floor 195 -> 220; x2.2 hazy, x4 washed out;
-  screenshots/lighting/04_*); per time of day still to check, cloud shadows decision, own
+- Ambient: **HemiLightIntensity x20 chosen** (noon 50 -> 1000), normal BgDif. Facing south (sun behind the buildings,
+  the user's view) the shaded walls go 13 -> 55, shaded floor 32 -> 101, sunlit floor 150 -> 156; x50 flattens the
+  shadows; BgDif x1.6 only lifted sunlit-side views (doorway 49 -> 72) and hazes at x2.2. Lesson: test lighting in
+  the backlit direction too (screenshots/lighting/05_south_*). Per time of day still to check., cloud shadows decision, own
   LocationalLight placement, the sun direction for the bake (WorldParam MainLightAzimuth / Elevation: 347 / 55).
 - An own SLink2 asset for the music instead of the spare BGM_LonLonRanch one (XLNK writer).
 - Soaring's own warp entry and message, the arrival banner, props / NPCs, Clock Tower parts collision.
