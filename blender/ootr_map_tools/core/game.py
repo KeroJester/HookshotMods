@@ -65,3 +65,41 @@ class Game:
                     if fmdb and fmdb in self.model_index():
                         return self.model_index()[fmdb]
         return self.model_index().get(actor)
+
+
+def is_game_folder(folder):
+    """A Longshot / Hookshot folder (romfs/Banc inside) or an extracted romfs (Banc inside)."""
+    if not folder: return False
+    folder = os.path.expanduser(folder)
+    return os.path.isdir(os.path.join(folder, 'romfs', 'Banc')) or os.path.isdir(os.path.join(folder, 'Banc'))
+
+
+def find_game_folders():
+    """Likely game folders on this computer: a Games / Desktop / Documents / Downloads folder (and the home folder),
+    up to two levels down (e.g. ~/Games/Longshot/<version>). Folders with a Longshot runtime come first."""
+    home = os.path.expanduser('~')
+    roots = [home] + [os.path.join(home, n) for n in ('Games', 'Desktop', 'Documents', 'Downloads', 'Applications')]
+    for env in ('USERPROFILE', 'PROGRAMFILES', 'PROGRAMFILES(X86)'):
+        if os.environ.get(env): roots.append(os.environ[env])
+    if os.name == 'nt':
+        roots += [f'{d}:\\Games' for d in 'CDEFG']
+    found, seen = [], set()
+    def visit(d, depth):
+        try:
+            if is_game_folder(d) and os.path.isdir(os.path.join(d, 'romfs')):
+                r = os.path.realpath(d)
+                if r not in seen: seen.add(r); found.append(d)
+                return
+            if depth == 0: return
+            for e in sorted(os.scandir(d), key=lambda e: e.name.lower()):
+                if e.is_dir(follow_symlinks=False) and not e.name.startswith('.'):
+                    visit(e.path, depth - 1)
+        except OSError:
+            pass
+    for r in roots:
+        if os.path.isdir(r): visit(r, 1 if r == home else 2)
+    def rank(d):
+        b = os.path.join(d, 'bin')
+        return (0 if any(os.path.exists(os.path.join(b, n)) for n in ('longshot', 'longshot.exe')) else
+                1 if any(os.path.exists(os.path.join(b, n)) for n in ('hookshot', 'hookshot.exe')) else 2, d.lower())
+    return sorted(found, key=rank)

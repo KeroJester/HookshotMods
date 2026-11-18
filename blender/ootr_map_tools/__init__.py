@@ -8,19 +8,85 @@ try:
 except ImportError:          # (core/ is usable without Blender)
     bpy = None
 
-DEFAULT_GAME = os.path.expanduser('~/Games/Longshot/nightly-80-7315957c')
-
 if bpy is not None:
+    _detected = None
+
+    def detected_folders():
+        global _detected
+        if _detected is None:
+            from .core.game import find_game_folders
+            _detected = find_game_folders()
+        return _detected
+
+    def _folder_changed(self, context):
+        global _map_items
+        _map_items = []
+
     class OOTR_Preferences(bpy.types.AddonPreferences):
         bl_idname = __package__
-        game_folder: StringProperty(name='Game folder', subtype='DIR_PATH', default=DEFAULT_GAME,
-                                    description='A Longshot or Hookshot folder (with romfs/), or an extracted romfs')
+        game_folder: StringProperty(name='Game folder', subtype='DIR_PATH', default='', update=_folder_changed,
+                                    description='Your Longshot or Hookshot game folder (the one holding romfs/ and mods/)')
 
         def draw(self, context):
-            self.layout.prop(self, 'game_folder')
+            draw_game_folder(self.layout, context, self)
 
     def prefs(context):
         return context.preferences.addons[__package__].preferences
+
+    def draw_game_folder(layout, context, p=None):
+        from .core.game import is_game_folder
+        p = p or prefs(context)
+        layout.prop(p, 'game_folder')
+        if is_game_folder(p.game_folder):
+            return True
+        box = layout.box()
+        box.label(text='Choose your game folder (the Longshot / Hookshot folder holding romfs and mods)' if not p.game_folder
+                  else 'This folder has no romfs: choose the game folder itself', icon='ERROR')
+        for d in detected_folders()[:5]:
+            box.operator('ootr.use_game_folder', text=f'Use {d}', icon='FILE_FOLDER').folder = d
+        return False
+
+    def game_folder(context):
+        """The chosen game folder; raises a readable error when none is set."""
+        from .core.game import is_game_folder
+        f = prefs(context).game_folder
+        if not is_game_folder(f):
+            raise RuntimeError('Choose your game folder first (OoT sidebar tab, or Edit > Preferences > Add-ons > '
+                               'OoT Remake Map Tools)')
+        return f
+
+    class OOTR_OT_use_game_folder(bpy.types.Operator):
+        """Use this folder as the game folder"""
+        bl_idname = 'ootr.use_game_folder'
+        bl_label = 'Use Game Folder'
+        folder: StringProperty()
+
+        def execute(self, context):
+            prefs(context).game_folder = self.folder
+            bpy.ops.wm.save_userpref() if context.preferences.use_preferences_save else None
+            self.report({'INFO'}, f'Game folder: {self.folder}')
+            return {'FINISHED'}
+
+    class OOTR_OT_choose_game_folder(bpy.types.Operator):
+        """Browse for the game folder (the Longshot / Hookshot folder holding romfs and mods)"""
+        bl_idname = 'ootr.choose_game_folder'
+        bl_label = 'Choose Game Folder'
+        directory: StringProperty(subtype='DIR_PATH')
+
+        def invoke(self, context, event):
+            context.window_manager.fileselect_add(self)
+            return {'RUNNING_MODAL'}
+
+        def execute(self, context):
+            from .core.game import is_game_folder
+            d = self.directory.rstrip('/\\')
+            if not is_game_folder(d):
+                self.report({'ERROR'}, f'{d} has no romfs folder: choose the game folder itself')
+                return {'CANCELLED'}
+            prefs(context).game_folder = d
+            bpy.ops.wm.save_userpref() if context.preferences.use_preferences_save else None
+            self.report({'INFO'}, f'Game folder: {d}')
+            return {'FINISHED'}
 
     _map_items = []
 
@@ -30,10 +96,10 @@ if bpy is not None:
             try:
                 from .core.game import Game
                 from .core.banc import list_maps
-                g = Game(prefs(context).game_folder)
+                g = Game(game_folder(context))
                 _map_items = [(name, name, f'{name} ({folder})') for name, folder in list_maps(g) if folder]
             except Exception as e:
-                return [('NONE', f'(set the game folder in the preferences: {e})', '')]
+                return [('NONE', f'({e})', '')]
         return _map_items
 
     class OOTR_OT_import_map(bpy.types.Operator):
@@ -53,11 +119,11 @@ if bpy is not None:
 
         def execute(self, context):
             if self.banc == 'NONE':
-                self.report({'ERROR'}, 'Set the game folder in the add-on preferences')
+                self.report({'ERROR'}, 'Choose your game folder first (OoT sidebar tab)')
                 return {'CANCELLED'}
             from . import scene
             from .core.game import Game
-            stats = scene.import_map(context, Game(prefs(context).game_folder), self.banc, models=self.models, collision=self.collision,
+            stats = scene.import_map(context, Game(game_folder(context)), self.banc, models=self.models, collision=self.collision,
                                      report=lambda m: self.report({'WARNING'}, m))
             self.report({'INFO'}, stats)
             return {'FINISHED'}
@@ -84,7 +150,7 @@ if bpy is not None:
             from .core.game import Game
             from .core.export import write_mod
             root = bpy.data.collections[self.root]
-            game = Game(prefs(context).game_folder)
+            game = Game(game_folder(context))
             mod = os.path.join(game.folder, 'mods', self.mod_name)
             lines = write_mod(game, root['ootr_banc'], scene.gather_edits(root), mod, root.get('ootr_folder') or None)
             for line in lines: print('[ootr export]', line)
@@ -115,7 +181,7 @@ if bpy is not None:
             if not roots:
                 self.report({'ERROR'}, 'Import a map first'); return {'CANCELLED'}
             root = bpy.data.collections[self.root] if self.root not in ('', 'NONE') and self.root in bpy.data.collections else roots[0]
-            game = Game(prefs(context).game_folder)
+            game = Game(game_folder(context))
             banc = root['ootr_banc']
             lines = write_mod(game, banc, scene.gather_edits(root), os.path.join(game.folder, 'mods', self.mod_name),
                               root.get('ootr_folder') or None)
@@ -144,7 +210,7 @@ if bpy is not None:
             os.makedirs(library_dir(), exist_ok=True)
             here = os.path.dirname(os.path.abspath(__file__))
             cmd = [bpy.app.binary_path, '-b', '--factory-startup', '--gpu-backend', 'opengl', '--python',
-                   os.path.join(here, 'library_build_cli.py'), '--', prefs(context).game_folder]
+                   os.path.join(here, 'library_build_cli.py'), '--', game_folder(context)]
             _build_proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             register_library(context)
             self.report({'INFO'}, f'Building the asset library in the background: {library_dir()} (progress in build.log)')
@@ -164,6 +230,11 @@ if bpy is not None:
         bl_category = 'OoT'
 
         def draw(self, context):
+            from .core.game import is_game_folder
+            if not is_game_folder(prefs(context).game_folder):
+                draw_game_folder(self.layout, context)
+                self.layout.operator('ootr.choose_game_folder', icon='FILEBROWSER')
+                return
             col = self.layout.column(align=True)
             col.operator('ootr.import_map', icon='IMPORT')
             col.operator('ootr.export_map', icon='EXPORT')
@@ -172,6 +243,9 @@ if bpy is not None:
             col.separator()
             col.operator('ootr.play', icon='PLAY')
             self.layout.label(text='Play starts at the 3D cursor')
+            row = self.layout.row()
+            row.label(text=os.path.basename(prefs(context).game_folder.rstrip('/\\')), icon='FILE_FOLDER')
+            row.operator('ootr.choose_game_folder', text='', icon='FILEBROWSER')
 
     def menu_export(self, context):
         self.layout.operator(OOTR_OT_export_map.bl_idname, text='OoT Remake Map Edits')
@@ -179,7 +253,7 @@ if bpy is not None:
     def menu_import(self, context):
         self.layout.operator(OOTR_OT_import_map.bl_idname, text='OoT Remake Map')
 
-    classes = (OOTR_Preferences, OOTR_OT_import_map, OOTR_OT_export_map, OOTR_OT_play, OOTR_OT_build_library, OOTR_PT_panel)
+    classes = (OOTR_Preferences, OOTR_OT_use_game_folder, OOTR_OT_choose_game_folder, OOTR_OT_import_map, OOTR_OT_export_map, OOTR_OT_play, OOTR_OT_build_library, OOTR_PT_panel)
 
     def register():
         for c in classes: bpy.utils.register_class(c)

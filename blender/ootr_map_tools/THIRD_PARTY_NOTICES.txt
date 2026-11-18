@@ -1,0 +1,8 @@
+OoT Remake Map Tools is free software under the GNU General Public License v3 or later (LICENSE).
+
+Bundled third-party software:
+- texture2ddecoder 1.0.6 (wheels/): MIT License, Copyright (c) 2022 K0lb3. Its full license text is inside each
+  wheel (texture2ddecoder-1.0.6.dist-info/LICENSE).
+
+No game files are included. The add-on reads the player's own game folder; models, textures and the asset library
+are generated from it on the player's computer.
