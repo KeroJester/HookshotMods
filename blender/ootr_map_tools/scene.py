@@ -107,6 +107,11 @@ def gather_edits(root):
     edits, seen = [], set()
     def walk(c):
         for ob in c.objects:
+            if 'ootr_hash' not in ob and 'ootr_actor' in ob and 'ootr_collision' not in ob and ob.name not in seen:
+                seen.add(ob.name)                    # (dropped from the asset library: a new placement)
+                t, r, s = game_trs(ob)
+                edits.append(Edit(0, ob.get('ootr_layer', 'Dynamic'), t, r, s, ob['ootr_actor']))
+                continue
             if 'ootr_hash' in ob and 'ootr_collision' not in ob and ob.name not in seen:
                 seen.add(ob.name)
                 t, r, s = game_trs(ob)
@@ -119,6 +124,19 @@ def gather_edits(root):
                 edits.append(Edit(int(ob['ootr_hash']), ob.get('ootr_layer', 'Dynamic'), t, r, s, ob.get('ootr_actor')))
         for ch in c.children: walk(ch)
     walk(root)
+    # library assets dropped anywhere in the scene (not inside another imported map's collection) belong to this map
+    others = set()
+    def collect(c):
+        for ob in c.objects: others.add(ob.name)
+        for ch in c.children: collect(ch)
+    for r in map_roots(bpy.context):
+        if r != root: collect(r)
+    for ob in bpy.context.scene.objects:
+        if ob.name in seen or ob.name in others or 'ootr_collision' in ob: continue
+        if 'ootr_actor' in ob and 'ootr_hash' not in ob:
+            seen.add(ob.name)
+            t, r, s = game_trs(ob)
+            edits.append(Edit(0, ob.get('ootr_layer', 'Dynamic'), t, r, s, ob['ootr_actor']))
     return edits
 
 

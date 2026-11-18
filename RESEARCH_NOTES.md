@@ -3133,3 +3133,26 @@ A checklist for the next map (North / East / West Clock Town, other MM3D scenes)
   bin/longshot (or bin/hookshot) --user <profile> from the game folder (not the folder's launcher script, which hands
   over to the Longshot Launcher). Operator Play in Game (sidebar OoT tab): exports the edits, then launches at the 3D
   cursor; the title's Continue loads it.
+
+## §85. Blender map tools: the asset library and new placements (2026-11-18)
+- core/library.py: catalogue of every RSDB/ActorInfo actor with a model (7229 of 8363: Map pieces 5141, Objects 916,
+  NPCs 360, Items 311, Enemies 264, ...; 1398 category paths from the name, e.g. Map pieces/Kakariko/Building) and a
+  template index (the first placement of each actor in the 80 maps: 7457 actors, 6591 of the library's; Links
+  dropped). Written to ~/.local/share/ootr_map_tools/asset_library (catalogue.json, templates.json) in 3 s.
+- library_build.py / library_build_cli.py: one .blend per group (top category + first sub-category: 413 groups,
+  e.g. "Map pieces - Kakariko" 255 assets / 32 s with previews), assets = the textured model with ootr_actor /
+  ootr_layer / ootr_new, catalogue ids uuid5 of the path (blender_assets.cats.txt), previews by
+  asset_generate_preview() (works in background mode). **The object needs matrix_world = GAME_TO_BLENDER** (mesh data in
+  game axes): without it assets lie on their side and export with Rotate (-pi/2, 0, 0). Background Blender fails to
+  create a Vulkan device while another Blender holds the GPU (vkCreateDevice VK_ERROR_INITIALIZATION_FAILED, exit 139):
+  builds run with --gpu-backend opengl. Sidebar button Build Asset Library (background process) registers the folder as
+  the "OoT Remake" asset library (import method Append).
+- Export: objects with ootr_actor but no ootr_hash (library drops, anywhere in the scene outside other imported maps)
+  become new placements: a deep copy of the actor's template placement (without Links / SRTHash / Hash / transform) or
+  {Gyaml} alone, new U64 Hash. **The game's placements always have Phive.Placement.ID == Hash** (31398 of 31398 checked):
+  new placements and copies with a different random ID never appeared; with ID = Hash they spawn (screenshots/blender/
+  07_library_assets_placed.png: 20 library candlesticks on the mask shop's counter and floor).
+- Size table: files over their entry get "path=size" (+8 KB, 4 KB rounded) in the mod's rstb.txt. MajoraMod 0.4.1 reads
+  <mods>/<enabled mod>/rstb.txt and raises those entries with its own (the one size table the game reads; a mod's own
+  table copy would undo MajoraMod's). Verified: Market_Child_Dynamic 77928 -> 90112, 37 / 21 new actors load.
+  On Longshot the size table is read before the layer starts: a new request applies from the next launch.

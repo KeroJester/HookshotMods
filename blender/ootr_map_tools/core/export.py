@@ -53,6 +53,18 @@ def build_layers(game, banc, edits, folder=None, seed=None):
         actors = []
         moved = added = 0
         for e in [e for e in edits if e.layer == layer]:
+            if e.hash == 0:                          # (new: an asset dropped from the library)
+                a = new_placement(game, e.actor)
+                a['Hash'] = U64(new_hash())
+                if 'Phive' in a and 'Placement' in a['Phive']:
+                    a['Phive']['Placement']['ID'] = U64(int(a['Hash']))     # (the game's placements: ID == Hash)
+                used.add(int(a['Hash']))
+                for k, v, default in (('Translate', e.translate, (0, 0, 0)), ('Rotate', e.rotate, (0, 0, 0)), ('Scale', e.scale, (1, 1, 1))):
+                    if not _close(v, default): a[k] = [float(x) for x in v]
+                    else: a.pop(k, None)
+                actors.append(a)
+                added += 1
+                continue
             src = by_hash.get(e.hash)
             if src is None:
                 report.append(f'{layer}: no placement {e.hash} in the original file (skipped)')
@@ -63,7 +75,7 @@ def build_layers(game, banc, edits, folder=None, seed=None):
                 h = new_hash()
                 a['Hash'] = U64(h)
                 if 'Phive' in a and 'Placement' in a['Phive']:
-                    a['Phive']['Placement']['ID'] = U64(new_hash())
+                    a['Phive']['Placement']['ID'] = U64(h)                  # (the game's placements: ID == Hash)
                 a.pop('Links', None)
                 added += 1
                 if 'Phive' in a:
@@ -105,6 +117,18 @@ def write_mod(game, banc, edits, mod_dir, folder=None):
     import os
     from ..vendor.zstd_helper import compress_zs
     layers, report = build_layers(game, banc, edits, folder)
+    req = size_requests(game, {rel: data for rel, data in layers.values()})
+    rp = os.path.join(mod_dir, 'rstb.txt')
+    os.makedirs(mod_dir, exist_ok=True)
+    keep = []
+    if os.path.exists(rp):                           # (other maps' requests in the same mod stay)
+        mine = {rel[:-3] for rel, _ in layers.values()}
+        keep = [l.strip() for l in open(rp) if l.strip() and l.split('=')[0] not in mine]
+    if req or keep:
+        with open(rp, 'w') as f: f.write('\n'.join(keep + req) + '\n')
+        report += [f'size request: {l} (needs MajoraMod 0.4.1+ in the mods folder)' for l in req]
+    elif os.path.exists(rp):
+        os.remove(rp)
     for layer, (rel, data) in layers.items():
         p = os.path.join(mod_dir, 'romfs', rel)
         os.makedirs(os.path.dirname(p), exist_ok=True)
@@ -132,3 +156,36 @@ def registered_ids(game, banc, folder):
             if pid is not None and struct.pack('<Q', int(pid)) in d:
                 ids.add(int(pid))
     return ids
+
+
+_templates = {}
+
+
+def new_placement(game, actor):
+    """A new placement of an actor: a copy of its first placement in the game's maps (fields such as Dynamic
+    parameters as the game uses them), without Links / SRTHash; a bare {Gyaml} for actors no map places."""
+    if game.romfs not in _templates:
+        from .library import template_index
+        _templates[game.romfs] = template_index(game)
+    t = _templates[game.romfs].get(actor)
+    a = copy.deepcopy(t['placement']) if t else {'Gyaml': actor}
+    for k in ('Links', 'SRTHash', 'Hash', 'Translate', 'Rotate', 'Scale'):
+        a.pop(k, None)
+    a['Gyaml'] = actor
+    return a
+
+
+def size_requests(game, files, margin=8192):
+    """{romfs rel (.zs): decompressed bytes} -> lines "path=size" for files over their size table entry."""
+    import glob
+    from ..vendor.rstb import ResourceSizeTable
+    tabs = glob.glob(game.path('System/Resource/ResourceSizeTable.Product.*.rsizetable.zs'))
+    if not tabs: return []
+    t = ResourceSizeTable.load(tabs[0])
+    out = []
+    for rel, data in files.items():
+        key = rel[:-3] if rel.endswith('.zs') else rel
+        e = t.get(key)
+        if e is not None and len(data) > e:
+            out.append(f'{key}={(len(data) + margin + 4095) // 4096 * 4096}')
+    return out

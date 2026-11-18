@@ -10,6 +10,7 @@
 #include "icons.h"
 #include "vfs.h"
 #include <cstdlib>
+#include <filesystem>
 #include <string>
 
 namespace majora {
@@ -47,6 +48,24 @@ bool Init(const std::string& modDir) {
         const std::string s(1, PathSep());
         if (gamefiles::ReadFile(modDir + s + "majora" + s + "dev_rstb.txt", f))
             for (uint8_t c : f) devList += (c == '\n' || c == '\r') ? ';' : (char)c;
+    }
+    // Size requests of the other enabled mods: <mods>/<mod>/rstb.txt, one "romfs/path=size" per line (mods whose files
+    // outgrow their size table entries, e.g. maps exported by the Blender map tools; RESEARCH_NOTES.md §85). The
+    // game reads one size table, which this layer serves raised; a mod writing its own table would undo the others'.
+    try {
+        namespace fs = std::filesystem;
+        const fs::path mods = fs::path(modDir).parent_path();
+        for (const auto& e : fs::directory_iterator(mods)) {
+            const std::string name = e.path().filename().string();
+            if (!e.is_directory() || name.empty() || name[0] == '_' || name[0] == '-' || e.path() == fs::path(modDir)) continue;
+            Bytes f;
+            if (!gamefiles::ReadFile((e.path() / "rstb.txt").string(), f)) continue;
+            devList += ';';
+            for (uint8_t c : f) devList += (c == '\n' || c == '\r') ? ';' : (char)c;
+            Log("[majora] size requests from %s\n", name.c_str());
+        }
+    } catch (const std::exception& ex) {
+        Log("[majora] mods folder not readable for size requests: %s\n", ex.what());
     }
     if (!devList.empty()) {
         std::string all = devList;

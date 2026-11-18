@@ -126,6 +126,31 @@ if bpy is not None:
                                   f'({n} saves of the test profile set; press Continue at the title)')
             return {'FINISHED'}
 
+    class OOTR_OT_build_library(bpy.types.Operator):
+        """Build the asset library from the game files: every actor with a model as a draggable asset (runs in the
+        background; about 10 minutes the first time)"""
+        bl_idname = 'ootr.build_library'
+        bl_label = 'Build Asset Library'
+
+        def execute(self, context):
+            import subprocess
+            from .core.library import library_dir
+            os.makedirs(library_dir(), exist_ok=True)
+            here = os.path.dirname(os.path.abspath(__file__))
+            cmd = [bpy.app.binary_path, '-b', '--factory-startup', '--gpu-backend', 'opengl', '--python',
+                   os.path.join(here, 'library_build_cli.py'), '--', prefs(context).game_folder]
+            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            register_library(context)
+            self.report({'INFO'}, f'Building the asset library in the background: {library_dir()} (progress in build.log)')
+            return {'FINISHED'}
+
+    def register_library(context):
+        from .core.library import library_dir
+        libs = context.preferences.filepaths.asset_libraries
+        if not any(os.path.normpath(l.path) == os.path.normpath(library_dir()) for l in libs):
+            lib = libs.new(name='OoT Remake', directory=library_dir())
+            if hasattr(lib, 'import_method'): lib.import_method = 'APPEND'
+
     class OOTR_PT_panel(bpy.types.Panel):
         bl_label = 'OoT Remake'
         bl_space_type = 'VIEW_3D'
@@ -137,6 +162,8 @@ if bpy is not None:
             col.operator('ootr.import_map', icon='IMPORT')
             col.operator('ootr.export_map', icon='EXPORT')
             col.separator()
+            col.operator('ootr.build_library', icon='ASSET_MANAGER')
+            col.separator()
             col.operator('ootr.play', icon='PLAY')
             self.layout.label(text='Play starts at the 3D cursor')
 
@@ -146,7 +173,7 @@ if bpy is not None:
     def menu_import(self, context):
         self.layout.operator(OOTR_OT_import_map.bl_idname, text='OoT Remake Map')
 
-    classes = (OOTR_Preferences, OOTR_OT_import_map, OOTR_OT_export_map, OOTR_OT_play, OOTR_PT_panel)
+    classes = (OOTR_Preferences, OOTR_OT_import_map, OOTR_OT_export_map, OOTR_OT_play, OOTR_OT_build_library, OOTR_PT_panel)
 
     def register():
         for c in classes: bpy.utils.register_class(c)
