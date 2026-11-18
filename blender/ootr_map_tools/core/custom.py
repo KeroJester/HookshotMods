@@ -22,8 +22,9 @@ import numpy as np
 
 from ..vendor.byml import write_byml, parse_byml
 
-TEMPLATE_MODEL = 'Model/Land_HrlCity_Ground.Land_HrlCity_Ground_A_01.bfres.zs'
-TEMPLATE_SHAPE = 24
+TEMPLATE_MODEL = 'Model/Land_SageRoom_Base_A.Land_SageRoom_Base_A_01.bfres.zs'   # (Clock Town's: renders in game, §80h)
+TEMPLATE_SHAPE = 1
+BAKE_TEX = ['CmnTex_BakeDefault', 'CmnTex_BakeLightDefault']
 TEMPLATE_TEX = 'Tex/Etc_Gray50_A_Alb.bntx.zs'
 ROW_FROM = 'Land_SageRoom_Base_A_01'
 ACTORINFO = 'RSDB/ActorInfo.Product.111.rstbl.byml.zs'
@@ -83,6 +84,13 @@ def merged_rows(game, mod_dir, rel):
     return rows
 
 
+def _base_read(game, rel):
+    """The game's own file (no mod copy: other mods may replace this template, e.g. ClockTownDev's ground)."""
+    from ..vendor import zstd_helper
+    with open(os.path.join(game.romfs, rel), 'rb') as f:
+        return zstd_helper.decompress_zs(f.read(), rel, game.romfs)
+
+
 def build_pack(actor, project):
     from ..vendor.zstd_helper import create_sarc
     ap = {'Components': {
@@ -110,12 +118,12 @@ def write_custom(game, banc, mod_dir, meshes, images, collision):
         lo, hi = allp.min(0), allp.max(0)
         centre = (lo + hi) / 2
         keys = sorted({m['material'] for m in meshes})
-        tmpl_tex = game.read(TEMPLATE_TEX)
+        tmpl_tex = _base_read(game, TEMPLATE_TEX)
         materials = []
         for k in keys:
             tname = _tex_name(banc, k)
             files[f'Tex/{tname}.bntx.zs'] = bntx1.build(tmpl_tex, tname, _pow2_image(images[k]))
-            materials.append(dict(name=f'Mt_Ootr_{banc}_{len(materials):03d}', textures=[tname, NORMAL_TEX, ROUGH_TEX]))
+            materials.append(dict(name=f'Mt_Ootr_{banc}_{len(materials):03d}', textures=[tname, NORMAL_TEX, ROUGH_TEX] + BAKE_TEX))
         out_meshes = []
         for m in meshes:                                     # (u16 indices: split into chunks of 65535 vertices)
             P, N, U, T = m['pos'] - centre, m['nrm'], m['uv'], np.asarray(m['tris'])
@@ -127,7 +135,7 @@ def write_custom(game, banc, mod_dir, meshes, images, collision):
                 out_meshes.append(dict(name=f'{m["name"]}_{s // step}', material=keys.index(m['material']),
                                        pos=P[used], nrm=N[used], tan=_tangents(N[used]), uv=U[used],
                                        idx=inv.astype(np.uint16)))
-        model = bfres_build.Writer(game.read(TEMPLATE_MODEL)).build(out_meshes, materials, template_shape=TEMPLATE_SHAPE,
+        model = bfres_build.Writer(_base_read(game, TEMPLATE_MODEL)).build(out_meshes, materials, template_shape=TEMPLATE_SHAPE,
                                                                     model_name=actor)
         files[f'Model/{project}.{actor}.bfres.zs'] = model
         files[f'Pack/Actor/{actor}.pack.zs'] = build_pack(actor, project)

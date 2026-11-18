@@ -89,8 +89,11 @@ def import_map(context, game, banc, models=True, collision=True, report=print):
 
 
 def game_trs(ob):
-    """An object's world matrix -> (translate, rotate (euler XYZ radians), scale) in game axes."""
+    """An object's world matrix -> (translate, rotate (euler XYZ radians), scale) in game axes. Meshes stored in
+    Blender axes (library assets, ootr_blender_axes on the mesh) stand upright without an object rotation."""
     m = GAME_TO_BLENDER.inverted() @ ob.matrix_world
+    if ob.data is not None and getattr(ob.data, 'get', None) and ob.data.get('ootr_blender_axes'):
+        m = m @ GAME_TO_BLENDER
     t, q, s = m.decompose()
     e = q.to_euler('XYZ')
     return tuple(t), (e.x, e.y, e.z), tuple(s)
@@ -203,3 +206,29 @@ def setup_environment(context, game, banc, azimuth_offset=0.0, azimuth_sign=1.0)
     except TypeError:
         pass
     return f'sun azimuth {az} elevation {el}'
+
+
+def upright_library_assets(scene=None, depsgraph=None):
+    """Library assets (ootr_new) keep their mesh in game axes and stood upright through the object's rotation, which
+    Blender's asset drop resets: they lay on their side and exported that way. Their meshes are turned into Blender
+    axes once (flag ootr_blender_axes on the mesh). A dropped asset (no rotation) stands up; one that still has the
+    upright rotation keeps its look."""
+    try:
+        obs = [o for o in bpy.context.scene.objects if o.type == 'MESH' and 'ootr_new' in o and o.data is not None
+               and not o.data.get('ootr_blender_axes')]
+    except Exception:
+        return
+    if not obs: return
+    G = GAME_TO_BLENDER
+    done = set()
+    for ob in obs:
+        me = ob.data
+        r = ob.matrix_world.to_3x3().normalized()
+        had_rotation = (r - G.to_3x3()).median_scale < 1e-3 if hasattr(r, 'median_scale') else \
+            all(abs(a - b) < 1e-3 for ra, rb in zip(r, G.to_3x3()) for a, b in zip(ra, rb))
+        if me.name not in done:
+            me.transform(G)
+            me['ootr_blender_axes'] = True
+            done.add(me.name)
+        if had_rotation:
+            ob.matrix_world = ob.matrix_world @ G.inverted()

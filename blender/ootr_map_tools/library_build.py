@@ -61,7 +61,8 @@ def build(game, only=None, log=print, previews=True, rebuild=False):
             if me is None: continue
             ob = bpy.data.objects.new(e['actor'], me)
             bpy.context.scene.collection.objects.link(ob)
-            ob.matrix_world = GAME_TO_BLENDER           # (mesh data is in game axes: upright, exports as no rotation)
+            me.transform(GAME_TO_BLENDER)               # (mesh in Blender axes: upright with no object rotation, which
+            me['ootr_blender_axes'] = True              #  Blender's asset drop resets; scene.game_trs accounts for it)
             ob['ootr_actor'] = e['actor']
             ob['ootr_layer'] = tpl.get(e['actor'], {}).get('layer', 'Dynamic')
             ob['ootr_new'] = True               # (export: a new placement cloned from the actor's template)

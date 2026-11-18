@@ -399,16 +399,24 @@ if bpy is not None:
 
     classes = (OOTR_Preferences, OOTR_OT_use_game_folder, OOTR_OT_choose_game_folder, OOTR_OT_new_map, OOTR_OT_import_map, OOTR_OT_export_map, OOTR_OT_play, OOTR_OT_build_library, OOTR_PT_panel)
 
+    @bpy.app.handlers.persistent
+    def _upright(scene, depsgraph=None):
+        from . import scene as sc
+        sc.upright_library_assets(scene, depsgraph)
+
     def register():
         for c in classes: bpy.utils.register_class(c)
-        from . import lighting, custom_geo
+        from . import lighting, custom_geo, scene
         lighting.register()
         custom_geo.register()
+        bpy.app.handlers.depsgraph_update_post.append(_upright)
         bpy.types.TOPBAR_MT_file_import.append(menu_import)
         bpy.types.TOPBAR_MT_file_export.append(menu_export)
 
     def unregister():
         from . import lighting, custom_geo
+        if _upright in bpy.app.handlers.depsgraph_update_post:
+            bpy.app.handlers.depsgraph_update_post.remove(_upright)
         custom_geo.unregister()
         lighting.unregister()
         bpy.types.TOPBAR_MT_file_import.remove(menu_import)

@@ -65,8 +65,7 @@ def build_layers(game, banc, edits, folder=None, seed=None):
             if e.hash == 0:                          # (new: an asset dropped from the library)
                 a = new_placement(game, e.actor)
                 a['Hash'] = U64(new_hash())
-                if 'Phive' in a and 'Placement' in a['Phive']:
-                    a['Phive']['Placement']['ID'] = U64(int(a['Hash']))     # (the game's placements: ID == Hash)
+                a.setdefault('Phive', {}).setdefault('Placement', {})['ID'] = U64(int(a['Hash']))   # (ID == Hash, always present)
                 used.add(int(a['Hash']))
                 for k, v, default in (('Translate', e.translate, (0, 0, 0)), ('Rotate', e.rotate, (0, 0, 0)), ('Scale', e.scale, (1, 1, 1))):
                     if not _close(v, default): a[k] = [float(x) for x in v]
