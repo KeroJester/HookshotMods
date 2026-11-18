@@ -3317,3 +3317,19 @@ names** (75 of 94 found in image.bin / .longshot_exefs/main strings; core/enums.
 - Gameplay: IsChildWhenChangeBanc / IsChildWhenInitializingScene / IsForceSwitchChildOrAdult (age), IsEnableRide
   (Epona), IsEnableTimerCounting, IsSunSongMakesMiddleTime, SariaSongPlaceMessage*, AgonyStoneReactType (13 unnamed),
   EnemyAutoPlacementParams, EnvAnimalMgrParam, IsPlayerCameraWideMode, FaroreWind*, DebugBootScript, ...
+
+## §93. Sound for maps (2026-11-18)
+- Map soundscape = GameBancParam.SoundSceneryName (+ GameBancInfo row) = the Label of a scenery in Pack/Bootup
+  (Sound/Scenery/<Name>.game__sound__SceneryParam.bgyml, listed in AltoConfig Scenery): 80 sceneries (60 map-wide:
+  BgmName, BaseAmbientSound, EnvSoundType, Env*Volume; 19 Area_* zone ambiences; Base). bgm.byml has 112 BGMs; 35 have
+  a BGM_<track> area actor (AreaBgmBase: AreaBgmParam {AreaBgmName, Priority, RailVolumeCurve}).
+- Music zones = BGM_<track> linked ("Reference") to Area actors; ambience zones = SoundSettingActor {SceneryName,
+  Distance, FadeTime} linked to Areas; emitters = SoundLocator_<sound> (14).
+- **Area has no shape of its own** (Pack/Actor/Area: ShapeParam {"Box": []}, a sensor): its trigger shape comes from
+  the map's compound body (registered Areas, e.g. ForbiddenCreateDropArea's mesh). A new unregistered Area + BGM_Market
+  played nothing (tests N / O / P on Longshot with HOS_AUDIO_RUN=1 HOS_AUDIO_DUMP=<wav>: last 15 s RMS: nothing 103,
+  river emitter 286, emitter + music zone 287; same spectrum). **SoundLocator emitters work** (+180 RMS).
+  Zones (and kill planes, water) need compound instances + table C records: the next tool.
+- Audio check method: the dump is a 48 kHz stereo WAV of the whole run; compare the in-map tail between A/B builds.
+- Map Settings panel (core/mapsettings.py, mapsettings_ui.py): rendering, sky preset, sky set, clouds, effects,
+  soundscape, pause map, age, Epona, Sun's Song, timer -> GameBancParam (+ GameBancInfo row for the soundscape).

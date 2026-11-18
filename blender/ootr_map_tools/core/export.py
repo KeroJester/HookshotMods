@@ -24,6 +24,9 @@ class Edit:
     rotate: tuple
     scale: tuple
     actor: str = None          # (for new placements: the Gyaml; copies take their source's)
+    key: str = None            # (new placements: a name other edits' links can point at)
+    links: list = None         # (new placements: [(link name, key of another new placement)] -> Links "Reference")
+    dynamic: dict = None       # (new placements: Dynamic parameters)
 
 
 def _close(a, b, eps=1e-4):
@@ -52,6 +55,7 @@ def build_layers(game, banc, edits, folder=None, seed=None):
     # without one; the Static layer does not: one placement without an SRTHash and the whole layer is missing in game
     # (§86). So new placements, copies and moved unregistered actors of the Static layer are written to Dynamic.
     result = {layer: [] for layer in originals}
+    by_key, linked = {}, []                                 # (new placements' links to each other)
     stats = {layer: [0, 0, 0] for layer in originals}       # moved, added, moved to Dynamic
     def place(layer, a):
         if layer == 'Static' and 'SRTHash' not in a and 'Dynamic' in result:
@@ -70,6 +74,9 @@ def build_layers(game, banc, edits, folder=None, seed=None):
                 for k, v, default in (('Translate', e.translate, (0, 0, 0)), ('Rotate', e.rotate, (0, 0, 0)), ('Scale', e.scale, (1, 1, 1))):
                     if not _close(v, default): a[k] = [float(x) for x in v]
                     else: a.pop(k, None)
+                if e.dynamic: a['Dynamic'] = dict(a.get('Dynamic', {}), **e.dynamic)
+                if e.key: by_key[e.key] = a
+                if e.links: linked.append((a, e.links))
                 place(layer, a)
                 added += 1
                 continue
@@ -109,6 +116,10 @@ def build_layers(game, banc, edits, folder=None, seed=None):
         deleted = len(by_hash) - len({e.hash for e in edits if e.layer == layer and e.hash in by_hash})
         stats[layer][:2] = [moved, added]
         stats[layer].append(deleted)
+    for a, links in linked:                                 # (links "Reference" between new placements)
+        lk = [{'Dst': U64(int(by_key[k]['Hash'])), 'Gyaml': 'Reference', 'Name': name, 'Src': U64(int(a['Hash']))}
+              for name, k in links if k in by_key]
+        if lk: a['Links'] = lk
     for layer, (rel, doc) in originals.items():
         actors = result[layer]
         new_doc = dict(doc)

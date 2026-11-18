@@ -138,6 +138,11 @@ if bpy is not None:
             game = get_game(context)
             stats = scene.import_map(context, game, self.banc, models=self.models, collision=self.collision,
                                      report=lambda m: self.report({'WARNING'}, m))
+            try:
+                from . import mapsettings_ui
+                mapsettings_ui.load_for(context, game, self.banc)
+            except Exception as ex:
+                self.report({'WARNING'}, f'map settings not loaded: {ex}')
             if self.lights:
                 from . import lighting
                 root = next(r for r in reversed(scene.map_roots(context)) if r['ootr_banc'] == self.banc)
@@ -184,6 +189,8 @@ if bpy is not None:
         mod = os.path.join(game.folder, 'mods', mod_name)
         lines = []
         edits = scene.gather_edits(root)
+        from . import sound_ui
+        edits += sound_ui.gather_sound(context, root)        # (music / ambience zones, emitters)
         meshes, images, collision = custom_geo.gather_custom(context, root)
         if meshes or collision is not None:
             rep, files, placement = write_custom(game, banc, mod, meshes, images, collision)
@@ -198,6 +205,14 @@ if bpy is not None:
         if lights is not None or env is not None:
             rep, files = write_lighting(game, banc, mod, lights=lights, env_edits=env)
             lines += rep + update_size_requests(game, mod, files)
+        m = context.scene.ootr_map
+        if m.banc == banc and m.changes():                    # (Map Settings: after lighting, both write GameBancParam)
+            from .core.mapsettings import write_settings
+            from .core.game import Game
+            g2 = Game(game.folder, overlays=[mod])
+            files, rep = write_settings(g2, banc, mod, m.changes())
+            lines += rep + update_size_requests(game, mod, files)
+            m.original = __import__('json').dumps(m.values())
             if env is not None:
                 import glob
                 other = [d for d in glob.glob(os.path.join(game.folder, 'mods', '*', 'romfs', 'Pack', 'EnvPalette.pack.zs'))
@@ -347,6 +362,11 @@ if bpy is not None:
                 lighting.import_lighting(context, game, self.name, root)
             except Exception as ex:
                 print('[ootr new map] lighting:', ex)
+            try:
+                from . import mapsettings_ui
+                mapsettings_ui.load_for(context, game, self.name)
+            except Exception as ex:
+                print('[ootr new map] map settings:', ex)
             from .core.newmap import STARTPOS
             sp = game.byml(STARTPOS).get(self.name, {})
             t = next(iter(sp.values()), {}).get('Trans') if sp else None
@@ -426,15 +446,19 @@ if bpy is not None:
 
     def register():
         for c in classes: bpy.utils.register_class(c)
-        from . import lighting, custom_geo, scene
+        from . import lighting, custom_geo, scene, mapsettings_ui, sound_ui
         lighting.register()
         custom_geo.register()
+        mapsettings_ui.register()
+        sound_ui.register()
         bpy.app.handlers.depsgraph_update_post.append(_upright)
         bpy.types.TOPBAR_MT_file_import.append(menu_import)
         bpy.types.TOPBAR_MT_file_export.append(menu_export)
 
     def unregister():
-        from . import lighting, custom_geo
+        from . import lighting, custom_geo, mapsettings_ui, sound_ui
+        sound_ui.unregister()
+        mapsettings_ui.unregister()
         if _upright in bpy.app.handlers.depsgraph_update_post:
             bpy.app.handlers.depsgraph_update_post.remove(_upright)
         custom_geo.unregister()
