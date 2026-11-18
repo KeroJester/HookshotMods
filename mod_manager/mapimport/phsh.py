@@ -66,8 +66,8 @@ def _section(tris, V):
     assert vu.max() < 65536
     prims = [tuple(remap[x] for x in (f if len(f) == 4 else (f[0], f[1], f[2], f[2]))) for f in tris.tolist()]
     # 8-bit quantization
-    ext = np.maximum(P.max(0) - lo, 1e-3)
-    inv = ext / 250.0
+    ext = np.maximum(P.max(0) - lo, 0.05)                 # (flat sections: a 1 mm extent made the step tiny)
+    inv = np.maximum(ext / 250.0, np.abs(lo) / 30000.0)   # (and the offset lo / step must fit an i16)
     bitoff = np.floor(lo / inv).astype(np.int64)
     def q(x, up):
         v = (np.ceil(x / inv) if up else np.floor(x / inv)) - bitoff

@@ -148,7 +148,33 @@ if bpy is not None:
             self.report({'INFO'}, stats)
             return {'FINISHED'}
 
+    class watchdog:
+        """Writes every thread's Python stack to ~/.cache/ootr_map_tools/hang.log when the work inside takes longer
+        than `after` seconds (Blender is frozen meanwhile: this says where)."""
+        def __init__(self, what, after=60):
+            self.what, self.after = what, after
+
+        def __enter__(self):
+            import faulthandler
+            from .core.play import profile_dir
+            path = os.path.join(os.path.dirname(profile_dir()), 'hang.log')
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            self.f = open(path, 'w')
+            self.f.write(f'{self.what}: still running after {self.after} s; Python stacks:\n'); self.f.flush()
+            faulthandler.dump_traceback_later(self.after, repeat=True, file=self.f)
+            return self
+
+        def __exit__(self, *exc):
+            import faulthandler
+            faulthandler.cancel_dump_traceback_later()
+            self.f.close()
+            return False
+
     def export_root(context, game, root, mod_name):
+        with watchdog(f'export of {root.get("ootr_banc")}'):
+            return _export_root(context, game, root, mod_name)
+
+    def _export_root(context, game, root, mod_name):
         """Placements, custom geometry and lighting of one imported map -> the mod folder. -> report lines."""
         from . import scene, lighting, custom_geo
         from .core.export import write_mod, update_size_requests, Edit
@@ -281,7 +307,8 @@ if bpy is not None:
             game = get_game(context)
             mod = os.path.join(game.folder, 'mods', prefs(context).work_mod)
             try:
-                rep, files = create_map(game, self.name, self.template, self.keep, mod)
+                with watchdog(f'new map {self.name}'):
+                    rep, files = create_map(game, self.name, self.template, self.keep, mod)
             except ValueError as ex:
                 self.report({'ERROR'}, str(ex)); return {'CANCELLED'}
             rep += update_size_requests(game, mod, {k: v for k, v in files.items() if k.startswith(('RSDB/', 'Banc/BancBasedResource/'))})
