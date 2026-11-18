@@ -9,17 +9,35 @@ from ..vendor.byml import parse_byml
 
 
 class Game:
-    def __init__(self, folder: str):
+    def __init__(self, folder: str, overlays=()):
+        """overlays: mod folders whose romfs/ files take the place of the game's (the map tools' own mod: maps made
+        or edited earlier are read back as they are now). Base reads (byml_base) ignore them."""
         folder = os.path.expanduser(folder)
         self.romfs = folder if os.path.isdir(os.path.join(folder, 'Banc')) else os.path.join(folder, 'romfs')
         if not os.path.isdir(os.path.join(self.romfs, 'Banc')):
             raise FileNotFoundError(f'no romfs (Banc folder) under {folder}')
         self.folder = folder
+        self.overlays = [os.path.join(o, 'romfs') for o in overlays if os.path.isdir(os.path.join(o, 'romfs'))]
         self._models = None
 
     # ---- files
     def path(self, rel: str) -> str:
+        for o in self.overlays:
+            p = os.path.join(o, rel)
+            if os.path.exists(p): return p
         return os.path.join(self.romfs, rel)
+
+    def listdir(self, rel: str):
+        names = set()
+        for d in [os.path.join(o, rel) for o in self.overlays] + [os.path.join(self.romfs, rel)]:
+            if os.path.isdir(d): names.update(os.listdir(d))
+        return sorted(names)
+
+    def byml_base(self, rel: str):
+        """The game's own file (no overlay)."""
+        with open(os.path.join(self.romfs, rel), 'rb') as f:
+            data = f.read()
+        return parse_byml(zstd_helper.decompress_zs(data, rel, self.romfs) if rel.endswith('.zs') else data)
 
     def exists(self, rel: str) -> bool:
         return os.path.exists(self.path(rel))

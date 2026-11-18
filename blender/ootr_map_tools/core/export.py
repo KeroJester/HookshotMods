@@ -210,7 +210,7 @@ def size_requests(game, files, margin=8192):
     for rel, data in files.items():
         key = rel[:-3] if rel.endswith('.zs') else rel
         e = t.get(key)
-        if e is not None and len(data) > e:
+        if e is not None and len(data) + 512 > e:        # (entries are the size + ~270 bytes the game needs: 512 to be safe)
             out.append(f'{key}={(len(data) + margin + 4095) // 4096 * 4096}')
     return out
 

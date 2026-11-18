@@ -29,7 +29,7 @@ def list_maps(game: Game):
 
 
 def find_folder(game: Game, banc: str):
-    for folder in sorted(os.listdir(game.path('Banc'))):
+    for folder in (game.listdir('Banc') if hasattr(game, 'listdir') else sorted(os.listdir(game.path('Banc')))):
         if os.path.exists(game.path(f'Banc/{folder}/{banc}_Static.bcett.byml.zs')):
             return folder
     return None

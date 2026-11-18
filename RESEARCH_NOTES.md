@@ -3178,3 +3178,40 @@ A checklist for the next map (North / East / West Clock Town, other MM3D scenes)
   raises; MajoraMod rewrites the same sizes when it starts), so the first Play after an export works. No MajoraMod
   enabled: the report says the grown files will not load.
 - Library builds: one at a time from the sidebar button; later builds only add missing groups; no .blend1 backups.
+
+## §87. Lighting in the Blender map tools (2026-11-18)
+- Runtime lights: GameBancParam.LocationalLightScenePlacement -> System/GameGraphics/LocationalLightScenePlacement/<x>
+  {GroupSetting: {group: {PlacementSetting: {key: light}}}}; light = Position, LightType (absent point, 1420666488
+  spot, 399553389 amplifier, 3165067330 rare spot+point), Latitude/Longitude, RandomHash, Point/Spot/AmplifierLightSetting
+  (Work/ paths, $parent chains: Intensity, Color, ColorTemperature, IsUseColorTemperature, SourceRadius,
+  SourceAttenuationDistance, Inner/OuterAngle, flicker). **Direction: lat 0 = straight down, latitude tilts away from
+  down, longitude turns about +Y: dir = (sin la sin lo, -cos la, sin la cos lo)** (in-game test: red/green/yellow at
+  lat 0 = one floor spot, blue lat -90 = horizontal). Moved / recoloured / new lights and brand-new settings files
+  all work in game (screenshots/lighting_editor 05, 06). 153 lights in 47 files.
+- Rooms carved out of a scene share its files (DarkLinkStage: BakeUSD WaterTemple, WaterTemple's light file and a
+  bklight with the whole temple's 929 lights, 44 in the room): import keeps what is inside the map's placement extent
+  (+8 m); a light file named after another map is never rewritten (the map gets ootr_<map>); unchanged = not written.
+- Baked lights: Bake/Light/<banc>.bklight.zs BKLT v1 {points, spots, areas}: 7 / 13 / 15 f32 records (pos, rgb power,
+  radius | pos, dir, rgb, inner, outer, 1, radius | pos, u, v, rgb, w, h, ?). Bake inputs only (zeroing all: no change
+  in game). Areas = artists' panels: interior ceiling lights, Temple of Time windows; many ~0 power (skipped).
+- Environment per time of day: WorldParam (sun azimuth / elevation, cloud shadows) + time table palettes in
+  EnvPalette.pack (physical: SkySunColorIntensity lux 100000 noon / 100 night, ExposureValue 14 noon / 6 night,
+  BgDifIntensity, HemiLight* exposure-linked, WhiteBalance*, Fog*, Bloom*). Export: palettes ootr_<map>_<i>_<time>
+  ($parent = the original, only changed values) inserted into the pack (sarc_add_many), a WorldParam ootr_<map>,
+  GameBancParam.WorldMgrName -> it. Blender: sun W/m2 = lux / 683, view exposure = log2(683/1.2) - EV.
+
+## §88. New maps from the Blender map tools (2026-11-18)
+- **Additive**: a new map is a set of copies of a template map's per-map files under the new name (GameBancParam,
+  Banc/<m>/<m>_{Static,Dynamic}, Phive/StaticCompoundBody/<m>/<m>[_X_Z], Phive/NavMesh, Phive/VolumeStats,
+  Game/VolumeStatsAABB, Bake/Scene/<m>_G*, Bake/Light, Bake/Probe/Scene/<m>/, Game/BakeSceneLayerConfig, foliage for
+  full copies) + rows appended to RSDB/GameBancInfo and Banc/BancBasedResource/StartPos (union of the game's and every
+  enabled mod's rows: the last mod in alphabetical order wins whole files). Placement hashes are kept (the copied
+  compound body and bake refer to them). Keep modes: start (only StartPos; the template's collision floor stays),
+  land (Land_*, StartPos, fog / sound / effect actors), all.
+- **Size table entries are the file size + ~270 bytes** (GameBancInfo 11132 / 11400, StartPos 25220 / 25512, bcett
+  259184 / 259464): a request is needed when size + 512 > entry (the old size > entry check let GameBancInfo +112 B
+  through: boot abort AbortImpl lr 0x8351c290 right after reading it; the same abort as Longshot's ClockTownDev on
+  Hookshot without its dev_rstb raises).
+- Verified in game on Hookshot: MyFirstMap (SageRoom, land) and CITestMap (SageRoom, start + 6 library assets, made
+  by the add-on's operators) load from a patched save (screenshots/new_map).
+- Game(folder, overlays=[mods/<map mod>]): the add-on reads new maps and earlier edits back from the map mod.

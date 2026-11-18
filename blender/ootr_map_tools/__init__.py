@@ -27,8 +27,13 @@ if bpy is not None:
         game_folder: StringProperty(name='Game folder', subtype='DIR_PATH', default='', update=_folder_changed,
                                     description='Your Longshot or Hookshot game folder (the one holding romfs/ and mods/)')
 
+        work_mod: StringProperty(name='Map mod folder', default='075-MapEdits', update=_folder_changed,
+                                 description='The mod folder (under <game folder>/mods/) that exports, new maps and Play use; '
+                                             'maps in it are read back as they are now')
+
         def draw(self, context):
             draw_game_folder(self.layout, context, self)
+            self.layout.prop(self, 'work_mod')
 
     def prefs(context):
         return context.preferences.addons[__package__].preferences
@@ -54,6 +59,12 @@ if bpy is not None:
             raise RuntimeError('Choose your game folder first (OoT sidebar tab, or Edit > Preferences > Add-ons > '
                                'OoT Remake Map Tools)')
         return f
+
+    def get_game(context):
+        """The game folder with the map mod as an overlay (new maps and earlier edits are read as they are now)."""
+        from .core.game import Game
+        f = game_folder(context)
+        return Game(f, overlays=[os.path.join(f, 'mods', prefs(context).work_mod)])
 
     class OOTR_OT_use_game_folder(bpy.types.Operator):
         """Use this folder as the game folder"""
@@ -96,7 +107,7 @@ if bpy is not None:
             try:
                 from .core.game import Game
                 from .core.banc import list_maps
-                g = Game(game_folder(context))
+                g = get_game(context)
                 _map_items = [(name, name, f'{name} ({folder})') for name, folder in list_maps(g) if folder]
             except Exception as e:
                 return [('NONE', f'({e})', '')]
@@ -124,7 +135,7 @@ if bpy is not None:
                 return {'CANCELLED'}
             from . import scene
             from .core.game import Game
-            game = Game(game_folder(context))
+            game = get_game(context)
             stats = scene.import_map(context, game, self.banc, models=self.models, collision=self.collision,
                                      report=lambda m: self.report({'WARNING'}, m))
             if self.lights:
@@ -171,6 +182,7 @@ if bpy is not None:
                                  description='Folder under <game folder>/mods/ (names starting with _ are disabled)')
 
         def invoke(self, context, event):
+            self.mod_name = prefs(context).work_mod
             return context.window_manager.invoke_props_dialog(self)
 
         def execute(self, context):
@@ -180,7 +192,7 @@ if bpy is not None:
             from .core.game import Game
             from .core.export import write_mod
             root = bpy.data.collections[self.root]
-            game = Game(game_folder(context))
+            game = get_game(context)
             lines = export_root(context, game, root, self.mod_name)
             for line in lines: print('[ootr export]', line)
             warn = [l for l in lines if 'compound' in l]
@@ -196,6 +208,7 @@ if bpy is not None:
 
         def invoke(self, context, event):
             from . import scene
+            self.mod_name = prefs(context).work_mod
             roots = scene.map_roots(context)
             if len(roots) > 1:
                 return context.window_manager.invoke_props_dialog(self)
@@ -210,7 +223,7 @@ if bpy is not None:
             if not roots:
                 self.report({'ERROR'}, 'Import a map first'); return {'CANCELLED'}
             root = bpy.data.collections[self.root] if self.root not in ('', 'NONE') and self.root in bpy.data.collections else roots[0]
-            game = Game(game_folder(context))
+            game = get_game(context)
             banc = root['ootr_banc']
             lines = export_root(context, game, root, self.mod_name)
             for line in lines: print('[ootr play]', line)
@@ -218,6 +231,69 @@ if bpy is not None:
             profile, n, _proc = play(game.folder, banc, pos)
             self.report({'INFO'}, f'{banc}: starting the game at {tuple(round(v, 1) for v in pos)} '
                                   f'({n} saves of the test profile set; press Continue at the title)')
+            return {'FINISHED'}
+
+    def template_items(self, context):
+        items = [it for it in map_items(self, context) if it[0] != 'NONE']
+        return items or [('NONE', '(choose your game folder first)', '')]
+
+    class OOTR_OT_new_map(bpy.types.Operator):
+        """Make a new map next to the game's (nothing of the game is replaced): a copy of a template map's ground,
+        collision and lighting under a new name, registered so Play can start in it"""
+        bl_idname = 'ootr.new_map'
+        bl_label = 'New Map'
+        bl_options = {'REGISTER', 'UNDO'}
+
+        name: StringProperty(name='Name', default='MyMap', description='Letters, digits and _ (3-41 characters)')
+        template: EnumProperty(name='Start From', items=template_items)
+        keep: EnumProperty(name='Keep', items=[(k, n, d) for k, n, d in __import__(__package__ + '.core.newmap', fromlist=['KEEP_MODES']).KEEP_MODES],
+                           default='land')
+
+        def invoke(self, context, event):
+            if any(it[0] == 'SageRoom' for it in template_items(self, context)):
+                self.template = 'SageRoom'
+            return context.window_manager.invoke_props_dialog(self, width=420)
+
+        def draw(self, context):
+            lay = self.layout
+            lay.prop(self, 'name')
+            lay.prop(self, 'template')
+            lay.prop(self, 'keep', expand=True)
+            lay.label(text=f'Written into mods/{prefs(context).work_mod}', icon='FILE_FOLDER')
+
+        def execute(self, context):
+            global _map_items
+            from . import scene, lighting
+            from .core.newmap import create_map
+            from .core.export import update_size_requests
+            game = get_game(context)
+            mod = os.path.join(game.folder, 'mods', prefs(context).work_mod)
+            try:
+                rep, files = create_map(game, self.name, self.template, self.keep, mod)
+            except ValueError as ex:
+                self.report({'ERROR'}, str(ex)); return {'CANCELLED'}
+            rep += update_size_requests(game, mod, {k: v for k, v in files.items() if k.startswith(('RSDB/', 'Banc/BancBasedResource/'))})
+            info = os.path.join(mod, 'info.json')
+            if not os.path.exists(info):
+                import json
+                with open(info, 'w') as f:
+                    json.dump({'name': 'Map Edits', 'author': '', 'version': '1.0.0',
+                               'description': 'Maps made and edited with OoT Remake Map Tools for Blender'}, f, indent=2)
+            for line in rep: print('[ootr new map]', line)
+            _map_items = []
+            game = get_game(context)                       # (now with the new map)
+            stats = scene.import_map(context, game, self.name, models=True, collision=True)
+            root = next(r for r in reversed(scene.map_roots(context)) if r['ootr_banc'] == self.name)
+            try:
+                lighting.import_lighting(context, game, self.name, root)
+            except Exception as ex:
+                print('[ootr new map] lighting:', ex)
+            from .core.newmap import STARTPOS
+            sp = game.byml(STARTPOS).get(self.name, {})
+            t = next(iter(sp.values()), {}).get('Trans') if sp else None
+            if t: context.scene.cursor.location = scene.GAME_TO_BLENDER.to_3x3() @ __import__('mathutils').Vector(t)
+            warn = [l for l in rep if l.startswith('warning')]
+            self.report({'WARNING'} if warn else {'INFO'}, f'New map {self.name}: ' + (warn[0] if warn else stats))
             return {'FINISHED'}
 
     _build_proc = None
@@ -263,6 +339,7 @@ if bpy is not None:
                 draw_game_folder(self.layout, context)
                 self.layout.operator('ootr.choose_game_folder', icon='FILEBROWSER')
                 return
+            self.layout.operator('ootr.new_map', icon='ADD')
             col = self.layout.column(align=True)
             col.operator('ootr.import_map', icon='IMPORT')
             col.operator('ootr.export_map', icon='EXPORT')
@@ -281,7 +358,7 @@ if bpy is not None:
     def menu_import(self, context):
         self.layout.operator(OOTR_OT_import_map.bl_idname, text='OoT Remake Map')
 
-    classes = (OOTR_Preferences, OOTR_OT_use_game_folder, OOTR_OT_choose_game_folder, OOTR_OT_import_map, OOTR_OT_export_map, OOTR_OT_play, OOTR_OT_build_library, OOTR_PT_panel)
+    classes = (OOTR_Preferences, OOTR_OT_use_game_folder, OOTR_OT_choose_game_folder, OOTR_OT_new_map, OOTR_OT_import_map, OOTR_OT_export_map, OOTR_OT_play, OOTR_OT_build_library, OOTR_PT_panel)
 
     def register():
         for c in classes: bpy.utils.register_class(c)
