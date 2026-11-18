@@ -3273,3 +3273,11 @@ A checklist for the next map (North / East / West Clock Town, other MM3D scenes)
   BlenderMod). The Play button now sets VK_ADD_LAYER_PATH / VK_INSTANCE_LAYERS for the enabled code mods
   (runtime.layer_env, as the manager). Verified on Longshot with MajoraMod 0.4.2 enabled: BlenderMod defers, the custom
   plane renders (test I). BlenderMod alone (no MajoraMod) not run in game yet.
+- (0.10.4) Market's compound layer 0 mixes shape types (hknpShape +0x18 type/dispatch: (7,2) mesh 332, (5,1) 70,
+  (2,1) 5, (0,1) 11, (9,2) compound 5); rebuild_layer2 read every instance as a mesh (garbage, "unpack 1 GB").
+  Custom collision now goes to the nearest MESH instance of the first layer with one; mesh-only layers are rebuilt,
+  mixed ones patched (bphsc.patch_layer: data byte for byte, the new mesh appended, non-mesh instances keep their box
+  from the old instance tree: bphsc.tree_boxes, 128-byte hkcdSimdTree nodes). Verified on Longshot: a Market copy with
+  a floating platform (screenshots/custom_geometry/03). The §80k patch_layer failures were the §80l section sizes.
+  Speed (0.10.1-0.10.3): pack_10_10_10_2 / quaternion transforms vectorized, shared vertices, tessellation check
+  vectorized, tag lookups binary-searched, zstd level 3 for generated files: 1.28 M collision triangles ~37 s.

@@ -135,6 +135,23 @@ def replace_layer(bphsc: bytes, layer: int, new_tag0: bytes) -> bytes:
     return bytes(out)
 
 
+def tree_boxes(dd, comp=0):
+    """{instance index: (lo, hi)} from a compound's instance tree (hkcdSimdTree nodes, 128 bytes: min / max x, y, z
+    for 4 children, then 4 data words, leaf flag at 0x74)."""
+    soff, scount, _ = struct.unpack_from("<qii", dd, comp + 0x50)
+    base = comp + 0x50 + soff
+    out = {}
+    for n in range(scount):
+        o = base + 128 * n
+        if not dd[o + 0x74]: continue
+        f = struct.unpack_from("<24f", dd, o)
+        data = struct.unpack_from("<4I", dd, o + 0x60)
+        for k in range(4):
+            if data[k] == 0xFFFFFFFF or f[k] > f[4 + k]: continue
+            out[data[k]] = (np.array([f[k], f[8 + k], f[16 + k]]), np.array([f[4 + k], f[12 + k], f[20 + k]]))
+    return out
+
+
 def patch_layer(tag0: bytes, shapes: Dict[int, tuple]) -> bytes:
     """Surgical version of rebuild_layer: the template layer's DATA and items stay byte for byte; each listed
     instance gets a new mesh shape appended after them and its shape pointer moved to it; the instance tree and the
@@ -148,26 +165,25 @@ def patch_layer(tag0: bytes, shapes: Dict[int, tuple]) -> bytes:
     comp = 0                                               # (item 1, the compound, is at DATA offset 0)
     ioff, icount, _cap = struct.unpack_from("<qii", dd, comp + 0x38)
     inst = comp + 0x38 + ioff
+    old_boxes = tree_boxes(dd, comp)                       # (non-mesh instances keep the box the tree has)
     boxes = []
     for k in range(icount):
         e = inst + 0x40 * k
         q = struct.unpack_from("<4f", dd, e)
         tr = np.array(struct.unpack_from("<3f", dd, e + 0x10)); sc = np.array(struct.unpack_from("<3f", dd, e + 0x20))
         if k in shapes:
-            V, T = shapes[k]
-            s, _lo, _hi = phsh.add_mesh(td, V, T)
+            V, T = shapes[k][0], shapes[k][1]
+            s, _lo, _hi = phsh.add_mesh(td, V, T, tags=shapes[k][2] if len(shapes[k]) > 2 else None)
             dd = td.data
             struct.pack_into("<q", dd, e + 0x30, s - (e + 0x30))
         else:
             sa = e + 0x30 + struct.unpack_from("<q", dd, e + 0x30)[0]
             V, _T = phsh.read_mesh(bytes(dd), sa) if t.tname(next(i['type'] for i in t.items if i['off'] == sa)) == 'hknpMeshShape' else (None, None)
-            if V is None:                                   # (not a mesh: keep its old tree box)
-                V = None
         if V is not None:
             W = quat_rotate_many(q, np.asarray(V, float) * sc) + tr
             boxes.append((W.min(0), W.max(0)))
-        else:
-            boxes.append(None)
+        else:                                               # (not a mesh: its box from the old tree)
+            boxes.append(old_boxes.get(k))
     # instance tree
     soff, scount, _ = struct.unpack_from("<qii", dd, comp + 0x50)
     old_tree = comp + 0x50 + soff

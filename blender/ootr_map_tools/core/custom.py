@@ -206,10 +206,26 @@ def instance_transform(tag0, k=0):
     return q, tr, sc, phsh.read_mesh(d, sa, with_tags=True, quads=True), icount
 
 
+def layer_instances(tag0):
+    """[(index, is_mesh, q, tr, sc)] of a compound layer's instances."""
+    bfres_build, bntx1, bphsc, phsh = _mapimport()
+    t = bphsc.Tag(bphsc._wrap(tag0)); D = t.data[0]; d = t.d
+    ioff, icount, _ = struct.unpack_from('<qii', d, D + 0x38)
+    out = []
+    for k in range(icount):
+        b = D + 0x38 + ioff + 0x40 * k
+        e = b + 0x30; sa = e + struct.unpack_from('<q', d, e)[0]
+        out.append((k, d[sa + 0x18] == 7 and d[sa + 0x19] == 2, struct.unpack_from('<4f', d, b),
+                    np.array(struct.unpack_from('<3f', d, b + 0x10)), np.array(struct.unpack_from('<3f', d, b + 0x20))))
+    return out
+
+
 def collision_files(game, banc, mod_dir, collision, report):
-    """Custom collision in layer 0 instance 0 of the map's compound body (the tile nearest to it for tiled maps):
-    added to the pristine triangles, or replacing them for 'Empty' new maps (<mod>/ootr_compound/<map>.empty).
-    The same path that made Clock Town walkable (§80l)."""
+    """Custom collision added to a mesh instance of the map's compound body: in the first layer that has one (layer 0
+    for the game's maps), the mesh instance nearest the collision (the nearest tile for tiled maps), its pristine
+    triangles kept, or replaced for 'Empty' new maps (<mod>/ootr_compound/<map>.empty). Layers of meshes only are
+    re-serialised (rebuild_layer2, Clock Town's path, §80l); layers that also hold convex shapes, boxes or compounds
+    (Market) are patched: their data stays byte for byte and the new mesh is appended (patch_layer)."""
     bfres_build, bntx1, bphsc, phsh = _mapimport()
     V, T = np.asarray(collision[0], float), np.asarray(collision[1], int)
     rels = compound_rels(game, banc)
@@ -221,15 +237,20 @@ def collision_files(game, banc, mod_dir, collision, report):
         base = pristine(game, rel, mod_dir)
         for li, (o, s) in enumerate(bphsc.layer_tagfiles(base)):
             try:
-                q, tr, sc, mesh, n = instance_transform(base[o:o + s], 0)
-            except Exception:                     # (a layer without a mesh instance)
+                insts = layer_instances(base[o:o + s])
+            except Exception:
                 continue
+            meshes = [x for x in insts if x[1]]
+            if not meshes: continue
+            k, _m, q, tr, sc = min(meshes, key=lambda x: float(np.linalg.norm(x[3] - centre)))
             dist = float(np.linalg.norm(tr - centre))
-            if best is None or dist < best[0]: best = (dist, rel, base, base[o:o + s], q, tr, sc, mesh, li)
+            if best is None or dist < best[0]:
+                best = (dist, rel, base, base[o:o + s], k, q, tr, sc, li, len(meshes) == len(insts))
             break
     if best is None:
         report.append('collision: no tile of the map can take custom collision (skipped)'); return {}
-    _, rel, base, tag0, q, tr, sc, mesh, layer = best
+    _, rel, base, tag0, k, q, tr, sc, layer, all_mesh = best
+    mesh = instance_transform(tag0, k)[3]
     x, y, z, w = q
     qi = (-x, -y, -z, w)                                     # (world -> instance: inverse rotation, then 1/scale)
     Vl = bphsc.quat_rotate_many(qi, V - tr) / sc
@@ -242,6 +263,10 @@ def collision_files(game, banc, mod_dir, collision, report):
     else:
         Vm, Tm, tags = Vl, T, None
     shape = (Vm, Tm, tags) if tags else (Vm, Tm)
-    new = bphsc.replace_layer(base, layer, bphsc.rebuild_layer2(tag0, {0: shape}))
-    report.append(f'collision: {len(T)} triangles in {os.path.basename(rel)} layer {layer}' + (' (replacing the template floor)' if empty else ''))
+    tag1 = bphsc.rebuild_layer2(tag0, {k: shape}) if all_mesh else bphsc.patch_layer(tag0, {k: shape})
+    new = bphsc.replace_layer(base, layer, tag1)
+    report.append(f'collision: {len(T)} triangles in {os.path.basename(rel)} layer {layer} instance {k}'
+                  + (' (replacing the template floor)' if empty else '') + ('' if all_mesh else ' (patched)'))
     return {rel: new}
+
+
