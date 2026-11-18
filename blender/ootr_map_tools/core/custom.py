@@ -136,7 +136,7 @@ def write_custom(game, banc, mod_dir, meshes, images, collision):
                                        pos=P[used], nrm=N[used], tan=_tangents(N[used]), uv=U[used],
                                        idx=inv.astype(np.uint16)))
         model = bfres_build.Writer(_base_read(game, TEMPLATE_MODEL)).build(out_meshes, materials, template_shape=TEMPLATE_SHAPE,
-                                                                    model_name=actor)
+                                                                    model_name=actor, file_name=f"{project}.{actor}")
         files[f'Model/{project}.{actor}.bfres.zs'] = model
         files[f'Pack/Actor/{actor}.pack.zs'] = build_pack(actor, project)
         rows = merged_rows(game, mod_dir, ACTORINFO)

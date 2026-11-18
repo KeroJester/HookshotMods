@@ -3245,3 +3245,9 @@ A checklist for the next map (North / East / West Clock Town, other MM3D scenes)
   (shared midpoints, tags kept per piece); a lone triangle no longer re-enters the loop. Also flat sections: the 8-bit
   AABB step had a 1 mm minimum extent (offset overflow for flat planes off the instance origin): now 5 cm, and the
   step keeps |origin / step| under 30000. Longshot ignores SIGTERM: headless runs need timeout -k / pkill -KILL.
+- (0.8.5) A custom model was invisible (HrlCity template) / crashed Longshot in thread PreActorModelCompose (SageRoom
+  template, read of address ~0): the BFRES header's file name (+0x20, "<ModelProjectName>.<FmdbName>", which every game
+  model matches to its path) still named the template while the model and its dictionary had the new name. The writer
+  now sets it (bfres_build.Writer.build(file_name=...)). Also: new placements always get Phive.Placement.ID = Hash;
+  library assets keep their mesh in Blender axes (ootr_blender_axes) because Blender's asset drop resets the object
+  rotation (dropped assets lay on their side and exported with Rotate (-90, 0, 0)).

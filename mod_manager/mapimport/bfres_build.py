@@ -163,7 +163,7 @@ class Writer:
 
     # ---- build
     def build(self, meshes: List[dict], materials: List[dict], template_shape: int = TEMPLATE_SHAPE,
-              model_name: str = None) -> bytes:
+              model_name: str = None, file_name: str = None) -> bytes:
         """meshes: {name, material (index), pos (n,3) metres, nrm (n,3), tan (n,3), uv (n,2), idx (m,) u16};
         materials: {name, textures: [albedo, normal, roughness]}."""
         t = self.t
@@ -269,6 +269,9 @@ class Writer:
             mdic = u64(t, 0x30)
             self.setp(mdic + 8 + 16 + 8, self.string(model_name))
             resdic.write(self.out, mdic, [model_name.encode()], [self.string(model_name)], u64(t, mdic + 8 + 8))
+        if file_name:                                    # the file's own name ("<project>.<model>", header +0x20): game
+            self.setp(0x20, self.string(file_name))      # models always match their path (a renamed model crashed the
+                                                         # pre-actor renderer while its file still had the template's)
         # ---- sections after the main one
         main_end = len(self.out)
         self.out += b"\0" * ((-len(self.out)) % 0x1000)
