@@ -3128,7 +3128,7 @@ A checklist for the next map (North / East / West Clock Town, other MM3D scenes)
   offsets into the data part). Current map: String64 key 0x1d6189da ("Market_Child"); saved position: Vector3 keys
   0xc884818d, 0x8773f02d, 0x960ad56a. Changing only the map hangs the load (the old map's position); map + positions
   -> Link spawns there (Kakariko default start, then a door chosen with Blender's 3D cursor: screenshots/blender/06_*).
-  A map's '' StartPos is not used by a save load. core/play.py: copies <game folder>/user to a test profile
+  A map's '' StartPos is not used by a save load. core/play.py: copies the saves of the player's profile (<game folder>/user, else Longshot's ~/.local/share/longshot = $XDG_DATA_HOME/longshot: the game folder's user/ is no longer used, "saves-moved.txt") to a test profile
   (~/.cache/ootr_map_tools/play_user, rebuilt each time; the original is only read), patches every slot, starts
   bin/longshot (or bin/hookshot) --user <profile> from the game folder (not the folder's launcher script, which hands
   over to the Longshot Launcher). Operator Play in Game (sidebar OoT tab): exports the edits, then launches at the 3D

@@ -21,15 +21,34 @@ def profile_dir():
     return os.path.join(base, 'ootr_map_tools', 'play_user')
 
 
+def find_profile(game_folder):
+    """The player's profile folder (holding save/): <game folder>/user (Hookshot, older Longshot), else Longshot's
+    data folder ($XDG_DATA_HOME/longshot or ~/.local/share/longshot; %APPDATA% / %LOCALAPPDATA%\\longshot on
+    Windows; the binary notes "saves-moved.txt": "Longshot's saves are now in ...")."""
+    cands = [os.path.join(game_folder, 'user')]
+    xdg = os.environ.get('XDG_DATA_HOME') or os.path.expanduser('~/.local/share')
+    for name in ('longshot', 'hookshot'):
+        cands.append(os.path.join(xdg, name))
+        for env in ('APPDATA', 'LOCALAPPDATA'):
+            if os.environ.get(env): cands.append(os.path.join(os.environ[env], name))
+    for c in cands:
+        if os.path.isdir(os.path.join(c, 'save')):
+            return c
+    raise FileNotFoundError('no profile with saves found (looked in: ' + ', '.join(cands) + ')')
+
+
 def make_profile(source_user, dest=None, refresh=True):
-    """Copies the player's profile folder (saves, options) to the test profile; the source is only read."""
+    """Copies the player's saves (source_user/save) into the test profile; the source is only read (Longshot's data
+    folder also holds the launcher's files: only save/ is copied)."""
     dest = dest or profile_dir()
     if refresh and os.path.isdir(dest):
         shutil.rmtree(dest)
     if not os.path.isdir(dest):
-        if not os.path.isdir(source_user):
-            raise FileNotFoundError(f'no profile folder at {source_user}')
-        shutil.copytree(source_user, dest)
+        src = os.path.join(source_user, 'save')
+        if not os.path.isdir(src):
+            raise FileNotFoundError(f'no saves at {src}')
+        shutil.copytree(src, os.path.join(dest, 'save'))
+        os.makedirs(os.path.join(dest, 'temp'), exist_ok=True)
     return dest
 
 
@@ -82,7 +101,7 @@ def launch(game_folder, profile):
 
 def play(game_folder, banc, pos, refresh=True):
     """-> (profile, saves patched, process)."""
-    profile = make_profile(os.path.join(game_folder, 'user'), refresh=refresh)
+    profile = make_profile(find_profile(game_folder), refresh=refresh)
     n = patch_profile(profile, banc, pos)
     if n == 0:
         raise RuntimeError('no save in the profile has the map / position fields (start the game once and save)')
