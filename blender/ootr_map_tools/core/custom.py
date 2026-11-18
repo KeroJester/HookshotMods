@@ -150,18 +150,21 @@ def write_custom(game, banc, mod_dir, meshes, images, collision):
     return report, files, placement
 
 
-def compound_rel(game, banc):
+def compound_rels(game, banc):
+    """The map's compound body files: one, or tiles <map>_Xi_Zj (Kokiri Forest, Dark Link's room, ...)."""
     from .banc import find_folder
     folder = find_folder(game, banc)
-    return f'Phive/StaticCompoundBody/{folder}/{banc}.Nin_Ounce_NVN2.bphsc.zs'
+    d = f'Phive/StaticCompoundBody/{folder}'
+    names = [n for n in game.listdir(d) if n.endswith('.bphsc.zs') and (n.startswith(banc + '.') or n.startswith(banc + '_X'))]
+    tiles = [n for n in names if n.startswith(banc + '_X')]
+    return [f'{d}/{n}' for n in (tiles or names)]
 
 
-def pristine_compound(game, banc, mod_dir):
-    """The map's compound body before any custom collision (kept in <mod>/ootr_compound/<map>.bphsc)."""
-    side = os.path.join(mod_dir, 'ootr_compound', f'{banc}.bphsc')
+def pristine(game, rel, mod_dir):
+    """A compound body file before any custom collision (kept in <mod>/ootr_compound/)."""
+    side = os.path.join(mod_dir, 'ootr_compound', os.path.basename(rel)[:-3])
     if os.path.exists(side):
         return open(side, 'rb').read()
-    rel = compound_rel(game, banc)
     d = game.read(rel)                          # (the map mod's copy for new maps, else the game's)
     os.makedirs(os.path.dirname(side), exist_ok=True)
     with open(side, 'wb') as f: f.write(d)
@@ -172,6 +175,7 @@ def instance_transform(tag0, k=0):
     bfres_build, bntx1, bphsc, phsh = _mapimport()
     t = bphsc.Tag(bphsc._wrap(tag0)); D = t.data[0]; d = t.d
     ioff, icount, _ = struct.unpack_from('<qii', d, D + 0x38)
+    if icount <= k: raise ValueError('no such instance')
     b = D + 0x38 + ioff + 0x40 * k
     q = struct.unpack_from('<4f', d, b); tr = np.array(struct.unpack_from('<3f', d, b + 0x10))
     sc = np.array(struct.unpack_from('<3f', d, b + 0x20))
@@ -180,42 +184,41 @@ def instance_transform(tag0, k=0):
 
 
 def collision_files(game, banc, mod_dir, collision, report):
-    """Custom collision triangles merged into layer 0 instance 0 of the pristine compound body."""
+    """Custom collision in layer 0 instance 0 of the map's compound body (the tile nearest to it for tiled maps):
+    added to the pristine triangles, or replacing them for 'Empty' new maps (<mod>/ootr_compound/<map>.empty).
+    The same path that made Clock Town walkable (§80l)."""
     bfres_build, bntx1, bphsc, phsh = _mapimport()
-    base = pristine_compound(game, banc, mod_dir)
-    layers = bphsc.layer_tagfiles(base)
-    o, s = layers[0]
-    tag0 = base[o:o + s]
-    q, tr, sc, mesh, n = instance_transform(tag0, 0)
     V, T = np.asarray(collision[0], float), np.asarray(collision[1], int)
+    rels = compound_rels(game, banc)
+    if not rels:
+        report.append('collision: the map has no collision body (skipped)'); return {}
+    centre = V.mean(0)
+    best = None
+    for rel in rels:
+        base = pristine(game, rel, mod_dir)
+        for li, (o, s) in enumerate(bphsc.layer_tagfiles(base)):
+            try:
+                q, tr, sc, mesh, n = instance_transform(base[o:o + s], 0)
+            except Exception:                     # (a layer without a mesh instance)
+                continue
+            dist = float(np.linalg.norm(tr - centre))
+            if best is None or dist < best[0]: best = (dist, rel, base, base[o:o + s], q, tr, sc, mesh, li)
+            break
+    if best is None:
+        report.append('collision: no tile of the map can take custom collision (skipped)'); return {}
+    _, rel, base, tag0, q, tr, sc, mesh, layer = best
     x, y, z, w = q
     qi = (-x, -y, -z, w)                                     # (world -> instance: inverse rotation, then 1/scale)
     Vl = np.array([bphsc._quat_rotate(qi, v - tr) for v in V]) / sc
+    empty = os.path.exists(os.path.join(mod_dir, 'ootr_compound', f'{banc}.empty'))
     V0, T0 = np.asarray(mesh[0], float), np.asarray(mesh[1], int)
     tags0 = list(mesh[2]) if len(mesh) > 2 and mesh[2] is not None else None
-    keep_template = len(V0) > 0 and not (np.ptp(V0, 0).max() < 1.5 and V0[:, 1].mean() < -40)
-    if keep_template:
-        Vm = np.concatenate([V0, Vl]); Tm = np.concatenate([T0[:, :3] if T0.shape[1] > 3 else T0, T + len(V0)])
-        tags = (tags0 + [tags0[0] if tags0 else 0] * len(T)) if tags0 else None
+    if not empty and len(V0):
+        Vm = np.concatenate([V0, Vl]); Tm = np.concatenate([T0[:, :3], T + len(V0)])
+        tags = (tags0 + [tags0[0]] * len(T)) if tags0 else None
     else:
         Vm, Tm, tags = Vl, T, None
     shape = (Vm, Tm, tags) if tags else (Vm, Tm)
-    new = bphsc.replace_layer(base, 0, bphsc.rebuild_layer2(tag0, {0: shape}))
-    report.append(f'collision: {len(T)} triangles in the map\'s collision body')
-    return {compound_rel(game, banc): new}
-
-
-def empty_compound(game, banc, mod_dir):
-    """New 'Empty' maps: the template's ground collision (layer 0 instance 0) becomes a tiny box far below, and that
-    body is the pristine one (custom collision is added to it). -> {rel: bytes}"""
-    bfres_build, bntx1, bphsc, phsh = _mapimport()
-    rel = compound_rel(game, banc)
-    d = game.read(rel)
-    o, s = bphsc.layer_tagfiles(d)[0]
-    V, T = bphsc.box_mesh(0.5)                  # (tiny shapes get a tiny quantisation scale: their offset overflows)
-    V = V + np.array([0.0, -50.0, 0.0])         # (out of reach; much further overflows the quantised offsets)
-    new = bphsc.replace_layer(d, 0, bphsc.rebuild_layer2(d[o:o + s], {0: (V, T)}))
-    side = os.path.join(mod_dir, 'ootr_compound', f'{banc}.bphsc')
-    os.makedirs(os.path.dirname(side), exist_ok=True)
-    with open(side, 'wb') as f: f.write(new)
+    new = bphsc.replace_layer(base, layer, bphsc.rebuild_layer2(tag0, {0: shape}))
+    report.append(f'collision: {len(T)} triangles in {os.path.basename(rel)} layer {layer}' + (' (replacing the template floor)' if empty else ''))
     return {rel: new}

@@ -3232,3 +3232,10 @@ A checklist for the next map (North / East / West Clock Town, other MM3D scenes)
   0.1 m box 50 m away).
 - Blender: plain mesh objects (no ootr_* keys) are custom; Object.ootr_solid "Enable Collision", ootr_game_visible
   "Visible in Game"; modifiers applied, per-corner normals / UVs (V flipped), Base Color image or colour per material.
+- (0.8.1) Every run with the placeholder box (instance 0 replaced by a 1 m box 50 m down) stopped at the loading
+  screen, the empty map without it (CITestMap) loaded: the placeholder is dropped. Empty maps keep the template floor
+  until custom collision exists, which then replaces instance 0's triangles (marker <mod>/ootr_compound/<map>.empty),
+  as Clock Town's did. Tiled compound bodies (<map>_Xi_Zj: Kokiri Forest 16 tiles, many with no mesh instance in
+  layer 0): the collision goes to the nearest tile's first layer with a mesh instance 0. create_map writes nothing until
+  every file is built (a Kokiri Forest attempt had crashed half way and left a stray tile). Play writes the game's
+  output to ~/.cache/ootr_map_tools/play.log.

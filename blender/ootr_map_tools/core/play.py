@@ -96,7 +96,12 @@ def launch(game_folder, profile):
     """Starts the game itself (bin/<runtime>, not the folder's launcher script) with the test profile."""
     exe = game_binary(game_folder)
     flags = {'creationflags': 0x00000008} if sys.platform == 'win32' else {'start_new_session': True}   # (detached)
-    return subprocess.Popen([exe, '--user', profile], cwd=game_folder, **flags)
+    log = open(log_path(profile), 'wb')               # (the game's output: why a map does not load)
+    return subprocess.Popen([exe, '--user', profile], cwd=game_folder, stdout=log, stderr=subprocess.STDOUT, **flags)
+
+
+def log_path(profile=None):
+    return os.path.join(os.path.dirname(profile or profile_dir()), 'play.log')
 
 
 def play(game_folder, banc, pos, refresh=True):

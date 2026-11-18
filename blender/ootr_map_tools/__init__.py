@@ -240,8 +240,9 @@ if bpy is not None:
             for line in lines: print('[ootr play]', line)
             pos = tuple(scene.GAME_TO_BLENDER.inverted() @ context.scene.cursor.location)
             profile, n, _proc = play(game.folder, banc, pos)
+            from .core.play import log_path
             self.report({'INFO'}, f'{banc}: starting the game at {tuple(round(v, 1) for v in pos)} '
-                                  f'({n} saves of the test profile set; press Continue at the title)')
+                                  f'({n} saves of the test profile set; press Continue at the title). Game log: {log_path(profile)}')
             return {'FINISHED'}
 
     def template_items(self, context):
