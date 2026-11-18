@@ -363,12 +363,35 @@ def write_byml(val: Any, version: int = 7, big_endian: bool = False) -> bytes:
                 struct.pack_into(e + "I", out, pos, write_payload(d, tt))
         return p
 
+    def prewrite_64(v):
+        """All 64-bit payloads in one contiguous, 8-aligned block ahead of the containers. Written after each
+        container instead, every one paid up to 4 bytes of alignment: thousands of placement IDs made map files ~1 %
+        larger than the game's, past their size table entries (RESEARCH_NOTES.md §83)."""
+        order, seen = [], set()
+        def walk(x):
+            t = _type_of(x)
+            if t in (T_DICT, T_HASH32, T_HASH64):
+                for y in x.values(): walk(y)
+            elif t == T_ARRAY:
+                for y in x: walk(y)
+            elif t in (T_I64, T_U64, T_F64):
+                k = skey(x)
+                if k not in seen:
+                    seen.add(k); order.append((x, t, k))
+        walk(v)
+        if order:
+            align(8)
+            for x, t, k in order:
+                memo[k] = len(out)
+                out.extend(struct.pack(e + {T_I64: "q", T_U64: "Q", T_F64: "d"}[t], x))
+
     if val is None:
         root_off = 0
     else:
         rt = _type_of(val)
         if rt not in CONTAINERS:
             raise BymlError("BYML root must be a container")
+        prewrite_64(val)
         root_off = write_container(val, rt)
 
     struct.pack_into(e + "2sHIII", out, 0, b"BY" if big_endian else b"YB", version, key_off, str_off, root_off)

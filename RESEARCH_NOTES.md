@@ -3075,3 +3075,37 @@ A checklist for the next map (North / East / West Clock Town, other MM3D scenes)
   u32 0x81, u32 257 (grid?), 0, u32 0x0b, 01 01 4f 7a, u32 24, u32 270400 (= 260*260*4), 0, 0, u32 270408 (offset),
   u32 417792 (size)} then data; mate (835636): 01 04 02 02, 06060606, 1, 256, ..., u32 8, u32 835584. Not plain u16
   / f32 grids, not GOB-swizzled RGBA, not BC4 (all tested: no smooth result): to reverse (custom quantised layout?).
+
+## §83. Blender map tools: exporting map edits (2026-11-18)
+- core/export.py: the edited scene -> the map's <banc>_{Static,Dynamic}.bcett files in a mod folder. The originals
+  are re-read from the game and each object is matched by its placement Hash (ootr_hash): unedited fields (Links,
+  Dynamic parameters, number types U32/U64/float) are copied as they are; Translate / Rotate / Scale are written only
+  when the original has them or the value is not the default (actors at the origin have no Translate); a file
+  without an Actors list stays without one. Objects that share a hash (Blender copies) get a new random U64 Hash and
+  Phive Placement ID for the second and later ones, their Links dropped; placements without an object are deleted.
+- Check: all 160 placement files of the 80 maps re-export with identical content and types (parse(original) ==
+  parse(export)); our byml writer's layout differs from the game's (sizes differ by ~1-2 %), which the game accepts
+  (Clock Town, §80).
+- scene.py: the import stores each object's original translate/rotate/scale (ootr_trs) and the map collection its
+  banc/folder; game_trs() converts matrix_world back (G2B^-1, decompose, euler XYZ); untouched objects export their
+  stored values (no euler re-solving noise); bpy.context.view_layer.update() before reading matrix_world (scripted
+  location changes refresh it only then). Operator: File > Export > OoT Remake Map Edits (mod folder name, default
+  075-MapEdits).
+- Static actors: moving one leaves its collision where the compound body has it (export warns); copies of static
+  physics actors need compound entries (not written yet, §81.2).
+- **In-game results (Market_Child, mask shop save; screenshots/blender/03_*, 04_*):**
+  - Size table: our byml writer wrote each 64-bit payload after its container (8-alignment padding per value):
+    Market's placement files came out ~1 % larger than the game's and over their RSTB entries (Static 262104 >
+    259464, Dynamic 78704 > 77928): the map does not load (white fog). Fixed in mod_manager/byml.py: all 64-bit
+    payloads in one 8-aligned block ahead of the containers; the 160 placement files re-written total 19237248 bytes
+    vs the game's 19236948 (+0.00 %), none over its entry. (Additions grow a file: an entry has ~250 bytes of slack.)
+  - **SRTHash is checked against the transform for actors the static compound body does not register**: moving
+    unregistered actors (Land_ShadowTemple_CandleStick_A_01) or copying any actor with its old SRTHash breaks the
+    whole room (fog). Without the SRTHash field the game accepts it: a candlestick moved in front of Link shows. The
+    hash function is unknown (not crc32 / murmur3 / xxh32 / fnv over 9 floats or 3x4 / 4x4 matrices; it depends only
+    on the transform; identity -> 0xc552a342). Registered actors (1199 of Market's 1468 placements: their Phive
+    Placement ID is in the compound's table C, record {u32, u32 instance range or -1, u64 ID, u32 hash (= the
+    SRTHash for shape-less ones), 12 x 0}) keep their SRTHash and move fine: Land_HrlCity_Shop_Inside_B lifted 1 m
+    (Link stands below the floor). NPCs such as the mask shop keeper return to their AI spot (moved placement
+    ignored visually). Export rule (core/export.py): SRTHash dropped for moved unregistered actors and every copy.
+  - Copies get a new Hash and Phive ID: shown, no collision (compound not extended).

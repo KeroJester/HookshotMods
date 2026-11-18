@@ -36,6 +36,9 @@ def import_map(context, game, banc, models=True, collision=True, report=print):
     t0 = time.time()
     places = load_map(game, banc)
     root = collection(banc, context.scene.collection)
+    root['ootr_banc'] = banc
+    from .core.banc import find_folder
+    root['ootr_folder'] = find_folder(game, banc) or ''
     layers = {k: collection(f'{banc} {k}', root) for k in ('Static', 'Dynamic')}
     meshes = {}
     if models:
@@ -66,6 +69,7 @@ def import_map(context, game, banc, models=True, collision=True, report=print):
         ob['ootr_actor'] = p.actor
         ob['ootr_hash'] = str(p.hash)
         ob['ootr_layer'] = p.layer
+        ob['ootr_trs'] = [*p.translate, *p.rotate, *p.scale]     # (untouched objects export these exactly)
         layers[p.layer].objects.link(ob)
         if collision:
             for layer, (V, T) in colcore.layers_for(game, shapes, p.actor).items():
@@ -82,3 +86,37 @@ def import_map(context, game, banc, models=True, collision=True, report=print):
         for c in col_root.children:
             if 'Airwall' in c.name or 'AirWall' in c.name: c.hide_viewport = True
     return f'{banc}: {len(places)} placements, {n_models} with models ({len([m for m in meshes.values() if m])} meshes) {f", {n_col} collision objects" if collision else ""} in {time.time() - t0:.1f}s'
+
+
+def game_trs(ob):
+    """An object's world matrix -> (translate, rotate (euler XYZ radians), scale) in game axes."""
+    m = GAME_TO_BLENDER.inverted() @ ob.matrix_world
+    t, q, s = m.decompose()
+    e = q.to_euler('XYZ')
+    return tuple(t), (e.x, e.y, e.z), tuple(s)
+
+
+def map_roots(context):
+    return [c for c in bpy.data.collections if 'ootr_banc' in c]
+
+
+def gather_edits(root):
+    """Every object under the map's collection that carries a placement (ootr_hash), not collision helpers."""
+    from .core.export import Edit
+    bpy.context.view_layer.update()                  # (matrix_world follows location/rotation only after an update)
+    edits, seen = [], set()
+    def walk(c):
+        for ob in c.objects:
+            if 'ootr_hash' in ob and 'ootr_collision' not in ob and ob.name not in seen:
+                seen.add(ob.name)
+                t, r, s = game_trs(ob)
+                if 'ootr_trs' in ob:                    # unchanged since import: the original values as they were
+                    v = list(ob['ootr_trs'])
+                    from types import SimpleNamespace
+                    orig = placement_matrix(SimpleNamespace(translate=v[0:3], rotate=v[3:6], scale=v[6:9]))
+                    if all(abs(a - b) < 1e-4 for ra, rb in zip(orig, ob.matrix_world) for a, b in zip(ra, rb)):
+                        t, r, s = tuple(v[0:3]), tuple(v[3:6]), tuple(v[6:9])
+                edits.append(Edit(int(ob['ootr_hash']), ob.get('ootr_layer', 'Dynamic'), t, r, s, ob.get('ootr_actor')))
+        for ch in c.children: walk(ch)
+    walk(root)
+    return edits
