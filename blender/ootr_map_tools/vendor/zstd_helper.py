@@ -115,7 +115,7 @@ def decompress_zs(data: bytes, filename: str, romfs_path: str) -> bytes:
     raise ValueError(f"Failed to decompress {filename} with any dictionary")
 
 
-def compress_zs(data: bytes, filename: str, romfs_path: str, level: int = 16) -> bytes:
+def compress_zs(data: bytes, filename: str, romfs_path: str, level: int = 3) -> bytes:   # (3: fast for big generated maps; any level loads)
     """Compress data into .zs format using the appropriate dictionary."""
     dict_name = get_dict_name_for_path(filename, romfs_path)
     if dict_name is None:
