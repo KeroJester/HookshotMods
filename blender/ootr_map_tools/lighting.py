@@ -307,10 +307,15 @@ def apply_env(context):
 def import_lighting(context, game, banc, root, baked=True, report=print):
     """Runtime lights, baked lights and the environment of a map into the scene. -> summary text."""
     _, lights = L.read_scene_lights(game, banc)
+    bounds = L.map_bounds(game, banc)
     lcol = collection(f'{banc} Lights', root)
     lcol['ootr_lights'] = banc
     n = 0
+    away = [li for li in lights if not L.inside(bounds, li['position'])]
+    root['ootr_lights_away'] = json.dumps([{k: li[k] for k in ('group', 'key', 'kind', 'position', 'lat', 'lon', 'setting_path')}
+                                           | {'raw': li['raw']} for li in away], default=_json_default)
     for li in lights:
+        if not L.inside(bounds, li['position']): continue     # (another part of a shared scene: kept, not shown)
         if li['kind'] not in ('point', 'spot'):
             ob = bpy.data.objects.new(f'{li["key"]} ({li["kind"]})', None)
             ob.empty_display_type = 'SPHERE'; ob.empty_display_size = 0.15
@@ -333,9 +338,10 @@ def import_lighting(context, game, banc, root, baked=True, report=print):
         n += 1
     nb = 0
     if baked:
-        bk = L.read_baked_lights(game, banc)
+        bk = L.read_baked_lights(game, banc, bounds)
         bcol = collection(f'{banc} Baked Lights', root)
         bcol['ootr_baked'] = banc
+        subs = {}
         def add(name, typ, pos, rgb, size):
             nonlocal nb
             ld = bpy.data.lights.new(name, typ)
@@ -438,6 +444,9 @@ def gather_lights(context, root):
         out.append(dict(group=ob.get('ootr_light_group') or 'Editor', key=ob.get('ootr_light_key') or ob.name.replace(' ', '_'),
                         kind=kind, position=pos, lat=lat, lon=lon, setting=setting,
                         setting_path=ob.get('ootr_light_setting') or None, raw=raw_from_json(ob.get('ootr_light_raw', ''))))
+    for li in json.loads(root.get('ootr_lights_away', '[]')):   # (outside the map: written back unchanged)
+        li['position'] = tuple(li['position']); li['raw'] = raw_from_json(json.dumps(li['raw'])); li['setting'] = {}
+        out.append(li)
     return out
 
 

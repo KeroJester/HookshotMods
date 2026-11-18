@@ -57,6 +57,24 @@ def banc_param(game, banc):
     return rel, own, full
 
 
+def map_bounds(game, banc, margin=8.0):
+    """The map's extent from its placements (min, max in game axes, with a margin). Rooms carved out of a bigger
+    scene (DarkLinkStage: BakeUSD / lights of WaterTemple) share that scene's light files: only what is inside the
+    map's own extent belongs to it."""
+    from .banc import load_map
+    try:
+        ps = load_map(game, banc)
+    except Exception:
+        return None
+    xs = [p.translate for p in ps if p.translate is not None]
+    if not xs: return None
+    return ([min(v[i] for v in xs) - margin for i in range(3)], [max(v[i] for v in xs) + margin for i in range(3)])
+
+
+def inside(bounds, pos):
+    return bounds is None or all(bounds[0][i] <= pos[i] <= bounds[1][i] for i in range(3))
+
+
 # ---------------------------------------------------------------- directions
 def direction(lat, lon):
     """Latitude / longitude (degrees) -> unit direction in game axes (Y up). 0 / 0 = straight down."""
@@ -140,13 +158,20 @@ def write_scene_lights(game, banc, lights, seed=None):
     gbp_rel, gbp_own, gbp = banc_param(game, banc)
     rel = work_to_rel(gbp.get('LocationalLightScenePlacement'))
     files, report, gbp_set = {}, [], {}
-    if rel and game.exists(rel):
+    if rel and game.exists(rel) and not os.path.basename(rel).startswith(banc + '.'):
+        # (another map's light file, e.g. WaterTemple's for DarkLinkStage: never rewritten; this map gets its own copy)
+        doc = game.byml(rel)
+        report.append(f'{banc} used {os.path.basename(rel).split(".")[0]}\'s light file: it now has its own copy')
+        rel = f'{GFX}LocationalLightScenePlacement/ootr_{banc}.game__gfx__LocationalLightScenePlacement.bgyml'
+        gbp_set['LocationalLightScenePlacement'] = rel_to_work(rel)
+    elif rel and game.exists(rel):
         doc = game.byml(rel)
     else:
         rel = f'{GFX}LocationalLightScenePlacement/ootr_{banc}.game__gfx__LocationalLightScenePlacement.bgyml'
         doc = {'GroupSetting': {}, 'Hash': U32(rng.getrandbits(32))}
         gbp_set['LocationalLightScenePlacement'] = rel_to_work(rel)
         report.append(f'{banc} had no runtime lights: new light file {os.path.basename(rel)}')
+    original = copy.deepcopy(doc)
     template_hash = next((gv.get('Hash') for gv in (doc.get('GroupSetting') or {}).values()), U32(3534491336))
     groups = {}
     used_keys = set()
@@ -195,6 +220,8 @@ def write_scene_lights(game, banc, lights, seed=None):
         if gname in old_groups:
             g.update({kk: vv for kk, vv in old_groups[gname].items() if kk != 'PlacementSetting'})
     doc['GroupSetting'] = groups
+    if new_settings == 0 and doc == original:
+        return {}, ['lights: unchanged'], {}
     files[rel] = write_byml(doc)
     report.append(f'lights: {len(lights)} runtime lights ({new_settings} new settings files)')
     return files, report, gbp_set
@@ -224,7 +251,7 @@ def _typed(d):
 
 
 # ---------------------------------------------------------------- baked lights
-def read_baked_lights(game, banc):
+def read_baked_lights(game, banc, bounds=None, min_power=1.0):
     """-> {'point': [(pos, rgb, radius)], 'spot': [(pos, dir, rgb, inner, outer, radius)],
     'area': [(pos, u, v, rgb, width, height)]} (empty when the map has none)."""
     rel = f'Bake/Light/{banc}.bklight.zs'
@@ -236,13 +263,13 @@ def read_baked_lights(game, banc):
     o = 0x14
     for i in range(np_):
         v = struct.unpack_from('<7f', d, o); o += 28
-        out['point'].append((v[0:3], v[3:6], v[6]))
+        if inside(bounds, v[0:3]) and max(v[3:6]) >= min_power: out['point'].append((v[0:3], v[3:6], v[6]))
     for i in range(ns):
         v = struct.unpack_from('<13f', d, o); o += 52
-        out['spot'].append((v[0:3], v[3:6], v[6:9], v[9], v[10], v[12]))
+        if inside(bounds, v[0:3]) and max(v[6:9]) >= min_power: out['spot'].append((v[0:3], v[3:6], v[6:9], v[9], v[10], v[12]))
     for i in range(na):
         v = struct.unpack_from('<15f', d, o); o += 60
-        out['area'].append((v[0:3], v[3:6], v[6:9], v[9:12], v[12], v[13]))
+        if inside(bounds, v[0:3]) and max(v[9:12]) >= min_power: out['area'].append((v[0:3], v[3:6], v[6:9], v[9:12], v[12], v[13]))
     return out
 
 
