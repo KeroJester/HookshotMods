@@ -64,7 +64,15 @@ if bpy is not None:
         """The game folder with the map mod as an overlay (new maps and earlier edits are read as they are now)."""
         from .core.game import Game
         f = game_folder(context)
-        return Game(f, overlays=[os.path.join(f, 'mods', prefs(context).work_mod)])
+        work = os.path.join(f, 'mods', prefs(context).work_mod)
+        # (the game's files as the game sees them: the map mod first, then every other enabled mod, last-loaded first)
+        mods_dir = os.path.join(f, 'mods')
+        others = []
+        if os.path.isdir(mods_dir):
+            names = sorted((n for n in os.listdir(mods_dir) if n[:1] not in '_-' and os.path.isdir(os.path.join(mods_dir, n))),
+                           key=str.lower, reverse=True)
+            others = [os.path.join(mods_dir, n) for n in names if os.path.join(mods_dir, n) != work]
+        return Game(f, overlays=[work] + others)
 
     class OOTR_OT_use_game_folder(bpy.types.Operator):
         """Use this folder as the game folder"""

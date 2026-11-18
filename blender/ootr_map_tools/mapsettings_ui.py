@@ -113,6 +113,20 @@ def load_for(context, game, banc):
     context.scene.ootr_map.load(banc, read_settings(game, banc))
 
 
+class OOTR_OT_load_map_settings(bpy.types.Operator):
+    """Read this map's settings from the game folder (for maps imported before the Map Settings panel existed)"""
+    bl_idname = 'ootr.load_map_settings'
+    bl_label = 'Load Map Settings'
+    banc: StringProperty()
+
+    def execute(self, context):
+        try:
+            load_for(context, _game(context), self.banc)
+        except Exception as ex:
+            self.report({'ERROR'}, f'{self.banc}: {ex}'); return {'CANCELLED'}
+        return {'FINISHED'}
+
+
 class OOTR_PT_map_settings(bpy.types.Panel):
     bl_label = 'Map Settings'
     bl_space_type = 'VIEW_3D'
@@ -123,7 +137,15 @@ class OOTR_PT_map_settings(bpy.types.Panel):
         m = context.scene.ootr_map
         lay = self.layout
         if not m.banc:
-            lay.label(text='Import or create a map'); return
+            from .scene import map_roots
+            roots = map_roots(context)
+            if roots:
+                for r in roots:
+                    lay.operator('ootr.load_map_settings', text=f'Load Settings of {r["ootr_banc"]}',
+                                 icon='IMPORT').banc = r['ootr_banc']
+            else:
+                lay.label(text='Import or create a map')
+            return
         lay.label(text=m.banc, icon='WORLD')
         box = lay.box(); box.label(text='Look', icon='SHADING_RENDERED')
         box.prop(m, 'rendering', expand=True)
@@ -146,7 +168,7 @@ class OOTR_PT_map_settings(bpy.types.Panel):
         if ch: lay.label(text=f'{len(ch)} change(s): written on Export / Play', icon='INFO')
 
 
-classes = (OOTR_MapSettings, OOTR_PT_map_settings)
+classes = (OOTR_MapSettings, OOTR_OT_load_map_settings, OOTR_PT_map_settings)
 
 
 def register():
