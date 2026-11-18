@@ -126,6 +126,15 @@ def filter_actors(doc, keep):
     return doc
 
 
+def _has_banc(g2, name, files, mod_dir, compress_zs):
+    """(writes the placement files early: find_folder needs them to locate the compound body)"""
+    for rel in (f'Banc/{name}/{name}_Static.bcett.byml.zs', f'Banc/{name}/{name}_Dynamic.bcett.byml.zs'):
+        p = os.path.join(mod_dir, 'romfs', rel)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, 'wb') as f: f.write(compress_zs(files[rel], rel, g2.romfs))
+    return True
+
+
 def create_map(game, name, template, keep, mod_dir):
     """Writes a new map into <mod_dir>/romfs. -> (report lines, {rel: decompressed bytes} written)."""
     from ..vendor.zstd_helper import compress_zs
@@ -182,6 +191,20 @@ def create_map(game, name, template, keep, mod_dir):
             b = os.path.basename(rel)
             files[f'Foliage/Placement/Scene/{name}/{name}{b[len(template):]}'] = game.read(rel); n += 1
     report.append(f'{n} map resources copied from {template} (collision, navigation, lighting bake, probes)')
+    if keep == 'start':                                 # (empty: no ground collision of the template either)
+        from .custom import empty_compound
+        crel = next((r for r in files if r.startswith('Phive/StaticCompoundBody/')), None)
+        if crel:
+            for rel, data in files.items():          # (written first so empty_compound reads the new map's copy)
+                pass
+            p = os.path.join(mod_dir, 'romfs', crel)
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, 'wb') as f: f.write(compress_zs(files[crel], crel, game.romfs))
+            from .game import Game
+            g2 = Game(game.folder, overlays=[mod_dir])
+            files_extra = empty_compound(g2, name, mod_dir) if _has_banc(g2, name, files, mod_dir, compress_zs) else {}
+            files.update(files_extra)
+            report.append('empty: the template\'s ground collision removed')
     # shared tables: rows appended
     row = copy.deepcopy(rows[template]); row['BancMain'] = scene; row['__RowId'] = name
     rows[name] = row

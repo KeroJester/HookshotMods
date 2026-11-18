@@ -149,13 +149,24 @@ if bpy is not None:
             return {'FINISHED'}
 
     def export_root(context, game, root, mod_name):
-        """Placements and lighting of one imported map -> the mod folder. -> report lines."""
-        from . import scene, lighting
-        from .core.export import write_mod, update_size_requests
+        """Placements, custom geometry and lighting of one imported map -> the mod folder. -> report lines."""
+        from . import scene, lighting, custom_geo
+        from .core.export import write_mod, update_size_requests, Edit
         from .core.lights import write_lighting
+        from .core.custom import write_custom, actor_name
         banc = root['ootr_banc']
         mod = os.path.join(game.folder, 'mods', mod_name)
-        lines = write_mod(game, banc, scene.gather_edits(root), mod, root.get('ootr_folder') or None)
+        lines = []
+        edits = scene.gather_edits(root)
+        meshes, images, collision = custom_geo.gather_custom(context, root)
+        if meshes or collision is not None:
+            rep, files, placement = write_custom(game, banc, mod, meshes, images, collision)
+            lines += rep + update_size_requests(game, mod, {k: v for k, v in files.items() if k.startswith(('RSDB/', 'Phive/'))})
+            mine = actor_name(banc)[0]
+            edits = [e for e in edits if e.actor != mine]          # (the previous custom model is replaced)
+            if placement:
+                edits.append(Edit(0, 'Dynamic', placement['translate'], (0.0, 0.0, 0.0), (1.0, 1.0, 1.0), placement['actor']))
+        lines = write_mod(game, banc, edits, mod, root.get('ootr_folder') or None) + lines
         lights = lighting.gather_lights(context, root)
         env = lighting.gather_env(context, banc)
         if lights is not None or env is not None:
@@ -362,13 +373,15 @@ if bpy is not None:
 
     def register():
         for c in classes: bpy.utils.register_class(c)
-        from . import lighting
+        from . import lighting, custom_geo
         lighting.register()
+        custom_geo.register()
         bpy.types.TOPBAR_MT_file_import.append(menu_import)
         bpy.types.TOPBAR_MT_file_export.append(menu_export)
 
     def unregister():
-        from . import lighting
+        from . import lighting, custom_geo
+        custom_geo.unregister()
         lighting.unregister()
         bpy.types.TOPBAR_MT_file_import.remove(menu_import)
         bpy.types.TOPBAR_MT_file_export.remove(menu_export)

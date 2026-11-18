@@ -567,6 +567,11 @@ class OOTR_PT_lighting(bpy.types.Panel):
             row = box.row(); row.prop(p, 'flicker')
             if p.flicker:
                 row = box.row(align=True); row.prop(p, 'flicker_speed', text='Speed'); row.prop(p, 'flicker_rate', text='Amount')
+        elif ob is not None and ob.type == 'MESH' and __import__(__package__ + '.custom_geo', fromlist=['is_custom']).is_custom(ob):
+            box = lay.box()
+            box.label(text=f'Custom mesh: {ob.name}', icon='MESH_DATA')
+            box.prop(ob, 'ootr_solid')
+            box.prop(ob, 'ootr_game_visible')
         elif ob is not None and 'ootr_baked' in ob:
             lay.label(text='Baked light: part of the precomputed lighting', icon='INFO')
             lay.label(text='(moving it changes only the Blender preview)')

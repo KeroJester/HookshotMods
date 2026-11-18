@@ -3215,3 +3215,20 @@ A checklist for the next map (North / East / West Clock Town, other MM3D scenes)
 - Verified in game on Hookshot: MyFirstMap (SageRoom, land) and CITestMap (SageRoom, start + 6 library assets, made
   by the add-on's operators) load from a patched save (screenshots/new_map).
 - Game(folder, overlays=[mods/<map mod>]): the add-on reads new maps and earlier edits back from the map mod.
+
+## §89. Custom geometry from the Blender map tools (2026-11-18, in progress)
+- A map's own model = a NEW actor Land_Ootr_<map>_A_01 (additive): Pack/Actor/<actor>.pack.zs made with create_sarc
+  {ActorParam (ActorLogicSimpleActor, LOD Default, Physics MapDefault, PreActorSetting UsePreActorRenderer,
+  GameActorDefault), ModelInfo {FmdbName, ModelProjectName}}, an RSDB/ActorInfo row (copy of Land_SageRoom_Base_A_01:
+  display radius 1600) with the model's bounds (ActorInfo rows are sorted by __RowId), the model written by
+  bfres_build.Writer on Land_HrlCity_Ground_A_01 shape 24 with model_name = the actor (positions are half floats: the
+  actor is placed at the meshes' centre), textures Ootr<8 hex>_Alb (16 chars) by bntx1 on Etc_Gray50_A_Alb.
+  Placed in the Dynamic layer (unregistered).
+- Collision: land actors' collision is in the map's static compound body (even Market's Dynamic Land_* are registered
+  there), so custom collision goes into layer 0 instance 0 (SageRoom: the floor, at (0, 100, 0), identity): pristine
+  triangles + the custom ones in the instance's space (rebuild_layer2). The pristine body is kept in
+  <mod>/ootr_compound/<map>.bphsc. "Empty" new maps replace instance 0's shape with a 1 m box 50 m below (tiny shapes
+  overflow the 8-bit AABB tree's i16 offsets: bitoff = origin / scale; a 0.1 m box 900 m away overflowed, so did a
+  0.1 m box 50 m away).
+- Blender: plain mesh objects (no ootr_* keys) are custom; Object.ootr_solid "Enable Collision", ootr_game_visible
+  "Visible in Game"; modifiers applied, per-corner normals / UVs (V flipped), Base Color image or colour per material.
