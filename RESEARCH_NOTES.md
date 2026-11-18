@@ -3064,6 +3064,10 @@ A checklist for the next map (North / East / West Clock Town, other MM3D scenes)
 - Axes: game Y-up metres -> Blender (x, -z, y); object matrix = G2B . T . R(euler XYZ) . S, mesh data in game axes.
   UV V flipped. Kakariko (child): 2103 placements, 1484 with models / 303 meshes, 533 materials, imports in ~5 s;
   32 backdrop meshes > 600 m (Land_HrlField_FarMountain_*, CastleFar).
+- Collision: core/collision.py indexes Phive/Shape/Dcc/<name>__<layer>.bphsh (5877 files: Physical 3970, StairStep
+  701, StairSlope 689, Airwall 436, ...) by actor name and reads every hknpMeshShape item (vendored hktag + phsh.read_mesh).
+  Kakariko: 842 actors with shapes, ~450k triangles, aligned with the models (same placement matrix); airwalls hidden
+  by default. screenshots/blender/02_*.
 - **Terrain is separate** (the visible cliffs / ground of outdoor maps): TerrainArc/<area>_NN.tscb (TSCB, world scale
   500.0, height scale 800.0, as BotW) + TerrainArc/<area>_NN/<tile hex>.{hght, mate, custom.extm, [adult|child.]
   bake_ao.extm, bake_gi.extm} (41 tiles in KakarikoVillage_01). Tile files: "TARB" {u32 1, u16 1, u16 header 0x14,

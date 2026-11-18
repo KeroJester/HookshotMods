@@ -25,7 +25,14 @@ def collection(name, parent):
     return c
 
 
-def import_map(context, game, banc, models=True, report=print):
+def collision_mesh(name, V, T):
+    me = bpy.data.meshes.new(name)
+    me.from_pydata(V.tolist(), [], T.tolist())
+    me.update()
+    return me
+
+
+def import_map(context, game, banc, models=True, collision=True, report=print):
     t0 = time.time()
     places = load_map(game, banc)
     root = collection(banc, context.scene.collection)
@@ -34,6 +41,11 @@ def import_map(context, game, banc, models=True, report=print):
     if models:
         from .models import model_mesh
     n_models = 0
+    col_meshes, n_col = {}, 0
+    if collision:
+        from .core import collision as colcore
+        shapes = colcore.ShapeIndex(game)
+        col_root = collection(f'{banc} Collision', root)
     for p in places:
         data = None
         if models and p.model:
@@ -55,4 +67,18 @@ def import_map(context, game, banc, models=True, report=print):
         ob['ootr_hash'] = str(p.hash)
         ob['ootr_layer'] = p.layer
         layers[p.layer].objects.link(ob)
-    return f'{banc}: {len(places)} placements, {n_models} with models ({len([m for m in meshes.values() if m])} meshes) in {time.time() - t0:.1f}s'
+        if collision:
+            for layer, (V, T) in colcore.layers_for(game, shapes, p.actor).items():
+                key = (p.actor, layer)
+                if key not in col_meshes: col_meshes[key] = collision_mesh(f'{p.actor}__{layer}', V, T)
+                co = bpy.data.objects.new(f'{p.actor}__{layer}', col_meshes[key])
+                co.matrix_world = ob.matrix_world
+                co.display_type = 'WIRE'
+                co.hide_render = True
+                co['ootr_collision'] = layer
+                collection(f'{banc} Collision {layer}', col_root).objects.link(co)
+                n_col += 1
+    if collision:                                    # (airwalls are invisible boundaries: hidden until wanted)
+        for c in col_root.children:
+            if 'Airwall' in c.name or 'AirWall' in c.name: c.hide_viewport = True
+    return f'{banc}: {len(places)} placements, {n_models} with models ({len([m for m in meshes.values() if m])} meshes) {f", {n_col} collision objects" if collision else ""} in {time.time() - t0:.1f}s'

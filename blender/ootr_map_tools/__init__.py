@@ -45,6 +45,7 @@ if bpy is not None:
 
         banc: EnumProperty(name='Map', items=map_items)
         models: BoolProperty(name='Models', default=True, description="Load the actors' models (else empties only)")
+        collision: BoolProperty(name='Collision', default=True, description='Load collision shapes (wireframe, one collection per layer)')
 
         def invoke(self, context, event):
             context.window_manager.invoke_search_popup(self)
@@ -56,7 +57,7 @@ if bpy is not None:
                 return {'CANCELLED'}
             from . import scene
             from .core.game import Game
-            stats = scene.import_map(context, Game(prefs(context).game_folder), self.banc, models=self.models,
+            stats = scene.import_map(context, Game(prefs(context).game_folder), self.banc, models=self.models, collision=self.collision,
                                      report=lambda m: self.report({'WARNING'}, m))
             self.report({'INFO'}, stats)
             return {'FINISHED'}
