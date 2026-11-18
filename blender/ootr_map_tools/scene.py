@@ -120,3 +120,68 @@ def gather_edits(root):
         for ch in c.children: walk(ch)
     walk(root)
     return edits
+
+
+def world_params(game, banc):
+    """The map's WorldParam (GameBancParam.WorldMgrName), $parent chain resolved -> dict (RESEARCH_NOTES.md §80t)."""
+    rel = f'Banc/GameBancParam/{banc}.game__banc__GameBancParam.bgyml'
+    if not game.exists(rel): return {}
+    gbp = game.byml(rel)
+    def load(work):
+        r = work[len('Work/'):].replace('.gyml', '.bgyml') if work and work.startswith('Work/') else None
+        if not r or not game.exists(r): return {}
+        y = game.byml(r)
+        base = load(y['$parent']) if '$parent' in y else {}
+        base.update({k: v for k, v in y.items() if k != '$parent'})
+        return base
+    return load(gbp.get('WorldMgrName'))
+
+
+def setup_environment(context, game, banc, azimuth_offset=0.0, azimuth_sign=1.0):
+    """Eevee look: a sun from the map's main light direction, a sky world, AgX view (RESEARCH_NOTES.md §84).
+    The game's azimuth convention is calibrated against in-game shadows (azimuth_offset / azimuth_sign)."""
+    wp = world_params(game, banc)
+    az, el = float(wp.get('MainLightAzimuth', 45.0)), float(wp.get('MainLightElevation', 55.0))
+    sc = context.scene
+    sun = bpy.data.objects.get('OoT Sun')
+    if sun is None:
+        sun = bpy.data.objects.new('OoT Sun', bpy.data.lights.new('OoT Sun', 'SUN'))
+        sc.collection.objects.link(sun)
+    sun.data.energy = 4.0
+    sun.data.color = (1.0, 0.95, 0.88)
+    sun.data.angle = math.radians(1.5)
+    a = math.radians(azimuth_sign * az + azimuth_offset)
+    e = math.radians(el)
+    to_sun_game = Vector((math.sin(a) * math.cos(e), math.sin(e), math.cos(a) * math.cos(e)))   # (game axes)
+    to_sun = (GAME_TO_BLENDER.to_3x3() @ to_sun_game).normalized()
+    sun.rotation_euler = (-to_sun).to_track_quat('-Z', 'Y').to_euler()
+    sun['ootr_azimuth'], sun['ootr_elevation'] = az, el
+    world = sc.world or bpy.data.worlds.new('OoT Sky')
+    sc.world = world
+    world.use_nodes = True
+    nt = world.node_tree
+    bg = next((n for n in nt.nodes if n.type == 'BACKGROUND'), None) or nt.nodes.new('ShaderNodeBackground')
+    sky = next((n for n in nt.nodes if n.type == 'TEX_SKY'), None)
+    if sky is None:
+        try:
+            sky = nt.nodes.new('ShaderNodeTexSky')
+            sky.location = (-300, 0)
+            nt.links.new(sky.outputs['Color'], bg.inputs['Color'])
+        except Exception:
+            sky = None
+    if sky is not None:
+        for attr, val in (('sun_elevation', e), ('sun_rotation', math.atan2(to_sun.x, to_sun.y)), ('sun_disc', False)):
+            if hasattr(sky, attr): setattr(sky, attr, val)
+        bg.inputs['Strength'].default_value = 0.35
+    else:
+        bg.inputs['Color'].default_value = (0.45, 0.6, 0.85, 1); bg.inputs['Strength'].default_value = 1.0
+    for eng in ('BLENDER_EEVEE_NEXT', 'BLENDER_EEVEE'):
+        try:
+            sc.render.engine = eng; break
+        except TypeError:
+            continue
+    try:
+        sc.view_settings.view_transform = 'AgX'
+    except TypeError:
+        pass
+    return f'sun azimuth {az} elevation {el}'

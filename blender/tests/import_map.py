@@ -6,6 +6,7 @@ import bpy
 argv = sys.argv[sys.argv.index('--') + 1:]
 game, banc, out = argv[0], argv[1], argv[2]
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+if os.environ.get('OOTR_T2D'): sys.path.insert(0, os.environ['OOTR_T2D'])   # (the unpacked wheel, when not installed)
 import ootr_map_tools as addon
 from ootr_map_tools import scene
 from ootr_map_tools.core.game import Game
@@ -38,12 +39,18 @@ cam.location = (c.x, c.y, hi.z + 50); cam.data.clip_end = 2000
 bpy.context.scene.camera = cam
 sc = bpy.context.scene
 sc.render.engine = 'BLENDER_WORKBENCH'
+EEVEE = os.environ.get('OOTR_EEVEE') == '1'
 sc.display.shading.light = 'STUDIO'; sc.display.shading.color_type = 'MATERIAL'
 sc.render.resolution_x = sc.render.resolution_y = 1024
 os.makedirs(out, exist_ok=True)
 sc.render.filepath = os.path.join(out, f'{banc}_top.png')
 bpy.ops.render.render(write_still=True)
 # a perspective view from the start position side
+if EEVEE:
+    print('ENV', scene.setup_environment(bpy.context, Game(game), banc, float(os.environ.get('OOTR_AZ_OFF', '0')), float(os.environ.get('OOTR_AZ_SIGN', '1'))))
+    for o in obs: o.hide_render = o.hide_render or 'ootr_collision' in o
+    for coll in bpy.data.collections:
+        if 'Collision' in coll.name: coll.hide_render = True
 cam2 = bpy.data.objects.new('cam2', bpy.data.cameras.new('cam2'))
 sc.collection.objects.link(cam2)
 cam2.location = (c.x, c.y - 120, c.z + 70)

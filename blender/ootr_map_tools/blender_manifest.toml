@@ -12,6 +12,12 @@ tags = ["Import-Export", "Game Engine"]
 blender_version_min = "4.2.0"
 license = ["SPDX:GPL-3.0-or-later"]
 
+platforms = ["linux-x64", "windows-x64"]
+wheels = [
+  "./wheels/texture2ddecoder-1.0.6-cp311-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+  "./wheels/texture2ddecoder-1.0.6-cp311-abi3-win_amd64.whl",
+]
+
 # reads the user's own game folder (chosen in the preferences); writes only where the user exports
 [permissions]
 files = "Read the game folder and the texture cache; write exported maps"
