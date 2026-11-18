@@ -3293,3 +3293,27 @@ A checklist for the next map (North / East / West Clock Town, other MM3D scenes)
   Market's own floor and the custom platform, tests K / L); keeping the target piece's owner placement
   (ForbiddenCreateDropArea for instance 108) did not help. Cause unknown; copies keep "Ground pieces" / "Full copy".
 - Environment panel: Fog Density scales VolumeFogParams1 / 2's Mie / Near / Far / Rayleigh densities per palette.
+
+## §92. What a map's GameBancParam is made of (2026-11-18)
+83 keys over the 80 maps (core/lights.banc_param resolves $parent). **Hashed values are Murmur3-32 (seed 0) of
+names** (75 of 94 found in image.bin / .longshot_exefs/main strings; core/enums.py). By role:
+- Identity / registration: Banc.Main (scene path, the map's folder), AreaIndex (0-30), BaseLocation (Location gyml:
+  the on-screen place name), WorldMapLocationType (pause map: Field Market Castle Village Grave Forest LostWood Meadow
+  DekuTree River ZoraDomain Fountain Jabujabu IceCavern GoronCity Trail Crater Dodongo Fire Valley Fortress Desert
+  Colossus Spirit Shadow Water Well), AreaCategory (DreamWorld), DungeonParam (dungeon component), IsHideAllMapIcon.
+- Look: RenderingMode (MainField 40 / Dungeon 38 / Museum 2), EnvSetName (sky scattering set: Dungeon 41,
+  Master_Field 24, KokiriForest, KakarikoVillage, ...), WorldMgrName (WorldParam: sun, time palettes, fog),
+  CloudEnvType (HyruleField Kokiri Gerudo Heights GanonCastle FixedSunHigh FixedSunMid), EnvEffectType (per area
+  effect set, 37 names = area names), SceneShadowSetting (cloud shadow fade, static depth shadow boxes),
+  LocationalLightScenePlacement, HeightMapParam (height map: haze / rain occlusion), OverwriteWaterFogParam,
+  Caustics*, VrsType (Default / Disable), IndirectResolutionFull, IsFixFarDOFEdge, EnableModelDirtEffect.
+- Light bake: IsEnableBakeAO / BakeLight / BakeLightResource (all True), SceneBakeType (one value), AltSceneBakeType
+  (None: interiors), BakeUSD (whose bake / probes), TerrainSceneCategoryForBake (Adult / Child),
+  IsEnableBakeTextureLOD, AltSceneBakeResourceName.
+- Physics / streaming: StaticCompoundMode / NavMeshMgrMode / VolumeStatsMode (Single, Terrain), *UnitSize
+  (250 x 250 tiles), WorldAabbMin / Max (125 ... 1000), TerrainSceneName / Position / EnableSDS, VolumeStats*,
+  OptimizeChangeBancUnits (neighbour maps preloaded), EnableLODSetting.
+- Sound: SoundSceneryName (+ GameBancInfo row, IsEnabledTimeSound).
+- Gameplay: IsChildWhenChangeBanc / IsChildWhenInitializingScene / IsForceSwitchChildOrAdult (age), IsEnableRide
+  (Epona), IsEnableTimerCounting, IsSunSongMakesMiddleTime, SariaSongPlaceMessage*, AgonyStoneReactType (13 unnamed),
+  EnemyAutoPlacementParams, EnvAnimalMgrParam, IsPlayerCameraWideMode, FaroreWind*, DebugBootScript, ...
