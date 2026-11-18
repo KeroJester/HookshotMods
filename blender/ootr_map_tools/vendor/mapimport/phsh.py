@@ -29,8 +29,8 @@ def _split(tris, V):
         verts = set(t.flatten().tolist())
         P = V[list(verts)]
         ext = P.max(0) - P.min(0)
-        if len(t) <= MAXP and len(verts) <= MAXV and ext.max() < 120:
-            out.append(t); continue
+        if (len(t) <= MAXP and len(verts) <= MAXV and ext.max() < 120) or len(t) == 1:
+            out.append(t); continue                       # (one triangle cannot be halved: tessellate() first)
         c = V[t].mean(1)
         ax = int(np.argmax(c.max(0) - c.min(0)))
         order = np.argsort(c[:, ax], kind='stable')
@@ -174,9 +174,37 @@ class Data:
         struct.pack_into('<ii', self.data, field, target - field, n)
 
 
+def tessellate(V, T, maxlen=50.0):
+    """Splits triangles with an edge longer than maxlen metres (sections hold at most ~120 m: a bigger triangle
+    made _split loop forever, a scaled-up Blender plane is 2 such triangles). Midpoints are shared between the
+    triangles of an edge, so neighbours stay joined."""
+    V = [tuple(map(float, v)) for v in np.asarray(V, float)]
+    mid = {}
+    def m(a, b):
+        k = (min(a, b), max(a, b))
+        if k not in mid:
+            mid[k] = len(V); V.append(tuple((np.array(V[a]) + np.array(V[b])) / 2))
+        return mid[k]
+    out, parent = [], []
+    todo = [(tuple(int(x) for x in t[:3]), i) for i, t in enumerate(np.asarray(T))]
+    while todo:
+        (a, b, c), pi = todo.pop()
+        e = [(np.linalg.norm(np.subtract(V[a], V[b])), 0), (np.linalg.norm(np.subtract(V[b], V[c])), 1),
+             (np.linalg.norm(np.subtract(V[c], V[a])), 2)]
+        L, k = max(e)
+        if L <= maxlen:
+            out.append((a, b, c)); parent.append(pi); continue
+        if k == 0: d = m(a, b); todo += [((a, d, c), pi), ((d, b, c), pi)]
+        elif k == 1: d = m(b, c); todo += [((a, b, d), pi), ((a, d, c), pi)]
+        else: d = m(c, a); todo += [((a, b, d), pi), ((d, b, c), pi)]
+    return np.array(V), np.array(out, np.int64), parent
+
+
 def _prepare(V, T):
     """Triangles -> sections in tree leaf order + top tree nodes."""
     V = np.asarray(V, float); T = np.asarray(T, np.int64)
+    if len(T) and T.shape[1] == 3:
+        V, T, _ = tessellate(V, T)
     secs = [_section(g, V) for g in _split(T, V)]
     tnodes = _simd_tree(secs)
     order = []
@@ -201,6 +229,10 @@ def _prepare(V, T):
 def add_mesh(td: Data, V, T, tag=0, root_at=None, tags=None):
     """Appends an hknpMeshShape (its root item and arrays) -> (offset of the shape, lo, hi). root_at: an
     already-reserved root (put('hknpMeshShape', ...)) to fill instead of appending one."""
+    T = np.asarray(T, np.int64)
+    if len(T) and T.shape[1] == 3:                     # (long triangles split first, keeping each piece's tag)
+        V, T, parent = tessellate(V, T)
+        if tags is not None: tags = [tags[i] for i in parent]
     secs, tnodes = _prepare(V, T)
     nsec = len(secs)
     keybits = (max(1, nsec) - 1).bit_length() + 9

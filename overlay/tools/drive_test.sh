@@ -30,5 +30,5 @@ for step in "$@"; do
         *) echo "$step" >> "$R/live.txt" ;;
     esac
 done
-pkill -f -- "--user $R/user" || true; sleep 3   # only this run's game
+pkill -KILL -f -- "--user $R/user" || true; sleep 3   # only this run's game (Longshot ignores SIGTERM)
 echo "drive_test: done ($(shots) shots)"

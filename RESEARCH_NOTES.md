@@ -3239,3 +3239,9 @@ A checklist for the next map (North / East / West Clock Town, other MM3D scenes)
   layer 0): the collision goes to the nearest tile's first layer with a mesh instance 0. create_map writes nothing until
   every file is built (a Kokiri Forest attempt had crashed half way and left a stray tile). Play writes the game's
   output to ~/.cache/ootr_map_tools/play.log.
+- (0.8.2-0.8.3) Play froze Blender: the hang watchdog (faulthandler -> ~/.cache/ootr_map_tools/hang.log) showed
+  phsh._split looping: it halves triangle groups until one fits a section (< 120 m), and a single bigger triangle
+  (a scaled-up Blender plane = 2 huge triangles) can never fit. phsh.tessellate() now splits edges over 50 m first
+  (shared midpoints, tags kept per piece); a lone triangle no longer re-enters the loop. Also flat sections: the 8-bit
+  AABB step had a 1 mm minimum extent (offset overflow for flat planes off the instance origin): now 5 cm, and the
+  step keeps |origin / step| under 30000. Longshot ignores SIGTERM: headless runs need timeout -k / pkill -KILL.

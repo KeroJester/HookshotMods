@@ -27,13 +27,17 @@ eval "$(python3 "$REPO/hookshot-mods" env)"   # the enabled code mods' Vulkan la
     n=$(ls "$OUT/shots" 2>/dev/null | wc -l); kb=$(du -sk "$OUT/shots" 2>/dev/null | cut -f1)
     if [ "${n:-0}" -gt "${HOS_SHOT_GUARD_FILES:-600}" ] || [ "${kb:-0}" -gt "${HOS_SHOT_GUARD_KB:-1500000}" ]; then
         echo "run_headless: screenshot guard tripped ($n files, ${kb} KB); stopping the game" >> "$OUT/stdout.txt"
-        pkill -f -- "--user $OUT/user"; break
+        pkill -KILL -f -- "--user $OUT/user"; break   # (Longshot ignores SIGTERM)
     fi
     grep -q "^exit done" "$OUT/stdout.txt" 2>/dev/null && break   # (not pgrep: other hookshot processes may exist)
   done ) &
+# HOS_BIN: the runtime (hookshot; longshot for ~/Games/Longshot: no overlay preload, its own screenshot switches)
+BIN=${HOS_BIN:-hookshot}
+[ -x "./bin/$BIN" ] || BIN=longshot
+if [ "$BIN" = hookshot ]; then PRELOAD="$REPO/overlay/libhookshot_overlay.so"; else PRELOAD=""; fi
 HOS_HEADLESS=1 HOS_AUDIO=${HOS_AUDIO_RUN:-0} HOS_FS_TRACE=1 HOOKSHOT_NO_UPDATE_CHECK=1 \
 HOS_INPUT_LIVE="$OUT/live.txt" HOOKSHOT_TUNER_CMD="$OUT/tuner.txt" HOS_WATCH="$OUT/watch.txt" \
 RX_VK_SHOTS="$OUT/shots" RX_VK_SHOT_EVERY="$EVERY" \
-LD_PRELOAD="$REPO/overlay/libhookshot_overlay.so" \
-timeout "$SECS" ./bin/hookshot --user "$OUT/user" > "$OUT/stdout.txt" 2>&1 || true
+LD_PRELOAD="$PRELOAD" \
+timeout -k 15 "$SECS" "./bin/$BIN" --user "$OUT/user" > "$OUT/stdout.txt" 2>&1 || true
 echo "exit done" >> "$OUT/stdout.txt"
