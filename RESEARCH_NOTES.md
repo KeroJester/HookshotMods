@@ -3281,3 +3281,15 @@ A checklist for the next map (North / East / West Clock Town, other MM3D scenes)
   a floating platform (screenshots/custom_geometry/03). The §80k patch_layer failures were the §80l section sizes.
   Speed (0.10.1-0.10.3): pack_10_10_10_2 / quaternion transforms vectorized, shared vertices, tessellation check
   vectorized, tag lookups binary-searched, zstd level 3 for generated files: 1.28 M collision triangles ~37 s.
+
+## §91. Blank maps (2026-11-18)
+- New Map "Blank": the SageRoom skeleton (mesh-only compound, no kill plane / terrain), only a StartPos, an empty
+  light file, and the sky / light of a chosen map (GameBancParam EnvSetName, CloudEnvType, EnvEffectType,
+  WorldMgrName, AltSceneBakeType (dropped when the source has none: SageRoom's makes it an interior), RenderingMode)
+  and its ambience (SoundSceneryName in GameBancParam and in the GameBancInfo row, IsEnabledTimeSound). Verified on
+  Longshot: HyruleField_Child's sky, clouds, sun shadows and day cycle over a custom ground (custom_geometry/04);
+  the ambience is not verified (test runs are muted).
+- "Empty" copies of other maps were dropped: an Empty Market copy had no working collision at all (Link fell through
+  Market's own floor and the custom platform, tests K / L); keeping the target piece's owner placement
+  (ForbiddenCreateDropArea for instance 108) did not help. Cause unknown; copies keep "Ground pieces" / "Full copy".
+- Environment panel: Fog Density scales VolumeFogParams1 / 2's Mie / Near / Far / Rayleigh densities per palette.

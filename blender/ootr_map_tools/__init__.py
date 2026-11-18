@@ -283,20 +283,35 @@ if bpy is not None:
         bl_options = {'REGISTER', 'UNDO'}
 
         name: StringProperty(name='Name', default='MyMap', description='Letters, digits and _ (3-41 characters)')
-        template: EnumProperty(name='Start From', items=template_items)
+        kind: EnumProperty(name='Kind', items=[
+            ('blank', 'Blank', 'An empty map (no ground, walls or kill plane; a small start platform until you add '
+                               'collision of your own) with the sky, light and ambient sound of maps you choose'),
+            ('copy', 'Copy of a Map', 'A copy of a game map under a new name (its ground pieces, or everything)')], default='blank')
+        look_from: EnumProperty(name='Sky & Light Like', items=template_items,
+                                description='Sky, clouds, weather effects, sun and time of day of this map')
+        sound_from: EnumProperty(name='Ambient Sound Like', items=template_items,
+                                 description='The ambient sound of this map')
+        template: EnumProperty(name='Copy Of', items=template_items)
         keep: EnumProperty(name='Keep', items=[(k, n, d) for k, n, d in __import__(__package__ + '.core.newmap', fromlist=['KEEP_MODES']).KEEP_MODES],
                            default='land')
 
         def invoke(self, context, event):
-            if any(it[0] == 'SageRoom' for it in template_items(self, context)):
-                self.template = 'SageRoom'
-            return context.window_manager.invoke_props_dialog(self, width=420)
+            names = {it[0] for it in template_items(self, context)}
+            for prop, want in (('template', 'Market_Child'), ('look_from', 'HyruleField_Child'), ('sound_from', 'HyruleField_Child')):
+                if want in names: setattr(self, prop, want)
+            return context.window_manager.invoke_props_dialog(self, width=440)
 
         def draw(self, context):
             lay = self.layout
             lay.prop(self, 'name')
-            lay.prop(self, 'template')
-            lay.prop(self, 'keep', expand=True)
+            lay.prop(self, 'kind', expand=True)
+            if self.kind == 'blank':
+                lay.prop(self, 'look_from')
+                lay.prop(self, 'sound_from')
+                lay.label(text='Empty: only a start point and a small platform under it', icon='INFO')
+            else:
+                lay.prop(self, 'template')
+                lay.prop(self, 'keep', expand=True)
             lay.label(text=f'Written into mods/{prefs(context).work_mod}', icon='FILE_FOLDER')
 
         def execute(self, context):
@@ -308,7 +323,12 @@ if bpy is not None:
             mod = os.path.join(game.folder, 'mods', prefs(context).work_mod)
             try:
                 with watchdog(f'new map {self.name}'):
-                    rep, files = create_map(game, self.name, self.template, self.keep, mod)
+                    if self.kind == 'blank':
+                        from .core.newmap import BLANK_TEMPLATE
+                        rep, files = create_map(game, self.name, BLANK_TEMPLATE, 'start', mod,
+                                                look_from=self.look_from, sound_from=self.sound_from)
+                    else:
+                        rep, files = create_map(game, self.name, self.template, self.keep, mod)
             except ValueError as ex:
                 self.report({'ERROR'}, str(ex)); return {'CANCELLED'}
             rep += update_size_requests(game, mod, {k: v for k, v in files.items() if k.startswith(('RSDB/', 'Banc/BancBasedResource/'))})

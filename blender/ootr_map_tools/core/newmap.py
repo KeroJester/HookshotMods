@@ -23,8 +23,9 @@ from .banc import find_folder
 
 INFO = 'RSDB/GameBancInfo.Product.111.rstbl.byml.zs'
 STARTPOS = 'Banc/BancBasedResource/StartPos.byml.zs'
-KEEP_MODES = (('start', 'Empty', 'Only the start point: an empty map (the template\'s ground collision stays)'),
-              ('land', 'Ground pieces', 'The template\'s map pieces (Land_*) and start point, no NPCs, enemies or objects'),
+BLANK_TEMPLATE = 'SageRoom'   # (the Blank map's skeleton: a small mesh-only collision body, no kill plane, no terrain)
+LOOK_KEYS = ('EnvSetName', 'CloudEnvType', 'EnvEffectType', 'WorldMgrName', 'AltSceneBakeType', 'RenderingMode')
+KEEP_MODES = (('land', 'Ground pieces', 'The template\'s map pieces (Land_*) and start point, no NPCs, enemies or objects'),
               ('all', 'Full copy', 'Everything of the template, as a new map'))
 LAND_KEEP = ('Land_', 'StartPos', 'VolumeFogArea', 'EnvPalette', 'BGM_', 'SoundSettingActor', 'LocationArea', 'EftLoc_')
 
@@ -126,7 +127,7 @@ def filter_actors(doc, keep):
     return doc
 
 
-def create_map(game, name, template, keep, mod_dir):
+def create_map(game, name, template, keep, mod_dir, look_from=None, sound_from=None):
     """Writes a new map into <mod_dir>/romfs. -> (report lines, {rel: decompressed bytes} written)."""
     from ..vendor.zstd_helper import compress_zs
     if not valid_name(name):
@@ -154,6 +155,20 @@ def create_map(game, name, template, keep, mod_dir):
         lrel = f'System/GameGraphics/LocationalLightScenePlacement/ootr_{name}.game__gfx__LocationalLightScenePlacement.bgyml'
         files[lrel] = write_byml({'GroupSetting': {}, 'Hash': 0})
         gbp['LocationalLightScenePlacement'] = 'Work/' + lrel.replace('.bgyml', '.gyml')
+    if look_from:                                       # (sky, clouds, weather effects, sun / time of day of another map)
+        from .lights import banc_param
+        look = banc_param(game, look_from)[2]
+        for k in LOOK_KEYS:
+            if k in look: gbp[k] = copy.deepcopy(look[k])
+            else: gbp.pop(k, None)
+        report.append(f'sky and light like {look_from}')
+    sound = None
+    if sound_from:                                      # (ambient sound scenery of another map)
+        from .lights import banc_param
+        snd = banc_param(game, sound_from)[2]
+        if 'SoundSceneryName' in snd: gbp['SoundSceneryName'] = snd['SoundSceneryName']
+        sound = rows.get(sound_from)
+        report.append(f'ambient sound like {sound_from}')
     files[f'Banc/GameBancParam/{name}.game__banc__GameBancParam.bgyml'] = write_byml(gbp)
     # placements
     starts = []
@@ -186,6 +201,10 @@ def create_map(game, name, template, keep, mod_dir):
         report.append('empty: the template\'s floor collision stays until the map has collision of its own')
     # shared tables: rows appended
     row = copy.deepcopy(rows[template]); row['BancMain'] = scene; row['__RowId'] = name
+    if sound:
+        for k in ('SoundSceneryName', 'IsEnabledTimeSound'):
+            if k in sound: row[k] = sound[k]
+            else: row.pop(k, None)
     rows[name] = row
     files[INFO] = write_byml([rows[k] for k in sorted(rows)])
     if template in sp:

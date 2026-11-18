@@ -148,6 +148,9 @@ class OOTR_PaletteProps(bpy.types.PropertyGroup):
     fog_start: FloatProperty(name='Fog Start', default=0.0, min=0.0, unit='LENGTH', update=_env_update)
     fog_end: FloatProperty(name='Fog End', default=600.0, min=0.0, unit='LENGTH', update=_env_update)
     volume_fog: BoolProperty(name='Volume Fog', default=True, update=_env_update)
+    fog_density: FloatProperty(name='Fog Density', default=1.0, min=0.0, soft_max=5.0, update=_env_update,
+                               description='Scales every density of the volume fog (VolumeFogParams1 / 2): 0 clear, 1 as the game')
+    fog_params: StringProperty()   # (json: the palette's VolumeFogParams1 / 2 when imported)
     bloom: FloatProperty(name='Bloom', default=0.1, min=0.0, soft_max=1.0, update=_env_update)
 
 
@@ -161,10 +164,16 @@ PALETTE_COLORS = (('sun_color', 'SkySunColor'), ('ambient_color', 'BgDifColor'),
                   ('hemi_bottom', 'HemiLightColorBottom'), ('fog_color', 'FogColor'))
 
 
+FOG_DENSITY_KEYS = ('MieDensity', 'NearDensity', 'FarDensity', 'RayleighDensity')
+
+
 def palette_values(pal):
     out = {key: getattr(pal, attr) for attr, key in PALETTE_MAP}
     for attr, key in PALETTE_COLORS:
         c = getattr(pal, attr); out[key] = {'R': c[0], 'G': c[1], 'B': c[2], 'A': 1.0}
+    if abs(pal.fog_density - 1.0) > 1e-4 and pal.fog_params:     # (only when changed: the scaled fog blocks)
+        for name, block in json.loads(pal.fog_params).items():
+            out[name] = {k: (float(v) * pal.fog_density if k in FOG_DENSITY_KEYS else v) for k, v in block.items()}
     return out
 
 
@@ -175,6 +184,9 @@ def palette_from(pal, values):
     for attr, key in PALETTE_COLORS:
         if key in values:
             c = values[key]; setattr(pal, attr, (float(c.get('R', 0)), float(c.get('G', 0)), float(c.get('B', 0))))
+    if 'VolumeFogParams1' in values or 'VolumeFogParams2' in values:
+        pal.fog_params = json.dumps({k: values[k] for k in ('VolumeFogParams1', 'VolumeFogParams2') if k in values})
+    pal.fog_density = 1.0
     pal.original = json.dumps(palette_values(pal))
 
 
@@ -606,7 +618,7 @@ class OOTR_PT_lighting(bpy.types.Panel):
         col.prop(pal, 'white_balance'); col.prop(pal, 'tint'); col.prop(pal, 'bloom')
         col = box.column(align=True)
         col.label(text='Fog')
-        col.prop(pal, 'volume_fog')
+        col.prop(pal, 'volume_fog'); col.prop(pal, 'fog_density')
         col.prop(pal, 'fog_color', text=''); row = col.row(align=True); row.prop(pal, 'fog_start'); row.prop(pal, 'fog_end')
         row = box.row(align=True)
         row.operator('ootr.palette_to_all', icon='DUPLICATE'); row.operator('ootr.reset_palette', icon='LOOP_BACK')
