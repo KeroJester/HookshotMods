@@ -3251,3 +3251,14 @@ A checklist for the next map (North / East / West Clock Town, other MM3D scenes)
   now sets it (bfres_build.Writer.build(file_name=...)). Also: new placements always get Phive.Placement.ID = Hash;
   library assets keep their mesh in Blender axes (ootr_blender_axes) because Blender's asset drop resets the object
   rotation (dropped assets lay on their side and exported with Rotate (-90, 0, 0)).
+- (0.9.0, verified on Longshot: screenshots/custom_geometry/02) What made a custom model crash in PreActorModelCompose
+  (read 0xd3c00000108): its file had NO size table entry, so the game sized its heap itself (125 KB, "model buffer ...
+  failed"; Longshot's parent-heap retry is not enough for the pre-actor renderer). Tests A/E rendered because they
+  used Land_SageRoom_Base_A's path (entry 5.6 MB). The export writes entries for new models (2x size + 256 KB),
+  textures, packs into MajoraMod's table copy, but the OLD MajoraMod rebuilt that copy at start from the base table
+  without them (Longshot merged them into prompts/rsizetable.mod.zs, yet the game read MajoraMod's rewritten copy):
+  MajoraMod 0.4.2's rstb.cpp Table::Add inserts crc entries for requested files without one ("new entry" in its log).
+  Kept from the bisection: model file Model/Land_Ootr_<map>_A.Land_SageRoom_Base_A_01.bfres (per-map project, the
+  model inside keeps the template's name), the template's .anim under the project, a GameActorInfo row, the template
+  actor's pack components (AS, dummy animation, event performer; no physics). Whether those last three are needed is
+  untested. Also: the runtime crash took the Claude Code session down each time (also with setsid); no cause found.

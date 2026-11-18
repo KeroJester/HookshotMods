@@ -199,18 +199,27 @@ def update_size_requests(game, mod_dir, files):
 
 
 def size_requests(game, files, margin=8192):
-    """{romfs rel (.zs): decompressed bytes} -> lines "path=size" for files over their size table entry."""
+    """{romfs rel (.zs): decompressed bytes} -> lines "path=size" for files over their size table entry (entries are
+    the size + ~270 bytes the game needs), and for NEW models / textures / actor packs, which get no entry otherwise:
+    the game then guesses their heap and a new model's buffer did not fit ("model buffer ... failed", a crash in
+    PreActorModelCompose). Models need more than their size (GPU data: vanilla entries are 1.02-1.75x)."""
     import glob
     from ..vendor.rstb import ResourceSizeTable
-    tabs = glob.glob(game.path('System/Resource/ResourceSizeTable.Product.*.rsizetable.zs'))
+    tabs = glob.glob(os.path.join(game.romfs, 'System/Resource/ResourceSizeTable.Product.*.rsizetable.zs'))
     if not tabs: return []
     t = ResourceSizeTable.load(tabs[0])
     out = []
     for rel, data in files.items():
         key = rel[:-3] if rel.endswith('.zs') else rel
         e = t.get(key)
-        if e is not None and len(data) + 512 > e:        # (entries are the size + ~270 bytes the game needs: 512 to be safe)
-            out.append(f'{key}={(len(data) + margin + 4095) // 4096 * 4096}')
+        n = len(data)
+        if e is not None:
+            if n + 512 > e:
+                out.append(f'{key}={(n + margin + 4095) // 4096 * 4096}')
+        elif key.startswith('Model/') and key.endswith('.bfres'):
+            out.append(f'{key}={(n * 2 + 262144 + 4095) // 4096 * 4096}')
+        elif key.startswith(('Tex/', 'Pack/Actor/')):
+            out.append(f'{key}={(n * 2 + 4096 + 4095) // 4096 * 4096}')
     return out
 
 
@@ -248,7 +257,7 @@ def apply_to_majora_table(game, lines):
         k, _, v = l.partition('=')
         if not v.strip().isdigit(): continue
         cur = t.get(k)
-        if cur is not None and cur < int(v):
+        if cur is None or cur < int(v):                # (new files get an entry: see size_requests)
             t.set(k, int(v)); changed.append(k)
     if changed:
         os.makedirs(os.path.dirname(dst), exist_ok=True)

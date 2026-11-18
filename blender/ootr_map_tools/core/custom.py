@@ -28,8 +28,13 @@ BAKE_TEX = ['CmnTex_BakeDefault', 'CmnTex_BakeLightDefault']
 TEMPLATE_TEX = 'Tex/Etc_Gray50_A_Alb.bntx.zs'
 ROW_FROM = 'Land_SageRoom_Base_A_01'
 ACTORINFO = 'RSDB/ActorInfo.Product.111.rstbl.byml.zs'
+GAMEACTORINFO = 'RSDB/GameActorInfo.Product.111.rstbl.byml.zs'   # (one row per actor too: a missing one crashed the game)
 NORMAL_TEX = 'Dummy_Flat_Normal_CmnTex_Chara_DetailMap_Nrm'
 ROUGH_TEX = 'Land_HrlCity_Soil_A_01_Rgh'
+
+
+FMDB = 'Land_SageRoom_Base_A_01'      # (the model inside keeps the template's name: renaming it crashed the game; the
+                                      #  file is still the map's own: Model/Land_Ootr_<map>_A.<FMDB>.bfres)
 
 
 def actor_name(banc):
@@ -91,18 +96,22 @@ def _base_read(game, rel):
         return zstd_helper.decompress_zs(f.read(), rel, game.romfs)
 
 
-def build_pack(actor, project):
+def build_pack(game, actor, project):
+    """The actor's pack: Land_SageRoom_Base_A_01's components (its AS, dummy animation, event performer: without them
+    the pre-actor renderer crashed in PreActorModelCompose), its own ModelInfo, and no physics of its own (the
+    collision is in the map's compound body)."""
     from ..vendor.zstd_helper import create_sarc
-    ap = {'Components': {
-        'ActorLogicNodeRef': 'Work/Logic/NodeDefinition/Node/ActorLogicSimpleActor.aidefn',
-        'LODRef': '?Component/LODParam/Default.engine__component__LODParam.bgyml',
-        'ModelInfoRef': f'?Component/ModelInfo/{actor}.engine__component__ModelInfo.bgyml',
-        'PhysicsRef': '?Component/Physics/MapDefault.engine__component__PhysicsParam.bgyml',
-        'PreActorSettingRef': '?ActorSystem/PreActorSetting/UsePreActorRenderer.game__actor__PreActorSetting.bgyml',
-        'SystemSetting': '?ActorSystem/ActorSystemSetting/GameActorDefault.engine__actor__ActorSystemSetting.bgyml'}}
-    mi = {'FmdbName': actor, 'ModelProjectName': project}
-    return create_sarc({f'Actor/{actor}.engine__actor__ActorParam.bgyml': write_byml(ap),
-                        f'Component/ModelInfo/{actor}.engine__component__ModelInfo.bgyml': write_byml(mi)})
+    src = game.pack(f'Pack/Actor/{ROW_FROM}.pack.zs')
+    ap = parse_byml(src[f'Actor/{ROW_FROM}.engine__actor__ActorParam.bgyml'])
+    comps = dict(ap['Components'])
+    comps['ModelInfoRef'] = f'?Component/ModelInfo/{actor}.engine__component__ModelInfo.bgyml'
+    comps['PhysicsRef'] = '?Component/Physics/MapDefault.engine__component__PhysicsParam.bgyml'
+    files = {f'Actor/{actor}.engine__actor__ActorParam.bgyml': write_byml({'Components': comps}),
+             f'Component/ModelInfo/{actor}.engine__component__ModelInfo.bgyml':
+                 write_byml({'FmdbName': FMDB, 'ModelProjectName': project})}
+    for k, v in src.items():                       # (the shared components the template's pack carries)
+        if k.startswith(('Component/AnimationParam/', 'Component/EventPerformerParam/')): files[k] = v
+    return create_sarc(files)
 
 
 def write_custom(game, banc, mod_dir, meshes, images, collision):
@@ -135,17 +144,23 @@ def write_custom(game, banc, mod_dir, meshes, images, collision):
                 out_meshes.append(dict(name=f'{m["name"]}_{s // step}', material=keys.index(m['material']),
                                        pos=P[used], nrm=N[used], tan=_tangents(N[used]), uv=U[used],
                                        idx=inv.astype(np.uint16)))
-        model = bfres_build.Writer(_base_read(game, TEMPLATE_MODEL)).build(out_meshes, materials, template_shape=TEMPLATE_SHAPE,
-                                                                    model_name=actor, file_name=f"{project}.{actor}")
-        files[f'Model/{project}.{actor}.bfres.zs'] = model
-        files[f'Pack/Actor/{actor}.pack.zs'] = build_pack(actor, project)
+        model = bfres_build.Writer(_base_read(game, TEMPLATE_MODEL)).build(out_meshes, materials, template_shape=TEMPLATE_SHAPE)
+        files[f'Model/{project}.{FMDB}.bfres.zs'] = model
+        # (the template actor animates: the game opens Model/<project>.anim.bfres with the model, and a new project
+        #  without one crashed the pre-actor renderer: the template's animation file, under the map's project)
+        files[f'Model/{project}.anim.bfres.zs'] = _base_read(game, TEMPLATE_MODEL.split('.')[0] + '.anim.bfres.zs')
+        files[f'Pack/Actor/{actor}.pack.zs'] = build_pack(game, actor, project)
         rows = merged_rows(game, mod_dir, ACTORINFO)
         row = copy.deepcopy(rows[ROW_FROM])
-        row.update({'__RowId': actor, 'FmdbName': actor, 'ModelProjectName': project,
+        row.update({'__RowId': actor, 'FmdbName': FMDB, 'ModelProjectName': project,
                     'ModelAabbMin': {'X': float(lo[0] - centre[0]), 'Y': float(lo[1] - centre[1]), 'Z': float(lo[2] - centre[2])},
                     'ModelAabbMax': {'X': float(hi[0] - centre[0]), 'Y': float(hi[1] - centre[1]), 'Z': float(hi[2] - centre[2])}})
         rows[actor] = row
         files[ACTORINFO] = write_byml([rows[k] for k in sorted(rows)])
+        grows = merged_rows(game, mod_dir, GAMEACTORINFO)
+        grow = copy.deepcopy(grows[ROW_FROM]); grow['__RowId'] = actor
+        grows[actor] = grow
+        files[GAMEACTORINFO] = write_byml([grows[k] for k in sorted(grows)])
         placement = dict(actor=actor, translate=tuple(float(v) for v in centre))
         report.append(f'custom model: {len(out_meshes)} meshes, {len(keys)} materials, {sum(len(m["idx"]) // 3 for m in out_meshes)} triangles ({actor})')
     if collision is not None and len(collision[1]):

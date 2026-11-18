@@ -187,7 +187,7 @@ if bpy is not None:
         meshes, images, collision = custom_geo.gather_custom(context, root)
         if meshes or collision is not None:
             rep, files, placement = write_custom(game, banc, mod, meshes, images, collision)
-            lines += rep + update_size_requests(game, mod, {k: v for k, v in files.items() if k.startswith(('RSDB/', 'Phive/'))})
+            lines += rep + update_size_requests(game, mod, {k: v for k, v in files.items() if k.startswith(('RSDB/', 'Phive/', 'Model/', 'Tex/', 'Pack/'))})
             mine = actor_name(banc)[0]
             edits = [e for e in edits if e.actor != mine]          # (the previous custom model is replaced)
             if placement:

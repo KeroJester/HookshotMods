@@ -68,6 +68,24 @@ struct Table {                                        // a decompressed table
         }
         return nullptr;
     }
+    // A new file's entry {crc32(path), size}, inserted in crc order (files added by mods have no entry: the game then
+    // guesses their heap, too small for a new model: "model buffer ... failed"). -> where the size is.
+    uint8_t* Add(const std::string& path, uint32_t size) {
+        const uint32_t crc = Crc32(path);
+        uint32_t lo = 0, hi = ncrc;
+        while (lo < hi) {
+            const uint32_t mid = lo + (hi - lo) / 2;
+            uint32_t c;
+            memcpy(&c, &t[22 + 8ull * mid], 4);
+            if (c < crc) lo = mid + 1; else hi = mid;
+        }
+        uint8_t e[8];
+        memcpy(e, &crc, 4), memcpy(e + 4, &size, 4);
+        t.insert(t.begin() + 22 + 8ull * lo, e, e + 8);
+        ncrc++;
+        memcpy(&t[14], &ncrc, 4);
+        return &t[26 + 8ull * lo];
+    }
 };
 static uint32_t Get(const uint8_t* p) { uint32_t v; memcpy(&v, p, 4); return v; }
 
@@ -110,7 +128,13 @@ void Start(const std::string& modDir) {
     std::map<std::string, uint32_t> target;           // path -> the size it should have
     for (auto& [path, w] : want) {
         uint8_t* p = raised.Find(path);
-        if (!p) { Log("[rstb] %s: no entry (the game sizes it itself)\n", path.c_str()); continue; }
+        if (!p) {
+            if (!w) { Log("[rstb] %s: no entry (the game sizes it itself)\n", path.c_str()); continue; }
+            raised.Add(path, w);                      // (a new file with a requested size: it gets an entry)
+            target[path] = w;
+            Log("[rstb] %s: new entry %u\n", path.c_str(), w);
+            continue;
+        }
         const uint32_t s = Get(p), size = std::max(w, grow.count(path) ? s + grow[path] : s);
         target[path] = size;
         if (size != s) { memcpy(p, &size, 4); Log("[rstb] %s: %u -> %u\n", path.c_str(), s, size); }

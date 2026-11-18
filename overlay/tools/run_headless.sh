@@ -35,9 +35,10 @@ eval "$(python3 "$REPO/hookshot-mods" env)"   # the enabled code mods' Vulkan la
 BIN=${HOS_BIN:-hookshot}
 [ -x "./bin/$BIN" ] || BIN=longshot
 if [ "$BIN" = hookshot ]; then PRELOAD="$REPO/overlay/libhookshot_overlay.so"; else PRELOAD=""; fi
+# (own session: the runtime's crash handler kills its process group, which took the test script and its caller with it)
 HOS_HEADLESS=1 HOS_AUDIO=${HOS_AUDIO_RUN:-0} HOS_FS_TRACE=1 HOOKSHOT_NO_UPDATE_CHECK=1 \
 HOS_INPUT_LIVE="$OUT/live.txt" HOOKSHOT_TUNER_CMD="$OUT/tuner.txt" HOS_WATCH="$OUT/watch.txt" \
 RX_VK_SHOTS="$OUT/shots" RX_VK_SHOT_EVERY="$EVERY" \
 LD_PRELOAD="$PRELOAD" \
-timeout -k 15 "$SECS" "./bin/$BIN" --user "$OUT/user" > "$OUT/stdout.txt" 2>&1 || true
+setsid -w timeout -k 15 "$SECS" "./bin/$BIN" --user "$OUT/user" > "$OUT/stdout.txt" 2>&1 || true
 echo "exit done" >> "$OUT/stdout.txt"
