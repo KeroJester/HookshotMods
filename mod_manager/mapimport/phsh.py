@@ -178,15 +178,24 @@ def tessellate(V, T, maxlen=50.0):
     """Splits triangles with an edge longer than maxlen metres (sections hold at most ~120 m: a bigger triangle
     made _split loop forever, a scaled-up Blender plane is 2 such triangles). Midpoints are shared between the
     triangles of an edge, so neighbours stay joined."""
-    V = [tuple(map(float, v)) for v in np.asarray(V, float)]
+    V = np.asarray(V, float); T = np.asarray(T)[:, :3].astype(np.int64)
+    if not len(T):
+        return V, T, []
+    E = np.stack([np.linalg.norm(V[T[:, 0]] - V[T[:, 1]], axis=1), np.linalg.norm(V[T[:, 1]] - V[T[:, 2]], axis=1),
+                  np.linalg.norm(V[T[:, 2]] - V[T[:, 0]], axis=1)], 1).max(1)
+    long_ = np.nonzero(E > maxlen)[0]
+    if not len(long_):                                    # (the usual case: nothing to split, no Python loop)
+        return V, T, list(range(len(T)))
+    short = np.nonzero(E <= maxlen)[0]
+    V = [tuple(v) for v in V.tolist()]
     mid = {}
     def m(a, b):
         k = (min(a, b), max(a, b))
         if k not in mid:
             mid[k] = len(V); V.append(tuple((np.array(V[a]) + np.array(V[b])) / 2))
         return mid[k]
-    out, parent = [], []
-    todo = [(tuple(int(x) for x in t[:3]), i) for i, t in enumerate(np.asarray(T))]
+    out, parent = [tuple(t) for t in T[short].tolist()], short.tolist()
+    todo = [(tuple(T[i].tolist()), int(i)) for i in long_]
     while todo:
         (a, b, c), pi = todo.pop()
         e = [(np.linalg.norm(np.subtract(V[a], V[b])), 0), (np.linalg.norm(np.subtract(V[b], V[c])), 1),
@@ -203,8 +212,7 @@ def tessellate(V, T, maxlen=50.0):
 def _prepare(V, T):
     """Triangles -> sections in tree leaf order + top tree nodes."""
     V = np.asarray(V, float); T = np.asarray(T, np.int64)
-    if len(T) and T.shape[1] == 3:
-        V, T, _ = tessellate(V, T)
+    # (add_mesh tessellates first; only plain callers need it here)
     secs = [_section(g, V) for g in _split(T, V)]
     tnodes = _simd_tree(secs)
     order = []
@@ -333,11 +341,12 @@ def read_mesh(d: bytes, shape_at: int, with_tags=False, quads=False):
     g0 = shape_at + 0x88 + a
     ta, tn = struct.unpack_from('<ii', d, shape_at + 0x60)
     tagtab = [struct.unpack_from('<IH', d, shape_at + 0x60 + ta + 8 * i) for i in range(tn)]
+    import bisect
+    valid = sorted((k, v) for k, v in tagtab if v != 0xFFFF)     # (sorted by key: a binary search per triangle)
+    vkeys = [k for k, _ in valid]
     def tag_of(key):
-        t = 0
-        for k, v in tagtab:
-            if k <= key and v != 0xFFFF: t = v
-        return t
+        i = bisect.bisect_right(vkeys, key) - 1
+        return valid[i][1] if i >= 0 else 0
     V, T, TG = [], [], []
     for s in range(n):
         g = g0 + 64 * s
