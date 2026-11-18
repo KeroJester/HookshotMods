@@ -52,7 +52,7 @@ def encode_vertices(attrs, stride, m):
     for name, fmt, off in attrs:
         dt, comps, kind = FORMATS[fmt]
         if kind == "1010102":
-            v = np.array([pack_10_10_10_2(x) for x in src[name]], "<u4") if name in src else np.zeros(n, "<u4")
+            v = pack_10_10_10_2_array(src[name]) if name in src else np.zeros(n, "<u4")
             raw = v.view(np.uint8).reshape(n, 4)
         else:
             a = np.zeros((n, comps))
@@ -89,6 +89,13 @@ def rlt_sections(d):
                     locs.append(p + 8 * (s * (nk + skip) + j))
         out.append((pos, size, locs))
     return out
+
+
+def pack_10_10_10_2_array(V, w=1):
+    """pack_10_10_10_2 for every row at once (a per-vertex Python loop took minutes for big maps)."""
+    V = np.clip(np.asarray(V, float)[:, :3], -1, 1)
+    q = (np.round(V * 511).astype(np.int64) & 0x3FF).astype(np.uint32)
+    return (q[:, 0] | (q[:, 1] << 10) | (q[:, 2] << 20) | np.uint32((w & 3) << 30)).astype("<u4")
 
 
 def pack_10_10_10_2(v, w=1):

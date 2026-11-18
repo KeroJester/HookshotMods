@@ -232,7 +232,7 @@ def collision_files(game, banc, mod_dir, collision, report):
     _, rel, base, tag0, q, tr, sc, mesh, layer = best
     x, y, z, w = q
     qi = (-x, -y, -z, w)                                     # (world -> instance: inverse rotation, then 1/scale)
-    Vl = np.array([bphsc._quat_rotate(qi, v - tr) for v in V]) / sc
+    Vl = bphsc.quat_rotate_many(qi, V - tr) / sc
     empty = os.path.exists(os.path.join(mod_dir, 'ootr_compound', f'{banc}.empty'))
     V0, T0 = np.asarray(mesh[0], float), np.asarray(mesh[1], int)
     tags0 = list(mesh[2]) if len(mesh) > 2 and mesh[2] is not None else None

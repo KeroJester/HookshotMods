@@ -47,6 +47,13 @@ def _quat_rotate(q, v):
     return v + 2 * np.cross(u, np.cross(u, v) + w * v)
 
 
+def quat_rotate_many(q, V):
+    """_quat_rotate for every row of V at once."""
+    x, y, z, w = q
+    u = np.array([x, y, z], float); V = np.asarray(V, float).reshape(-1, 3)
+    return V + 2 * np.cross(u, np.cross(u, V) + w * V)
+
+
 def box_mesh(half=0.25):
     """A closed box (12 triangles, counter-clockwise from outside) around the origin."""
     h = half
@@ -78,7 +85,7 @@ def rebuild_layer(tag0: bytes, shapes: Dict[int, tuple]) -> bytes:
         q = struct.unpack_from("<4f", inst[k], 0)
         tr = np.array(struct.unpack_from("<3f", inst[k], 0x10))
         sc = np.array(struct.unpack_from("<3f", inst[k], 0x20))
-        W = np.array([_quat_rotate(q, np.asarray(v) * sc) for v in np.asarray(V, float)]) + tr
+        W = quat_rotate_many(q, np.asarray(V, float) * sc) + tr
         boxes.append((W.min(0), W.max(0)))
     tree_nodes = _instance_tree(boxes)
     o_tree = td.put("hkcdSimdTreeNamespace::Node", b"".join(tree_nodes), len(tree_nodes))
@@ -157,7 +164,7 @@ def patch_layer(tag0: bytes, shapes: Dict[int, tuple]) -> bytes:
             if V is None:                                   # (not a mesh: keep its old tree box)
                 V = None
         if V is not None:
-            W = np.array([_quat_rotate(q, np.asarray(v) * sc) for v in np.asarray(V, float)]) + tr
+            W = quat_rotate_many(q, np.asarray(V, float) * sc) + tr
             boxes.append((W.min(0), W.max(0)))
         else:
             boxes.append(None)
@@ -201,7 +208,7 @@ def rebuild_layer2(tag0: bytes, shapes: Dict[int, tuple]) -> bytes:
         V = m[0]
         q = struct.unpack_from("<4f", inst[k], 0)
         tr = np.array(struct.unpack_from("<3f", inst[k], 0x10)); sc = np.array(struct.unpack_from("<3f", inst[k], 0x20))
-        W = np.array([_quat_rotate(q, np.asarray(v) * sc) for v in np.asarray(V, float)]) + tr
+        W = quat_rotate_many(q, np.asarray(V, float) * sc) + tr
         boxes.append((W.min(0), W.max(0)))
     td = phsh.Data(t)
     o_comp = td.put("hknpCompoundShape", bytes(comp), 1, 0x10)

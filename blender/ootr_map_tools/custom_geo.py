@@ -103,9 +103,12 @@ def gather_custom(context, root):
                     mat = ob.material_slots[mi].material if mi < len(ob.material_slots) else None
                     key = mat.name if mat else 'Default'
                     if key not in images: images[key] = _material_image(mat)
-                    k = int(sel.sum())
-                    meshes.append(dict(name=f'{ob.name}_{key}'.replace(' ', '_'), material=key, pos=P[sel], nrm=N[sel],
-                                       uv=uv[sel], tris=np.arange(k).reshape(-1, 3)))
+                    Ps, Ns, Us = P[sel], N[sel], uv[sel]
+                    # (corners with the same position, normal and UV become one vertex: 3-6x fewer vertices)
+                    keyrows = np.c_[np.round(Ps, 4), np.round(Ns, 3), np.round(Us, 5)]
+                    _, first, inv = np.unique(keyrows, axis=0, return_index=True, return_inverse=True)
+                    meshes.append(dict(name=f'{ob.name}_{key}'.replace(' ', '_'), material=key, pos=Ps[first], nrm=Ns[first],
+                                       uv=Us[first], tris=inv.reshape(-1).reshape(-1, 3)))
         finally:
             ev.to_mesh_clear()
     collision = (np.concatenate(colV), np.concatenate(colT)) if colV else None
