@@ -36,14 +36,18 @@ def group_of(category):
     return ' - '.join(parts[:2])
 
 
-def build(game, only=None, log=print, previews=True):
-    """only: a set of group names to (re)build, or None for all. Writes <library>/<group>.blend files."""
+def build(game, only=None, log=print, previews=True, rebuild=False):
+    """only: a set of group names to (re)build, or None for all (groups already built are skipped unless rebuild).
+    Writes <library>/<group>.blend files."""
+    bpy.context.preferences.filepaths.save_version = 0      # (no .blend1 backups next to the library files)
     folder = library_dir()
     cat, tpl = save_index(game, folder)
     write_catalogs(folder, [e['category'] for e in cat])
     groups = {}
     for e in cat: groups.setdefault(group_of(e['category']), []).append(e)
-    names = sorted(g for g in groups if only is None or g in only)
+    def built(g):
+        return os.path.exists(os.path.join(folder, f'{g.replace("/", "-")}.blend'))
+    names = sorted(g for g in groups if ((g in only) if only is not None else (rebuild or not built(g))))
     log(f'{len(cat)} actors in {len(groups)} groups; building {len(names)}')
     t0 = time.time()
     for gi, name in enumerate(names):

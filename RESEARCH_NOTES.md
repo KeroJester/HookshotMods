@@ -3156,3 +3156,25 @@ A checklist for the next map (North / East / West Clock Town, other MM3D scenes)
   <mods>/<enabled mod>/rstb.txt and raises those entries with its own (the one size table the game reads; a mod's own
   table copy would undo MajoraMod's). Verified: Market_Child_Dynamic 77928 -> 90112, 37 / 21 new actors load.
   On Longshot the size table is read before the layer starts: a new request applies from the next launch.
+
+## §86. New placements: layers, flags, enemies (2026-11-18)
+- **The Static layer does not load a placement without an SRTHash** (every one of the game's 120834 placements has
+  one): one new placement in Market_Adult_Static and the whole layer was missing in game (road, fences, walls; the
+  Dynamic layer's buildings stayed; screenshots/blender/09). The Dynamic layer loads them (candlesticks, enemies).
+  Export now writes every placement without an SRTHash (new, copies, moved unregistered) to the Dynamic layer
+  ("written to Dynamic" in the report). Library templates come from whatever layer the actor was first found in
+  (Enemy_SkullKid: LostWood_Adult Static), so this mattered for most enemies.
+- **Presence** = {FlagName, IsCheckLazy, IsNegation}: a flag condition for the placement (428 of 7457 templates, e.g.
+  the Enemy Museum's *_Dictionary enemies: FlagName HaveDefeatedEnemy_<enemy>). New placements drop it (always present).
+- Enemies from other maps spawn and fight: 8 new placements in the ruined Market plaza (Moblin, Like Like, Wolfos,
+  Stalchild (no template: bare {Gyaml}), Red Tektite, Keese, Octorok, Skull Kid) killed Link in seconds (11). Without
+  being registered in the compound body.
+- Places where no enemy runs: the Temple of Time approach of Market_Adult (around 34.7, 103, -24.6): even the map's own
+  Dekubaba / ReDead moved there (registered, SRTHash kept) did not appear; the same enemies in the plaza do. So "the
+  enemy is not there" can be the place, not the export.
+- A grown file over its size-table entry drops its whole layer (test mistake: a mod without rstb.txt). Longshot reads
+  the table before MajoraMod starts and uses MajoraMod's saved copy (mods/<MajoraMod>/romfs/System/Resource/...
+  rsizetable.zs, written at the previous launch); export now raises the requested entries in that copy too (only
+  raises; MajoraMod rewrites the same sizes when it starts), so the first Play after an export works. No MajoraMod
+  enabled: the report says the grown files will not load.
+- Library builds: one at a time from the sidebar button; later builds only add missing groups; no .blend1 backups.

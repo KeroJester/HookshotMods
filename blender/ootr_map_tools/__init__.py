@@ -126,20 +126,26 @@ if bpy is not None:
                                   f'({n} saves of the test profile set; press Continue at the title)')
             return {'FINISHED'}
 
+    _build_proc = None
+
     class OOTR_OT_build_library(bpy.types.Operator):
         """Build the asset library from the game files: every actor with a model as a draggable asset (runs in the
-        background; about 10 minutes the first time)"""
+        background; about 15 minutes the first time; later builds only add missing groups)"""
         bl_idname = 'ootr.build_library'
         bl_label = 'Build Asset Library'
 
         def execute(self, context):
             import subprocess
+            global _build_proc
             from .core.library import library_dir
+            if _build_proc is not None and _build_proc.poll() is None:
+                self.report({'WARNING'}, 'The asset library is already being built (progress in build.log)')
+                return {'CANCELLED'}
             os.makedirs(library_dir(), exist_ok=True)
             here = os.path.dirname(os.path.abspath(__file__))
             cmd = [bpy.app.binary_path, '-b', '--factory-startup', '--gpu-backend', 'opengl', '--python',
                    os.path.join(here, 'library_build_cli.py'), '--', prefs(context).game_folder]
-            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            _build_proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             register_library(context)
             self.report({'INFO'}, f'Building the asset library in the background: {library_dir()} (progress in build.log)')
             return {'FINISHED'}
