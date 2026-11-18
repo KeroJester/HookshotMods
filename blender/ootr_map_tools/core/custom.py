@@ -114,55 +114,91 @@ def build_pack(game, actor, project):
     return create_sarc(files)
 
 
+TILE = 128.0     # (m: a model's positions are half floats around its actor: big maps are split into tiles)
+
+
+def tile_actor(banc, k, n):
+    """Names of tile k of n: a map in one tile keeps Land_Ootr_<map>_A_01 / project Land_Ootr_<map>_A."""
+    if n == 1: return actor_name(banc)
+    return f'Land_Ootr_{banc}_T{k:02d}_01', f'Land_Ootr_{banc}_T{k:02d}'
+
+
+def _split_tiles(meshes):
+    """meshes -> {tile (ix, iz): [mesh parts]} by triangle centres on a TILE grid (x / z, game axes) that starts at
+    the map's own corner (fewest tiles)."""
+    out = {}
+    origin = np.concatenate([m['pos'] for m in meshes]).min(0)[[0, 2]]
+    for m in meshes:
+        P, T = m['pos'], np.asarray(m['tris'])
+        c = P[T].mean(1)
+        keys = np.floor((c[:, [0, 2]] - origin) / TILE).astype(int)
+        for key in {tuple(k) for k in keys.tolist()}:
+            sel = np.all(keys == key, axis=1)
+            Tk = T[sel]
+            used, inv = np.unique(Tk.reshape(-1), return_inverse=True)
+            out.setdefault(key, []).append(dict(m, pos=P[used], nrm=m['nrm'][used], uv=m['uv'][used], tris=inv.reshape(-1, 3)))
+    return out
+
+
 def write_custom(game, banc, mod_dir, meshes, images, collision):
     """meshes: [dict(name, material (key), pos (n,3) game axes, nrm (n,3), uv (n,2), tris (m,3))];
     images: {material key: RGBA uint8 [h, w, 4]}; collision: (V (n,3) game axes, T (m,3)) or None.
-    -> (report lines, {rel: decompressed bytes written}, placement dict(actor, translate) or None)."""
+    -> (report lines, {rel: decompressed bytes written}, [placement dict(actor, translate)])."""
     from ..vendor.zstd_helper import compress_zs
     bfres_build, bntx1, bphsc, phsh = _mapimport()
-    files, report, placement = {}, [], None
-    actor, project = actor_name(banc)
+    files, report, placements = {}, [], []
     if meshes:
-        allp = np.concatenate([m['pos'] for m in meshes])
-        lo, hi = allp.min(0), allp.max(0)
-        centre = (lo + hi) / 2
         keys = sorted({m['material'] for m in meshes})
         tmpl_tex = _base_read(game, TEMPLATE_TEX)
-        materials = []
-        for k in keys:
-            tname = _tex_name(banc, k)
-            files[f'Tex/{tname}.bntx.zs'] = bntx1.build(tmpl_tex, tname, _pow2_image(images[k]))
-            materials.append(dict(name=f'Mt_Ootr_{banc}_{len(materials):03d}', textures=[tname, NORMAL_TEX, ROUGH_TEX] + BAKE_TEX))
-        out_meshes = []
-        for m in meshes:                                     # (u16 indices: split into chunks of 65535 vertices)
-            P, N, U, T = m['pos'] - centre, m['nrm'], m['uv'], np.asarray(m['tris'])
-            step = 65535 // 3 * 3
-            flat = T.reshape(-1)
-            for s in range(0, len(flat), step):
-                sel = flat[s:s + step]
-                used, inv = np.unique(sel, return_inverse=True)
-                out_meshes.append(dict(name=f'{m["name"]}_{s // step}', material=keys.index(m['material']),
-                                       pos=P[used], nrm=N[used], tan=_tangents(N[used]), uv=U[used],
-                                       idx=inv.astype(np.uint16)))
-        model = bfres_build.Writer(_base_read(game, TEMPLATE_MODEL)).build(out_meshes, materials, template_shape=TEMPLATE_SHAPE)
-        files[f'Model/{project}.{FMDB}.bfres.zs'] = model
-        # (the template actor animates: the game opens Model/<project>.anim.bfres with the model, and a new project
-        #  without one crashed the pre-actor renderer: the template's animation file, under the map's project)
-        files[f'Model/{project}.anim.bfres.zs'] = _base_read(game, TEMPLATE_MODEL.split('.')[0] + '.anim.bfres.zs')
-        files[f'Pack/Actor/{actor}.pack.zs'] = build_pack(game, actor, project)
+        texname = {}
+        for k in keys:                                       # (BC7: a quarter of RGBA8, the game's own format)
+            tname = _tex_name(banc, k); texname[k] = tname
+            files[f'Tex/{tname}.bntx.zs'] = bntx1.build(tmpl_tex, tname, _pow2_image(images[k]), fmt='bc7')
+        tiles = _split_tiles(meshes)
         rows = merged_rows(game, mod_dir, ACTORINFO)
-        row = copy.deepcopy(rows[ROW_FROM])
-        row.update({'__RowId': actor, 'FmdbName': FMDB, 'ModelProjectName': project,
-                    'ModelAabbMin': {'X': float(lo[0] - centre[0]), 'Y': float(lo[1] - centre[1]), 'Z': float(lo[2] - centre[2])},
-                    'ModelAabbMax': {'X': float(hi[0] - centre[0]), 'Y': float(hi[1] - centre[1]), 'Z': float(hi[2] - centre[2])}})
-        rows[actor] = row
-        files[ACTORINFO] = write_byml([rows[k] for k in sorted(rows)])
         grows = merged_rows(game, mod_dir, GAMEACTORINFO)
-        grow = copy.deepcopy(grows[ROW_FROM]); grow['__RowId'] = actor
-        grows[actor] = grow
+        for k in [r for r in rows if r.startswith(f'Land_Ootr_{banc}_')]: rows.pop(k)      # (the previous export's tiles)
+        for k in [r for r in grows if r.startswith(f'Land_Ootr_{banc}_')]: grows.pop(k)
+        tmpl_model = _base_read(game, TEMPLATE_MODEL)
+        anim = _base_read(game, TEMPLATE_MODEL.split('.')[0] + '.anim.bfres.zs')
+        ntri = 0
+        for ti, (tkey, parts) in enumerate(sorted(tiles.items())):
+            actor, project = tile_actor(banc, ti, len(tiles))
+            allp = np.concatenate([m['pos'] for m in parts])
+            lo, hi = allp.min(0), allp.max(0)
+            centre = (lo + hi) / 2
+            mkeys = sorted({m['material'] for m in parts})
+            materials = [dict(name=f'Mt_Ootr_{banc}_{keys.index(mk):03d}', textures=[texname[mk], NORMAL_TEX, ROUGH_TEX] + BAKE_TEX)
+                         for mk in mkeys]
+            out_meshes = []
+            for m in parts:                                  # (u16 indices: chunks of 65535 vertices)
+                P, N, U, T = m['pos'] - centre, m['nrm'], m['uv'], np.asarray(m['tris'])
+                step = 65535 // 3 * 3
+                flat = T.reshape(-1)
+                for s0 in range(0, len(flat), step):
+                    sel = flat[s0:s0 + step]
+                    used, inv = np.unique(sel, return_inverse=True)
+                    out_meshes.append(dict(name=f'{m["name"]}_{len(out_meshes)}', material=mkeys.index(m['material']),
+                                           pos=P[used], nrm=N[used], tan=_tangents(N[used]), uv=U[used],
+                                           idx=inv.astype(np.uint16)))
+            files[f'Model/{project}.{FMDB}.bfres.zs'] = bfres_build.Writer(tmpl_model).build(
+                out_meshes, materials, template_shape=TEMPLATE_SHAPE)
+            # (the template actor animates: the game opens Model/<project>.anim.bfres with the model; a new project
+            #  without one crashed the pre-actor renderer)
+            files[f'Model/{project}.anim.bfres.zs'] = anim
+            files[f'Pack/Actor/{actor}.pack.zs'] = build_pack(game, actor, project)
+            row = copy.deepcopy(rows.get(ROW_FROM) or merged_rows(game, mod_dir, ACTORINFO)[ROW_FROM])
+            row.update({'__RowId': actor, 'FmdbName': FMDB, 'ModelProjectName': project,
+                        'ModelAabbMin': {'X': float(lo[0] - centre[0]), 'Y': float(lo[1] - centre[1]), 'Z': float(lo[2] - centre[2])},
+                        'ModelAabbMax': {'X': float(hi[0] - centre[0]), 'Y': float(hi[1] - centre[1]), 'Z': float(hi[2] - centre[2])}})
+            rows[actor] = row
+            grow = copy.deepcopy(grows[ROW_FROM]); grow['__RowId'] = actor
+            grows[actor] = grow
+            placements.append(dict(actor=actor, translate=tuple(float(v) for v in centre)))
+            ntri += sum(len(m['idx']) // 3 for m in out_meshes)
+        files[ACTORINFO] = write_byml([rows[k] for k in sorted(rows)])
         files[GAMEACTORINFO] = write_byml([grows[k] for k in sorted(grows)])
-        placement = dict(actor=actor, translate=tuple(float(v) for v in centre))
-        report.append(f'custom model: {len(out_meshes)} meshes, {len(keys)} materials, {sum(len(m["idx"]) // 3 for m in out_meshes)} triangles ({actor})')
+        report.append(f'custom model: {ntri} triangles, {len(keys)} materials (BC7), {len(tiles)} tile(s) of {TILE:.0f} m')
     if collision is not None and len(collision[1]):
         files.update(collision_files(game, banc, mod_dir, collision, report))
     for rel, data in files.items():
@@ -170,7 +206,7 @@ def write_custom(game, banc, mod_dir, meshes, images, collision):
         os.makedirs(os.path.dirname(p), exist_ok=True)
         with open(p, 'wb') as f:
             f.write(compress_zs(data, rel, game.romfs) if rel.endswith('.zs') else data)
-    return report, files, placement
+    return report, files, placements
 
 
 def compound_rels(game, banc):

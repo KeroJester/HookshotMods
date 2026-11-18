@@ -3333,3 +3333,26 @@ names** (75 of 94 found in image.bin / .longshot_exefs/main strings; core/enums.
 - Audio check method: the dump is a 48 kHz stereo WAV of the whole run; compare the in-map tail between A/B builds.
 - Map Settings panel (core/mapsettings.py, mapsettings_ui.py): rendering, sky preset, sky set, clouds, effects,
   soundscape, pause map, age, Epona, Sun's Song, timer -> GameBancParam (+ GameBancInfo row for the soundscape).
+
+## §94. Big maps, custom soundscapes, zones and kill planes (2026-11-18, tests Q-W on Longshot)
+- **BC7 textures** (bntx1.build fmt='bc7', format 0x2006, bcenc.bc7_mode6, 16-byte blocks swizzled as units with
+  _mip_layout(bpb=16, bw=4, bhh=4)): 1024 x 1024 = 1.40 MB (RGBA8 5.60 MB), PSNR 51.9 dB; draws correctly (Test Q).
+- **Tiles**: custom geometry is split on a 128 m grid from the map's corner (triangle centres); tile k of n is actor
+  Land_Ootr_<map>_T<k>_01 / project Land_Ootr_<map>_T<k> (one tile keeps the old names). 300 m map = 9 tiles; Test Q
+  (16 tiles, origin-anchored) drew and was walkable.
+- **World box**: GameBancParam WorldAabbMin/Max (multiples of 125 m; SageRoom / Blank +-125, Hyrule Field +-2000).
+  Export grows it to hold the geometry (+50 m). It is NOT a kill plane (Test T: bottom 10 m under the floor, Link
+  fell forever). No void-out actor exists (Obj_Abyss_A_01 is a black "bottom" model only); void-outs must come from
+  the collision surface (material table) - next.
+- **Compound placement table** (section 1, 0x20 per placement: i32 a, i32 b (instance range; -1/-1 = none, e.g.
+  every Area), u64 placement ID, u32 hash (not CRC32 / Murmur3 / xxHash32), 12 x 0); Market: 1199 rows, all 132 Areas.
+  Sections after the layer tagfiles include **water volumes**: 0x70 records {.., 1.0, size xyz (= Scale x 10),
+  rotate xyz, translate xyz, 0x1c, 0, u64 placement ID, ...} for Obj_WaterPlane* actors.
+- **Music zones do not play** (Area + BGM_* linked as the game's): Tests N-P, R (Area given a registered ID), S
+  (BGM_House, no rail, no Dynamic), U/V (Market soundscape, with / without zone: same audio). Exports now drop the
+  template's Rails (BGM_Market's points at Market's SoundControl rail).
+- **Custom soundscapes work** (Test W): scenery Ootr_<map> {$parent, BgmName, BaseAmbientSound, ...copied from a game
+  scenery with that ambience, Label ootr_<map>} added to the loaded Bootup pack (other mods' sceneries kept, re-export
+  replaces it: _sarc_drop) + AltoConfig Scenery entry; SoundSceneryName / GameBancInfo row = the label. Music choices
+  = the 27 BgmName values of the game's sceneries. In-map audio RMS 270-1250 vs 0.
+- Blender enum items cannot have an empty identifier (dropped): 'NONE' for "No music / No ambience".

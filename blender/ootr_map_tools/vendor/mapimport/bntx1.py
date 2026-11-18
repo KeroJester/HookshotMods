@@ -18,6 +18,7 @@ import numpy as np
 from . import resdic
 
 FMT_RGBA8_SRGB = 0x0B06
+FMT_BC7_SRGB = 0x2006          # (BC7, 16 bytes per 4 x 4 block: a quarter of RGBA8; decoded as the game's own BC7)
 
 
 def _div(a, b): return (a + b - 1) // b
@@ -81,6 +82,34 @@ def _swizzle(img: np.ndarray, bh_log2_base: int, level: int) -> bytes:
     return out.tobytes()
 
 
+def _swizzle_units(units: np.ndarray, bh_log2_base: int) -> bytes:
+    """Block-linear bytes of one mip whose units (pixels, or 4 x 4 blocks of a compressed format) are
+    units[hu, wu, bpb] (the same GOB layout as _swizzle, with bpb bytes per unit)."""
+    h, w, bpb = units.shape
+    bh = 1 << bh_log2_base
+    while bh > 1 and _div(h, 8) <= bh // 2:
+        bh //= 2
+    gobs_x = _div(w * bpb, 64)
+    size = gobs_x * 512 * _div(h, 8 * bh) * bh
+    out = np.zeros(size, np.uint8)
+    for k in range(bpb):
+        X, Y = np.meshgrid(np.arange(w) * bpb + k, np.arange(h))
+        gob_in = (((X & 63) >> 5) << 8) | (((Y & 7) >> 2) << 7) | (((X & 31) >> 4) << 6) | \
+                 (((Y >> 1) & 1) << 5) | ((Y & 1) << 4) | (X & 15)
+        block = (Y // (8 * bh)) * gobs_x * bh + (X // 64) * bh + (Y % (8 * bh)) // 8
+        out[block * 512 + gob_in] = units[:, :, k]
+    return out.tobytes()
+
+
+def _bc7_units(img: np.ndarray) -> np.ndarray:
+    from .bcenc import bc7_mode6
+    h, w = img.shape[:2]
+    H, W = _div(h, 4) * 4, _div(w, 4) * 4
+    if (H, W) != (h, w):                                   # (small mips: padded to whole blocks)
+        img = np.pad(img, ((0, H - h), (0, W - w), (0, 0)), mode='edge')
+    return bc7_mode6(img)
+
+
 def mip_chain(img: np.ndarray, levels: int):
     out = [img]
     for _ in range(1, levels):
@@ -92,8 +121,9 @@ def mip_chain(img: np.ndarray, levels: int):
     return out
 
 
-def build(template: bytes, name: str, img: np.ndarray) -> bytes:
-    """template: a decompressed one-texture BNTX; img: RGBA8 [h, w, 4] (power-of-two sides). -> BNTX bytes"""
+def build(template: bytes, name: str, img: np.ndarray, fmt: str = 'rgba8') -> bytes:
+    """template: a decompressed one-texture BNTX; img: RGBA8 [h, w, 4] (power-of-two sides); fmt 'rgba8' or 'bc7'.
+    -> BNTX bytes"""
     d = bytearray(template)
     brti = d.find(b"BRTI")
     brtd = struct.unpack_from("<Q", d, 0x30)[0]
@@ -107,18 +137,19 @@ def build(template: bytes, name: str, img: np.ndarray) -> bytes:
     resdic.write(d, dic, [name.encode()], [name_ptr], root_ptr)
     h, w = img.shape[:2]
     mips = max(1, int(np.log2(max(w, h))) + 1)
-    sizes, bh_log2 = _mip_layout(w, h, mips)
+    bc7 = fmt == 'bc7'
+    sizes, bh_log2 = _mip_layout(w, h, mips, bpb=16, bw=4, bhh=4) if bc7 else _mip_layout(w, h, mips)
     chain = mip_chain(img, mips)
     data = bytearray()
     offs = []
     for lv, m in enumerate(chain):
         offs.append(len(data))
-        data += _swizzle(m, bh_log2, lv)
+        data += _swizzle_units(_bc7_units(m), bh_log2) if bc7 else _swizzle(m, bh_log2, lv)
         data += b"\0" * ((-len(data)) % 512)
     image_size = len(data)
     # BRTI
     struct.pack_into("<H", d, brti + 0x16, mips)
-    struct.pack_into("<I", d, brti + 0x1c, FMT_RGBA8_SRGB)
+    struct.pack_into("<I", d, brti + 0x1c, FMT_BC7_SRGB if bc7 else FMT_RGBA8_SRGB)
     struct.pack_into("<ii", d, brti + 0x24, w, h)
     struct.pack_into("<i", d, brti + 0x34, bh_log2)
     struct.pack_into("<II", d, brti + 0x50, image_size, 0x200)

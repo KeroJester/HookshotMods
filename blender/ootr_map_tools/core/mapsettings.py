@@ -51,7 +51,9 @@ def read_settings(game, banc):
         sky_preset=os.path.basename(wrel).split('.')[0] if wrel else '',
         clouds=name_of(g['CloudEnvType']) if 'CloudEnvType' in g else 'None',
         effects=name_of(g['EnvEffectType']) if 'EnvEffectType' in g else 'None',
-        soundscape=sc['name'] if sc else 'None',
+        soundscape=('Custom' if sc['name'].startswith('Ootr_') else sc['name']) if sc else 'None',
+        custom_music=(sc['bgm'] or 'NONE') if sc else 'NONE',
+        custom_ambience=(sc['ambient'] or 'NONE') if sc else 'NONE',
         map_location=name_of(g['WorldMapLocationType']) if 'WorldMapLocationType' in g else 'None',
         age=age,
         horse=bool(g.get('IsEnableRide', False)),
@@ -90,6 +92,14 @@ def write_settings(game, banc, mod_dir, changes):
             else:
                 own['IsForceSwitchChildOrAdult'] = True
                 own['IsChildWhenChangeBanc'] = own['IsChildWhenInitializingScene'] = (v == 'child')
+        elif k == 'soundscape' and isinstance(v, tuple):          # ('Custom', music, ambience): the map's own
+            from .sound import write_soundscape
+            music, amb = (None if x in ('', 'NONE') else x for x in v[1:3])
+            sfiles, label = write_soundscape(game, banc, music, amb)
+            files.update(sfiles)
+            own['SoundSceneryName'] = label
+            files.update(_set_row(game, banc, mod_dir, {'SoundSceneryName': label}))
+            v = f'own (music {music or "none"}, ambience {amb or "none"})'
         elif k == 'soundscape':
             sc = sceneries(game).get(v)
             if sc:
@@ -103,6 +113,35 @@ def write_settings(game, banc, mod_dir, changes):
         with open(p, 'wb') as f:
             f.write(compress_zs(data, rel, game.romfs) if rel.endswith('.zs') else data)
     return files, report
+
+
+WORLD_STEP = 125      # (the game's world boxes are multiples of 125 m: +-125 (SageRoom) .. +-2000 (Hyrule Field))
+
+
+def ensure_world_box(game, banc, mod_dir, lo, hi, margin=50.0):
+    """Grows the map's physics world box (GameBancParam WorldAabbMin / Max) to hold geometry lo..hi (game axes, with a
+    margin); a Blank map inherits the Chamber of Sages' +-125 m. Never shrinks it. -> report lines."""
+    import math
+    from ..vendor.zstd_helper import compress_zs
+    rel, own, res = banc_param(game, banc)
+    cur_lo = res.get('WorldAabbMin') or {'X': -WORLD_STEP, 'Y': -WORLD_STEP, 'Z': -WORLD_STEP}
+    cur_hi = res.get('WorldAabbMax') or {'X': WORLD_STEP, 'Y': WORLD_STEP, 'Z': WORLD_STEP}
+    new_lo, new_hi, grew = dict(cur_lo), dict(cur_hi), False
+    for i, ax in enumerate('XYZ'):
+        need_lo = math.floor((float(lo[i]) - margin) / WORLD_STEP) * WORLD_STEP
+        need_hi = math.ceil((float(hi[i]) + margin) / WORLD_STEP) * WORLD_STEP
+        if need_lo < cur_lo[ax]: new_lo[ax] = int(need_lo); grew = True
+        if need_hi > cur_hi[ax]: new_hi[ax] = int(need_hi); grew = True
+    if not grew: return []
+    own = copy.deepcopy(own)
+    own['WorldAabbMin'], own['WorldAabbMax'] = new_lo, new_hi
+    p = os.path.join(mod_dir, 'romfs', rel)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    data = write_byml(own)
+    with open(p, 'wb') as f:
+        f.write(compress_zs(data, rel, game.romfs) if rel.endswith('.zs') else data)
+    return [f'world box grown to {new_lo} .. {new_hi} (the map\'s geometry reaches {tuple(round(float(v)) for v in lo)} .. '
+            f'{tuple(round(float(v)) for v in hi)})']
 
 
 def _set_row(game, banc, mod_dir, values):

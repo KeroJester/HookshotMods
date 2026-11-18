@@ -35,11 +35,22 @@ def _keep(key, items):
 
 def _items_soundscape(self, context):
     from .core.sound import soundscapes
-    out = [('None', 'Silence', 'No music, no ambience')]
+    out = [('None', 'Silence', 'No music, no ambience'),
+           ('Custom', 'Custom', 'This map\'s own soundscape: any map music with any ambience')]
     for s in _list(context, 'soundscapes', soundscapes):
         music = _pretty(s['bgm']) if s['bgm'] else 'no music'
         out.append((s['name'], _pretty(s['name']), f'Music: {music}; ambience: {s["ambient"] or "none"} ({s["label"]})'))
     return _keep('soundscape', out)
+
+
+def _items_music(self, context):
+    from .core.sound import music_choices
+    return _keep('music', [('NONE', 'No music', '')] + [(n, _pretty(n), n) for n in _list(context, 'music', music_choices)])
+
+
+def _items_ambience(self, context):
+    from .core.sound import ambience_choices
+    return _keep('ambience', [('NONE', 'No ambience', '')] + [(n, _pretty(n.replace('Amb_', '')), n) for n in _list(context, 'ambience', ambience_choices)])
 
 
 def _items_sky(self, context):
@@ -79,6 +90,9 @@ class OOTR_MapSettings(bpy.types.PropertyGroup):
                           description='Particles and effects of an area (dust, leaves, embers, snow, ...)')
     soundscape: EnumProperty(name='Soundscape', items=_items_soundscape,
                              description='The map\'s music and ambience (zones can play other music locally)')
+    custom_music: EnumProperty(name='Music', items=_items_music, description='The music of the map\'s own soundscape')
+    custom_ambience: EnumProperty(name='Ambience', items=_items_ambience,
+                                  description='The background ambience of the map\'s own soundscape')
     map_location: EnumProperty(name='Pause Map', items=_enum('WorldMapLocationType', 'Not on the map'),
                                description='Where the map shows on the pause screen\'s world map')
     age: EnumProperty(name='Link\'s Age', items=[('keep', 'Keep', 'Link stays the age he enters with'),
@@ -88,8 +102,8 @@ class OOTR_MapSettings(bpy.types.PropertyGroup):
     sun_song: BoolProperty(name='Sun\'s Song Changes Time')
     timer: BoolProperty(name='Timer Counts Down')
 
-    FIELDS = ('rendering', 'envset', 'sky_preset', 'clouds', 'effects', 'soundscape', 'map_location', 'age', 'horse',
-              'sun_song', 'timer')
+    FIELDS = ('rendering', 'envset', 'sky_preset', 'clouds', 'effects', 'soundscape', 'custom_music', 'custom_ambience',
+              'map_location', 'age', 'horse', 'sun_song', 'timer')
 
     def load(self, banc, values):
         self.banc = banc
@@ -152,6 +166,8 @@ class OOTR_PT_map_settings(bpy.types.Panel):
         box.prop(m, 'sky_preset'); box.prop(m, 'envset'); box.prop(m, 'clouds'); box.prop(m, 'effects')
         box = lay.box(); box.label(text='Sound', icon='SPEAKER')
         box.prop(m, 'soundscape')
+        if m.soundscape == 'Custom':
+            col = box.column(align=True); col.prop(m, 'custom_music'); col.prop(m, 'custom_ambience')
         ob = context.active_object
         if ob is not None and getattr(ob, 'ootr_sound', None) is not None and ob.ootr_sound.kind != 'none':
             from .sound_ui import draw_object

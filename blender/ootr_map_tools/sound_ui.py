@@ -114,7 +114,7 @@ def gather_sound(context, root):
         centre, rot, size = game_box(ob)
         key = f'ootr_sound_{ob.name}'
         if p.kind in ('music', 'ambience'):
-            edits.append(Edit(0, 'Dynamic', centre, rot, size, 'Area', key=key + '_area', dynamic={'RigidBodyShapeType': 1}))   # (1: box, the Area default)
+            edits.append(Edit(0, 'Dynamic', centre, rot, size, 'Area', key=key + '_area'))   # (a box: the Area default, as the game's own)
             if p.kind == 'music' and p.track:
                 edits.append(Edit(0, 'Dynamic', centre, (0.0, 0.0, 0.0), (1.0, 1.0, 1.0), p.track,
                                   links=[('Reference', key + '_area')]))

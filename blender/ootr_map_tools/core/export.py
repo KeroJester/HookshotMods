@@ -183,7 +183,7 @@ def new_placement(game, actor):
         _templates[game.romfs] = template_index(game)
     t = _templates[game.romfs].get(actor)
     a = copy.deepcopy(t['placement']) if t else {'Gyaml': actor}
-    for k in ('Links', 'SRTHash', 'Hash', 'Translate', 'Rotate', 'Scale', 'Presence'):   # (Presence: a flag condition)
+    for k in ('Links', 'SRTHash', 'Hash', 'Translate', 'Rotate', 'Scale', 'Presence', 'Rails'):   # (Presence: a flag condition; Rails: the template map's rails)
         a.pop(k, None)
     a['Gyaml'] = actor
     return a

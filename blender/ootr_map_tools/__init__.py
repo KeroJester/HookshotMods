@@ -201,12 +201,18 @@ if bpy is not None:
         edits += sound_ui.gather_sound(context, root)        # (music / ambience zones, emitters)
         meshes, images, collision = custom_geo.gather_custom(context, root)
         if meshes or collision is not None:
-            rep, files, placement = write_custom(game, banc, mod, meshes, images, collision)
+            rep, files, placements = write_custom(game, banc, mod, meshes, images, collision)
             lines += rep + update_size_requests(game, mod, {k: v for k, v in files.items() if k.startswith(('RSDB/', 'Phive/', 'Model/', 'Tex/', 'Pack/'))})
-            mine = actor_name(banc)[0]
-            edits = [e for e in edits if e.actor != mine]          # (the previous custom model is replaced)
-            if placement:
-                edits.append(Edit(0, 'Dynamic', placement['translate'], (0.0, 0.0, 0.0), (1.0, 1.0, 1.0), placement['actor']))
+            if placements:                                     # (the previous custom model tiles are replaced)
+                edits = [e for e in edits if not (e.actor or '').startswith(f'Land_Ootr_{banc}_')]
+            for pl in placements:
+                edits.append(Edit(0, 'Dynamic', pl['translate'], (0.0, 0.0, 0.0), (1.0, 1.0, 1.0), pl['actor']))
+            import numpy as np
+            pts = [m['pos'] for m in meshes] + ([np.asarray(collision[0])] if collision is not None and len(collision[0]) else [])
+            if pts:                                            # (big maps: the physics world must hold them)
+                from .core.mapsettings import ensure_world_box
+                allp = np.concatenate(pts)
+                lines += ensure_world_box(game, banc, mod, allp.min(0), allp.max(0))
         lines = write_mod(game, banc, edits, mod, root.get('ootr_folder') or None) + lines
         lights = lighting.gather_lights(context, root)
         env = lighting.gather_env(context, banc)
@@ -216,9 +222,11 @@ if bpy is not None:
         m = context.scene.ootr_map
         if m.banc == banc and m.changes():                    # (Map Settings: after lighting, both write GameBancParam)
             from .core.mapsettings import write_settings
-            from .core.game import Game
-            g2 = Game(game.folder, overlays=[mod])
-            files, rep = write_settings(g2, banc, mod, m.changes())
+            ch = m.changes()
+            if m.soundscape == 'Custom' and any(k in ch for k in ('soundscape', 'custom_music', 'custom_ambience')):
+                ch['soundscape'] = ('Custom', m.custom_music, m.custom_ambience)
+            ch.pop('custom_music', None); ch.pop('custom_ambience', None)
+            files, rep = write_settings(game, banc, mod, ch)      # (the game as the game sees it: every enabled mod)
             lines += rep + update_size_requests(game, mod, files)
             m.original = __import__('json').dumps(m.values())
             if env is not None:

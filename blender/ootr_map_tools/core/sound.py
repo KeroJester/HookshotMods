@@ -36,7 +36,78 @@ def sceneries(game):
 
 def soundscapes(game):
     """Map-wide soundscapes (not the Area_* zone presets), sorted, with what they play."""
-    return [s for n, s in sorted(sceneries(game).items()) if not n.startswith('Area_') and n != 'Base']
+    return [s for n, s in sorted(sceneries(game).items()) if not n.startswith(('Area_', 'Ootr_')) and n != 'Base']
+
+
+def music_choices(game):
+    """Map music a soundscape can name: the BgmName values of the game's sceneries (each one matches a bgm.byml
+    start condition)."""
+    return sorted({s['bgm'] for s in sceneries(game).values() if s['bgm']})
+
+
+def ambience_choices(game):
+    return sorted({s['ambient'] for s in sceneries(game).values() if s['ambient']})
+
+
+BOOTUP = 'Pack/Bootup.Nin_Ounce_NVN2.pack.zs'
+ALTO = 'Sound/Product.111.alto__AltoConfig.bgyml'
+
+
+def custom_name(banc):
+    return f'Ootr_{banc}'
+
+
+def write_soundscape(game, banc, music, ambience):
+    """A map's own soundscape: scenery Ootr_<map> {BgmName: music, BaseAmbientSound: ambience} (the rest copied
+    from a game scenery with that ambience) added to the Bootup pack the game would load (other mods' sceneries
+    kept) and to the AltoConfig scenery list. -> ({rel: bytes}, label)."""
+    import struct
+    from ..vendor.byml import write_byml
+    from ..vendor.zstd_helper import unpack_sarc_to_dict
+    from .lights import sarc_add_many
+    name = custom_name(banc)
+    rel = f'Sound/Scenery/{name}.game__sound__SceneryParam.bgyml'
+    pk_raw = game.read(BOOTUP)
+    pk = unpack_sarc_to_dict(pk_raw)
+    base = next((s for s in sceneries(game).values() if ambience and s['ambient'] == ambience and not s['name'].startswith('Ootr_')), None) \
+        or sceneries(game).get('HyruleField_Child') or next(iter(sceneries(game).values()))
+    sc = dict(parse_byml(pk[f'Sound/Scenery/{base["name"]}.game__sound__SceneryParam.bgyml']))
+    label = f'ootr_{banc}'
+    sc['Label'] = label
+    if music: sc['BgmName'] = music
+    else: sc.pop('BgmName', None)
+    if ambience: sc['BaseAmbientSound'] = ambience
+    else: sc.pop('BaseAmbientSound', None)
+    blob = write_byml(sc)
+    if rel in pk:                                  # (re-export: the pack without our old copy, then ours)
+        pk_raw = _sarc_drop(pk_raw, rel)
+    files = {BOOTUP: sarc_add_many(pk_raw, {rel: blob})}
+    alto = dict(parse_byml(game.read(ALTO)))
+    work = 'Work/' + rel.replace('.bgyml', '.gyml')
+    if work not in alto['Scenery']:
+        alto['Scenery'] = list(alto['Scenery']) + [work]
+    files[ALTO] = write_byml(alto)
+    _sceneries.cache_clear()
+    return files, label
+
+
+def _sarc_drop(d, name):
+    """The SARC without one file's node (its bytes stay as unused padding; every other offset unchanged)."""
+    import struct
+    from ..vendor.zstd_helper import sarc_hash
+    h = sarc_hash(name)
+    dstart = struct.unpack_from('<I', d, 0xc)[0]
+    n = struct.unpack_from('<H', d, 0x1a)[0]
+    nodes = [struct.unpack_from('<IIII', d, 0x20 + 16 * i) for i in range(n)]
+    keep = [x for x in nodes if x[0] != h]
+    sfnt = 0x20 + 16 * n
+    strs = d[sfnt + 8:dstart]
+    out = bytearray(d[:0x14]) + struct.pack('<4sHHI', b'SFAT', 0x0C, len(keep), struct.unpack_from('<I', d, 0x1c)[0])
+    for x in keep: out += struct.pack('<IIII', *x)
+    out += struct.pack('<4sHH', b'SFNT', 8, 0) + strs
+    out += b'\0' * (dstart - len(out)) + d[dstart:]
+    struct.pack_into('<I', out, 8, len(out))
+    return bytes(out)
 
 
 def zone_ambiences(game):
