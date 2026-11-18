@@ -97,7 +97,11 @@ def launch(game_folder, profile):
     exe = game_binary(game_folder)
     flags = {'creationflags': 0x00000008} if sys.platform == 'win32' else {'start_new_session': True}   # (detached)
     log = open(log_path(profile), 'wb')               # (the game's output: why a map does not load)
-    return subprocess.Popen([exe, '--user', profile], cwd=game_folder, stdout=log, stderr=subprocess.STDOUT, **flags)
+    from .game import Game
+    from .runtime import layer_env                    # (the code mods: BlenderMod, MajoraMod, ...)
+    env = layer_env(Game(game_folder))
+    return subprocess.Popen([exe, '--user', profile], cwd=game_folder, stdout=log, stderr=subprocess.STDOUT, env=env,
+                            **flags)
 
 
 def log_path(profile=None):

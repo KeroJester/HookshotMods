@@ -227,13 +227,9 @@ TABLE = 'System/Resource/ResourceSizeTable.Product.111.Nin_Ounce_NVN2.rsizetable
 
 
 def majora_dir(game):
-    """The enabled MajoraMod folder in the game's mods folder (None if it is missing or disabled)."""
-    import glob
-    for d in sorted(glob.glob(os.path.join(game.folder, 'mods', '*'))):
-        n = os.path.basename(d)
-        if os.path.isdir(d) and n[:1] not in '_-' and n.endswith('MajoraMod'):
-            return d
-    return None
+    """The mod whose size table copy the game reads (MajoraMod 0.4.2+ when enabled, else BlenderMod: core/runtime.py)."""
+    from .runtime import table_owner
+    return table_owner(game)
 
 
 def apply_to_majora_table(game, lines):

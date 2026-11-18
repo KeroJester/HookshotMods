@@ -3262,3 +3262,14 @@ A checklist for the next map (North / East / West Clock Town, other MM3D scenes)
   model inside keeps the template's name), the template's .anim under the project, a GameActorInfo row, the template
   actor's pack components (AS, dummy animation, event performer; no physics). Whether those last three are needed is
   untested. Also: the runtime crash took the Claude Code session down each time (also with setsid); no cause found.
+
+## §90. BlenderMod (2026-11-18)
+- plugins/blender_mod: a Vulkan layer (MajoraMod's layer.cpp renamed) + blendermod.cpp: reads every enabled mod's
+  rstb.txt, rstb::Require each, rstb::Start (raise / add entries, serve + write its table copy), vfs::Start. When an
+  enabled *MajoraMod is 0.4.2+ it removes its own table copy and does nothing (one size table: the last mod wins
+  whole files). Built and stripped by blender/build_addon.sh into the add-on (ootr_map_tools/blendermod/, not in git:
+  Linux .so 0.36 MB, Windows .dll 1.4 MB); the add-on installs / updates it as mods/065-BlenderMod
+  (core/runtime.py ensure_blendermod) and writes size entries into the table owner's copy (MajoraMod 0.4.2+ or
+  BlenderMod). The Play button now sets VK_ADD_LAYER_PATH / VK_INSTANCE_LAYERS for the enabled code mods
+  (runtime.layer_env, as the manager). Verified on Longshot with MajoraMod 0.4.2 enabled: BlenderMod defers, the custom
+  plane renders (test I). BlenderMod alone (no MajoraMod) not run in game yet.

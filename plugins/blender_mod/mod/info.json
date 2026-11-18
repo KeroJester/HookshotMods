@@ -1,0 +1,18 @@
+{
+  "name": "BlenderMod",
+  "author": "KeroJester",
+  "version": "0.1.0",
+  "description": "Runtime support for maps made with OoT Remake Map Tools for Blender: raises and adds the resource size table entries the maps' new and grown files need (each mod's rstb.txt). Steps aside when MajoraMod 0.4.2 or later is enabled (it does the same). Start the game from Hookshot Mods or the Blender add-on's Play button for it to load.",
+  "category": "Tools",
+  "homepage": "https://github.com/KeroJester/HookshotMods",
+  "code": {
+    "vulkan_layer": {
+      "name": "VK_LAYER_HOOKSHOT_blender_mod",
+      "linux": "layer/linux",
+      "windows": "layer/windows"
+    }
+  },
+  "keep": [
+    "romfs/System/Resource/ResourceSizeTable.Product.111.Nin_Ounce_NVN2.rsizetable.zs"
+  ]
+}

@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "ootr_map_tools"
-version = "0.9.0"
+version = "0.10.0"
 name = "OoT Remake Map Tools"
 tagline = "Load Ocarina of Time remake maps into Blender"
 maintainer = "KeroJester"

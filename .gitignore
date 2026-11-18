@@ -23,3 +23,6 @@ __pycache__/
 # App builds
 /build/
 /dist/
+
+# built by blender/build_addon.sh
+blender/ootr_map_tools/blendermod/
