@@ -3109,3 +3109,27 @@ A checklist for the next map (North / East / West Clock Town, other MM3D scenes)
     (Link stands below the floor). NPCs such as the mask shop keeper return to their AI spot (moved placement
     ignored visually). Export rule (core/export.py): SRTHash dropped for moved unregistered actors and every copy.
   - Copies get a new Hash and Phive ID: shown, no collision (compound not extended).
+
+## §84. Blender map tools: textures, Eevee look, Play in game (2026-11-18)
+- Textures: core/textures.py un-swizzles Tex/<name>.bntx (vendor bntx, array textures read at layer 0) and decodes
+  with texture2ddecoder 1.0.6 (MIT, abi3 wheels for cp311+: Linux x64 + Windows x64 bundled in the extension's
+  wheels/; decode_astc / decode_bc1..7 return BGRA at the block-padded size). Formats: most _Alb / _Nrm are ASTC (5x5,
+  6x6, 8x5, 8x6...), _Rgh BC4, some BC5/BC7/BC6H/RGBA8. Two-channel normal maps get Z rebuilt. PNG cache in
+  ~/.cache/ootr_map_tools/textures (LOCALAPPDATA on Windows). ASTC albedo 0.02 s, normal 0.07 s.
+- Material samplers: _a0 albedo, _n0 normal, _rgh0 roughness, _rah0 roughness/AO/height, _mt0 metal, _ao0 AO, _em0
+  emission; index 1/2 = blend layers; materials blending the terrain arrays (ta MaterialAlb / tc MaterialCmb) often
+  carry their own layer only as _a1 (fallback: lowest layer index). Terrain-array materials (Mt_TerraMaterial_*) and
+  NPC textures (not in Tex/) are still untextured. models.py builds Principled BSDF (alpha clip only for albedo alpha
+  that cuts out), water materials translucent. Kakariko textured imports in ~10 s once cached.
+- Eevee environment (scene.setup_environment): sun from WorldParam MainLightAzimuth / Elevation (azimuth convention
+  still to calibrate against in-game shadows), Sky texture world, AgX view.
+- **Play in game without game code:** progress.sav = {u32 0x01020304, u32 version hash, u32 data offset} + {u32 key
+  hash, u32 value} pairs (types from GameData/GameDataList.Product.110: names are hashes only; non-4-byte values are
+  offsets into the data part). Current map: String64 key 0x1d6189da ("Market_Child"); saved position: Vector3 keys
+  0xc884818d, 0x8773f02d, 0x960ad56a. Changing only the map hangs the load (the old map's position); map + positions
+  -> Link spawns there (Kakariko default start, then a door chosen with Blender's 3D cursor: screenshots/blender/06_*).
+  A map's '' StartPos is not used by a save load. core/play.py: copies <game folder>/user to a test profile
+  (~/.cache/ootr_map_tools/play_user, rebuilt each time; the original is only read), patches every slot, starts
+  bin/longshot (or bin/hookshot) --user <profile> from the game folder (not the folder's launcher script, which hands
+  over to the Longshot Launcher). Operator Play in Game (sidebar OoT tab): exports the edits, then launches at the 3D
+  cursor; the title's Continue loads it.

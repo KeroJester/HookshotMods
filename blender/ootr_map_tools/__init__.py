@@ -92,13 +92,61 @@ if bpy is not None:
             self.report({'WARNING'} if warn else {'INFO'}, '; '.join(l for l in lines if l.startswith(('Static:', 'Dynamic:'))) + (f' ({len(warn)} static warnings, see the console)' if warn else ''))
             return {'FINISHED'}
 
+    class OOTR_OT_play(bpy.types.Operator):
+        """Export the map's edits, then start the game in this map at the 3D cursor (separate test profile)"""
+        bl_idname = 'ootr.play'
+        bl_label = 'Play in Game'
+        root: EnumProperty(name='Map', items=root_items)
+        mod_name: StringProperty(name='Mod folder', default='075-MapEdits')
+
+        def invoke(self, context, event):
+            from . import scene
+            roots = scene.map_roots(context)
+            if len(roots) > 1:
+                return context.window_manager.invoke_props_dialog(self)
+            return self.execute(context)
+
+        def execute(self, context):
+            from . import scene
+            from .core.game import Game
+            from .core.export import write_mod
+            from .core.play import play
+            roots = scene.map_roots(context)
+            if not roots:
+                self.report({'ERROR'}, 'Import a map first'); return {'CANCELLED'}
+            root = bpy.data.collections[self.root] if self.root not in ('', 'NONE') and self.root in bpy.data.collections else roots[0]
+            game = Game(prefs(context).game_folder)
+            banc = root['ootr_banc']
+            lines = write_mod(game, banc, scene.gather_edits(root), os.path.join(game.folder, 'mods', self.mod_name),
+                              root.get('ootr_folder') or None)
+            for line in lines: print('[ootr play]', line)
+            pos = tuple(scene.GAME_TO_BLENDER.inverted() @ context.scene.cursor.location)
+            profile, n, _proc = play(game.folder, banc, pos)
+            self.report({'INFO'}, f'{banc}: starting the game at {tuple(round(v, 1) for v in pos)} '
+                                  f'({n} saves of the test profile set; press Continue at the title)')
+            return {'FINISHED'}
+
+    class OOTR_PT_panel(bpy.types.Panel):
+        bl_label = 'OoT Remake'
+        bl_space_type = 'VIEW_3D'
+        bl_region_type = 'UI'
+        bl_category = 'OoT'
+
+        def draw(self, context):
+            col = self.layout.column(align=True)
+            col.operator('ootr.import_map', icon='IMPORT')
+            col.operator('ootr.export_map', icon='EXPORT')
+            col.separator()
+            col.operator('ootr.play', icon='PLAY')
+            self.layout.label(text='Play starts at the 3D cursor')
+
     def menu_export(self, context):
         self.layout.operator(OOTR_OT_export_map.bl_idname, text='OoT Remake Map Edits')
 
     def menu_import(self, context):
         self.layout.operator(OOTR_OT_import_map.bl_idname, text='OoT Remake Map')
 
-    classes = (OOTR_Preferences, OOTR_OT_import_map, OOTR_OT_export_map)
+    classes = (OOTR_Preferences, OOTR_OT_import_map, OOTR_OT_export_map, OOTR_OT_play, OOTR_PT_panel)
 
     def register():
         for c in classes: bpy.utils.register_class(c)
