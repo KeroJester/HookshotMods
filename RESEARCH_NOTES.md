@@ -3049,3 +3049,25 @@ A checklist for the next map (North / East / West Clock Town, other MM3D scenes)
   purpose, §80o).
 - The scene bake traces from each texel along its normal: a normals change needs a new ray pass (the hit cache is
   keyed only by texel count).
+
+## §82. Blender map tools (add-on): map import (2026-11-17/18)
+- `blender/ootr_map_tools/` (Blender 4.2+ extension; tested in Steam's Blender 5.3, whose Python 3.13 already has
+  numpy and zstandard). core/ (no bpy): game.py (game folder, .zs, packs, model index), banc.py (map list from
+  GameBancInfo, placements from <banc>_{Static,Dynamic}.bcett), bfres.py (any static model: every shape's LOD 0,
+  vertex formats decoded from the format code: layout byte {02 R8, 09 RG8, 0b RGBA8, 0e 10-10-10-2, 0a R16, 12 RG16,
+  15 RGBA16, 14 R32, 17 RG32, 18 RGB32, 19 RGBA32} x kind {1 unorm, 2 snorm, 3 uint, 4 sint, 5 float}; several
+  vertex buffers (8-aligned, consecutive from FVTX +0x48); u8/u16/u32 indices (mesh +0x28 = 0/1/2)). **The vertex
+  buffer is shared by all LODs** (mesh i: +0x30 first vertex): keep only the vertices LOD 0 uses.
+- Actor -> model: Pack/Actor/<Gyaml>.pack ModelInfo {ModelProjectName, FmdbName} -> Model/<project>.<fmdb>.bfres.zs;
+  most Land_* have no pack: their name is the fmdb (index Model/ by file name). Actors whose ModelInfo is
+  None.engine__component__ModelInfo (FmdbName "") are invisible (e.g. Land_Kakariko_Cliff_A_01..04: airwall shape only).
+- Axes: game Y-up metres -> Blender (x, -z, y); object matrix = G2B . T . R(euler XYZ) . S, mesh data in game axes.
+  UV V flipped. Kakariko (child): 2103 placements, 1484 with models / 303 meshes, 533 materials, imports in ~5 s;
+  32 backdrop meshes > 600 m (Land_HrlField_FarMountain_*, CastleFar).
+- **Terrain is separate** (the visible cliffs / ground of outdoor maps): TerrainArc/<area>_NN.tscb (TSCB, world scale
+  500.0, height scale 800.0, as BotW) + TerrainArc/<area>_NN/<tile hex>.{hght, mate, custom.extm, [adult|child.]
+  bake_ao.extm, bake_gi.extm} (41 tiles in KakarikoVillage_01). Tile files: "TARB" {u32 1, u16 1, u16 header 0x14,
+  u32 decompressed size, u32 compressed size} + zstd. Decompressed hght (688244 bytes): header {01 04 02 01, u32 0x0b,
+  u32 0x81, u32 257 (grid?), 0, u32 0x0b, 01 01 4f 7a, u32 24, u32 270400 (= 260*260*4), 0, 0, u32 270408 (offset),
+  u32 417792 (size)} then data; mate (835636): 01 04 02 02, 06060606, 1, 256, ..., u32 8, u32 835584. Not plain u16
+  / f32 grids, not GOB-swizzled RGBA, not BC4 (all tested: no smooth result): to reverse (custom quantised layout?).
