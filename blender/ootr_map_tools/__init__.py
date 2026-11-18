@@ -112,6 +112,7 @@ if bpy is not None:
         banc: EnumProperty(name='Map', items=map_items)
         models: BoolProperty(name='Models', default=True, description="Load the actors' models (else empties only)")
         collision: BoolProperty(name='Collision', default=True, description='Load collision shapes (wireframe, one collection per layer)')
+        lights: BoolProperty(name='Lighting', default=True, description='Load the runtime lights, the baked lights (reference) and the environment')
 
         def invoke(self, context, event):
             context.window_manager.invoke_search_popup(self)
@@ -123,10 +124,39 @@ if bpy is not None:
                 return {'CANCELLED'}
             from . import scene
             from .core.game import Game
-            stats = scene.import_map(context, Game(game_folder(context)), self.banc, models=self.models, collision=self.collision,
+            game = Game(game_folder(context))
+            stats = scene.import_map(context, game, self.banc, models=self.models, collision=self.collision,
                                      report=lambda m: self.report({'WARNING'}, m))
+            if self.lights:
+                from . import lighting
+                root = next(r for r in reversed(scene.map_roots(context)) if r['ootr_banc'] == self.banc)
+                try:
+                    stats += '; ' + lighting.import_lighting(context, game, self.banc, root)
+                except Exception as ex:
+                    self.report({'WARNING'}, f'lighting not loaded: {ex}')
             self.report({'INFO'}, stats)
             return {'FINISHED'}
+
+    def export_root(context, game, root, mod_name):
+        """Placements and lighting of one imported map -> the mod folder. -> report lines."""
+        from . import scene, lighting
+        from .core.export import write_mod, update_size_requests
+        from .core.lights import write_lighting
+        banc = root['ootr_banc']
+        mod = os.path.join(game.folder, 'mods', mod_name)
+        lines = write_mod(game, banc, scene.gather_edits(root), mod, root.get('ootr_folder') or None)
+        lights = lighting.gather_lights(context, root)
+        env = lighting.gather_env(context, banc)
+        if lights is not None or env is not None:
+            rep, files = write_lighting(game, banc, mod, lights=lights, env_edits=env)
+            lines += rep + update_size_requests(game, mod, files)
+            if env is not None:
+                import glob
+                other = [d for d in glob.glob(os.path.join(game.folder, 'mods', '*', 'romfs', 'Pack', 'EnvPalette.pack.zs'))
+                         if os.path.basename(d.split(os.sep + 'romfs')[0])[:1] not in '_-' and os.path.basename(d.split(os.sep + 'romfs')[0]) != mod_name]
+                for d in other:
+                    lines.append(f'warning: {d.split(os.sep + "romfs")[0]} also replaces EnvPalette.pack: only one of the two mods\' environments can be active')
+        return lines
 
     def root_items(self, context):
         from . import scene
@@ -151,8 +181,7 @@ if bpy is not None:
             from .core.export import write_mod
             root = bpy.data.collections[self.root]
             game = Game(game_folder(context))
-            mod = os.path.join(game.folder, 'mods', self.mod_name)
-            lines = write_mod(game, root['ootr_banc'], scene.gather_edits(root), mod, root.get('ootr_folder') or None)
+            lines = export_root(context, game, root, self.mod_name)
             for line in lines: print('[ootr export]', line)
             warn = [l for l in lines if 'compound' in l]
             self.report({'WARNING'} if warn else {'INFO'}, '; '.join(l for l in lines if l.startswith(('Static:', 'Dynamic:'))) + (f' ({len(warn)} static warnings, see the console)' if warn else ''))
@@ -183,8 +212,7 @@ if bpy is not None:
             root = bpy.data.collections[self.root] if self.root not in ('', 'NONE') and self.root in bpy.data.collections else roots[0]
             game = Game(game_folder(context))
             banc = root['ootr_banc']
-            lines = write_mod(game, banc, scene.gather_edits(root), os.path.join(game.folder, 'mods', self.mod_name),
-                              root.get('ootr_folder') or None)
+            lines = export_root(context, game, root, self.mod_name)
             for line in lines: print('[ootr play]', line)
             pos = tuple(scene.GAME_TO_BLENDER.inverted() @ context.scene.cursor.location)
             profile, n, _proc = play(game.folder, banc, pos)
@@ -257,10 +285,14 @@ if bpy is not None:
 
     def register():
         for c in classes: bpy.utils.register_class(c)
+        from . import lighting
+        lighting.register()
         bpy.types.TOPBAR_MT_file_import.append(menu_import)
         bpy.types.TOPBAR_MT_file_export.append(menu_export)
 
     def unregister():
+        from . import lighting
+        lighting.unregister()
         bpy.types.TOPBAR_MT_file_import.remove(menu_import)
         bpy.types.TOPBAR_MT_file_export.remove(menu_export)
         for c in reversed(classes): bpy.utils.unregister_class(c)

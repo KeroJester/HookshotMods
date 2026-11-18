@@ -132,19 +132,7 @@ def write_mod(game, banc, edits, mod_dir, folder=None):
     import os
     from ..vendor.zstd_helper import compress_zs
     layers, report = build_layers(game, banc, edits, folder)
-    req = size_requests(game, {rel: data for rel, data in layers.values()})
-    rp = os.path.join(mod_dir, 'rstb.txt')
-    os.makedirs(mod_dir, exist_ok=True)
-    keep = []
-    if os.path.exists(rp):                           # (other maps' requests in the same mod stay)
-        mine = {rel[:-3] for rel, _ in layers.values()}
-        keep = [l.strip() for l in open(rp) if l.strip() and l.split('=')[0] not in mine]
-    if req or keep:
-        with open(rp, 'w') as f: f.write('\n'.join(keep + req) + '\n')
-        report += [f'size request: {l}' for l in req]
-        report += apply_to_majora_table(game, keep + req)
-    elif os.path.exists(rp):
-        os.remove(rp)
+    report += update_size_requests(game, mod_dir, {rel: data for rel, data in layers.values()})
     for layer, (rel, data) in layers.items():
         p = os.path.join(mod_dir, 'romfs', rel)
         os.makedirs(os.path.dirname(p), exist_ok=True)
@@ -189,6 +177,26 @@ def new_placement(game, actor):
         a.pop(k, None)
     a['Gyaml'] = actor
     return a
+
+
+def update_size_requests(game, mod_dir, files):
+    """files {romfs rel: decompressed bytes} just written into the mod -> its rstb.txt updated (requests of other files
+    kept) and MajoraMod's saved size table raised (apply_to_majora_table). -> report lines."""
+    req = size_requests(game, files)
+    rp = os.path.join(mod_dir, 'rstb.txt')
+    os.makedirs(mod_dir, exist_ok=True)
+    mine = {rel[:-3] if rel.endswith('.zs') else rel for rel in files}
+    keep = []
+    if os.path.exists(rp):
+        keep = [l.strip() for l in open(rp) if l.strip() and l.split('=')[0] not in mine]
+    report = []
+    if req or keep:
+        with open(rp, 'w') as f: f.write('\n'.join(keep + req) + '\n')
+        report += [f'size request: {l}' for l in req]
+        if req: report += apply_to_majora_table(game, keep + req)
+    elif os.path.exists(rp):
+        os.remove(rp)
+    return report
 
 
 def size_requests(game, files, margin=8192):
