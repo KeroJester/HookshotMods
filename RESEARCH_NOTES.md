@@ -3455,3 +3455,16 @@ names** (75 of 94 found in image.bin / .longshot_exefs/main strings; core/enums.
   field map) were not read, so Hyrule-Field-look maps used the first-visit table MainField_Bluesky_First (sun forced to
   elevation 18, a permanent dawn) instead of MainField_Bluesky. Fixed: _world_reader reads the Bootup pack; exports
   drop first-visit entries pointing at our table and restore our table's sun settings from the parent's.
+
+## §101. Eevee <-> game parity and the save's clock (2026-11-19, in progress)
+- Calibration map (scratch calib_map.py): Blank map, the SageRoom look (one fixed palette: no time blending), floor
+  albedo 0.18, three floating spheres (0.18 / 0.5 / 0.8), a shadow slab. Variants V0 (sun 100000, BgDif 110000, Hemi
+  100, EV 14, sun 45/50), V1 sun 0, V2 BgDif 0 + Hemi 0, V3 EV 13, V4 Hemi 2000. Floor (sunlit / shadow), 0-255:
+  game V0 214 / 198, V1 206 / 199, V2 45 / 0, V3 234 / 231; Blender (0.16 preview) V0 126 / 17, V1 48 / 17, V2 118 / 0,
+  V3 162 / 17, and V4 = V0 (the preview ignores Hemi). So in the game the ambient term (BgDif) dominates and the sun
+  term is ~4x weaker than the preview's; the preview's constants (a_rad x0.15, h_rad x0.001, sun /683) need refitting.
+  (V0 / V4 shadow values come from one frame each.) The game camera frames the spheres out (too high).
+- Save keys: names = murmur3 of the full name (PlayerStatus.SavePos = 0xc884818d). The game clock is NOT any of:
+  0x73736cde, 0x37c3f735 (Int, 0-23), 0xe573f564, 0x3f8d9d86 (UInt, 4400-6550; set to 43200), 0x39ec7e22 (Float 90.005,
+  default -1; 270 changed the sky / clouds only). Tests on a Hyrule-Field-cycle map (normal table): every run shows the
+  same dawn. Next: the user saves at two known in-game hours and the two progress.sav are diffed.
