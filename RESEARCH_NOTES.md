@@ -3373,3 +3373,14 @@ names** (75 of 94 found in image.bin / .longshot_exefs/main strings; core/enums.
   its own .bphsh, put on our floor via a real per-instance material.
 - Tiles split by triangle centres: one huge triangle stays in one tile (precision falls off far from its centre);
   tessellate big triangles before tiling (todo).
+
+## §96. Normal and roughness maps for custom materials (2026-11-18)
+- Game land textures: _Alb BC1 sRGB (0x1a06) swizzle RGBA; _Nrm ASTC 5x5 unorm (0x2f01), X in RGB and Y in A, with
+  the BRTI channel remap (+0x58) **R A 0 1** (the shader reads X from .r, Y from .g); _Rgh BC4 (0x1d01) remap
+  **R R R R**, roughness (soil 0.75, Sage floor 0.55).
+- Export: a Principled BSDF's Normal input through a Normal Map node (Strength applied) -> Tex/Ootr<hash>_Nrm as BC7
+  unorm (0x2001) with X in red, Y in green (Blender's OpenGL convention, no flip); its Roughness image ->
+  Tex/Ootr<hash>_Rgh (roughness in every channel). Materials without them keep the flat dummy normal and the soil
+  roughness. Tangents now follow the UVs (custom.uv_tangents; were arbitrary).
+- Verified (tests on Longshot, screenshots/materials): a flat panel with a sphere's normal map shades exactly like a
+  real sphere beside it (both axes, under a high sun); a 0.3 roughness map shows a highlight.

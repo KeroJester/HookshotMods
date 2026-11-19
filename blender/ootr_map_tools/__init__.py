@@ -205,9 +205,9 @@ if bpy is not None:
         edits = scene.gather_edits(root)
         from . import sound_ui
         edits += sound_ui.gather_sound(context, root)        # (music / ambience zones, emitters)
-        meshes, images, collision = custom_geo.gather_custom(context, root)
+        meshes, images, collision, maps = custom_geo.gather_custom(context, root)
         if meshes or collision is not None:
-            rep, files, placements = write_custom(game, banc, mod, meshes, images, collision)
+            rep, files, placements = write_custom(game, banc, mod, meshes, images, collision, maps)
             lines += rep + update_size_requests(game, mod, {k: v for k, v in files.items() if k.startswith(('RSDB/', 'Phive/', 'Model/', 'Tex/', 'Pack/'))})
             if placements:                                     # (the previous custom model tiles are replaced)
                 edits = [e for e in edits if not (e.actor or '').startswith(f'Land_Ootr_{banc}_')]

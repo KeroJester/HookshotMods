@@ -48,8 +48,57 @@ def _material_image(mat):
     return solid(mat.diffuse_color)
 
 
+GAME_NORMAL_FLIP_Y = False      # (Blender's normal maps are OpenGL style, +Y = up the image; set by the in-game test)
+
+
+def _pixels(im):
+    """An image's stored values (no colour conversion) -> float [h, w, 4], top row first."""
+    w, h = im.size
+    px = np.empty(w * h * 4, np.float32)
+    im.pixels.foreach_get(px)
+    return px.reshape(h, w, 4)[::-1]
+
+
+def _linked_image(inp):
+    if inp is None or not inp.is_linked: return None, None
+    n = inp.links[0].from_node
+    if n.type == 'TEX_IMAGE' and n.image is not None and n.image.size[0] > 0:
+        return n.image, n
+    return None, n
+
+
+def _material_maps(mat):
+    """-> {'nrm': RGBA uint8 (X, Y, Z, 255), 'rgh': RGBA uint8 (roughness in every channel)} for the maps
+    wired into the material's Principled BSDF (Normal through a Normal Map node, Roughness as an image)."""
+    out = {}
+    if mat is None or not mat.use_nodes or not mat.node_tree: return out
+    bsdf = next((n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None)
+    if bsdf is None: return out
+    _, nm = _linked_image(bsdf.inputs.get('Normal'))
+    if nm is not None and nm.type == 'NORMAL_MAP':
+        im, _ = _linked_image(nm.inputs.get('Color'))
+        if im is not None:
+            a = _pixels(im)
+            v = a[..., :3] * 2.0 - 1.0
+            strength = float(nm.inputs['Strength'].default_value) if 'Strength' in nm.inputs else 1.0
+            v[..., :2] *= strength
+            if GAME_NORMAL_FLIP_Y: v[..., 1] *= -1.0
+            v /= np.maximum(np.linalg.norm(v, axis=-1, keepdims=True), 1e-6)
+            x = np.clip(np.round((v[..., 0] + 1) * 127.5), 0, 255)
+            y = np.clip(np.round((v[..., 1] + 1) * 127.5), 0, 255)
+            z = np.clip(np.round((v[..., 2] + 1) * 127.5), 0, 255)
+            # (the game's own normal maps store X in RGB and Y in A with the channel remap R A 0 1, so its shader reads
+            #  X from red and Y from green; ours carry no remap: X in red, Y in green)
+            out['nrm'] = np.stack([x, y, z, np.full_like(x, 255)], -1).astype(np.uint8)
+    im, _ = _linked_image(bsdf.inputs.get('Roughness'))
+    if im is not None:
+        r = np.clip(np.round(_pixels(im)[..., 0] * 255), 0, 255).astype(np.uint8)
+        out['rgh'] = np.stack([r, r, r, r], -1)        # (the game's roughness maps remap red to every channel)
+    return out
+
+
 def gather_custom(context, root):
-    """-> (meshes, images, collision (V, T) or None) for core.custom.write_custom, from the custom mesh objects of the
+    """-> (meshes, images, collision (V, T) or None, maps) for core.custom.write_custom, from the custom mesh objects of the
     scene that are not inside another imported map's collection."""
     from .scene import map_roots
     others = set()
@@ -60,7 +109,7 @@ def gather_custom(context, root):
             for ch in c.children: collect(ch)
         collect(r)
     dg = context.evaluated_depsgraph_get()
-    meshes, images, colV, colT = [], {}, [], []
+    meshes, images, colV, colT, maps = [], {}, [], [], {}
     nV = 0
     for ob in context.scene.objects:
         if not is_custom(ob) or ob.name in others: continue
@@ -102,7 +151,10 @@ def gather_custom(context, root):
                     sel = np.repeat(tri_m == mi, 3)
                     mat = ob.material_slots[mi].material if mi < len(ob.material_slots) else None
                     key = mat.name if mat else 'Default'
-                    if key not in images: images[key] = _material_image(mat)
+                    if key not in images:
+                        images[key] = _material_image(mat)
+                        mm = _material_maps(mat)
+                        if mm: maps[key] = mm
                     Ps, Ns, Us = P[sel], N[sel], uv[sel]
                     # (corners with the same position, normal and UV become one vertex: 3-6x fewer vertices)
                     keyrows = np.c_[np.round(Ps, 4), np.round(Ns, 3), np.round(Us, 5)]
@@ -112,7 +164,7 @@ def gather_custom(context, root):
         finally:
             ev.to_mesh_clear()
     collision = (np.concatenate(colV), np.concatenate(colT)) if colV else None
-    return meshes, images, collision
+    return meshes, images, collision, maps
 
 
 def register():

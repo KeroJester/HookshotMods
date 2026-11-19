@@ -18,6 +18,7 @@ import numpy as np
 from . import resdic
 
 FMT_RGBA8_SRGB = 0x0B06
+FMT_BC7_UNORM = 0x2001         # (data textures: normal / roughness maps)
 FMT_BC7_SRGB = 0x2006          # (BC7, 16 bytes per 4 x 4 block: a quarter of RGBA8; decoded as the game's own BC7)
 
 
@@ -122,7 +123,7 @@ def mip_chain(img: np.ndarray, levels: int):
 
 
 def build(template: bytes, name: str, img: np.ndarray, fmt: str = 'rgba8') -> bytes:
-    """template: a decompressed one-texture BNTX; img: RGBA8 [h, w, 4] (power-of-two sides); fmt 'rgba8' or 'bc7'.
+    """template: a decompressed one-texture BNTX; img: RGBA8 [h, w, 4] (power-of-two sides); fmt 'rgba8', 'bc7' (sRGB colour) or 'bc7_unorm' (data).
     -> BNTX bytes"""
     d = bytearray(template)
     brti = d.find(b"BRTI")
@@ -137,7 +138,7 @@ def build(template: bytes, name: str, img: np.ndarray, fmt: str = 'rgba8') -> by
     resdic.write(d, dic, [name.encode()], [name_ptr], root_ptr)
     h, w = img.shape[:2]
     mips = max(1, int(np.log2(max(w, h))) + 1)
-    bc7 = fmt == 'bc7'
+    bc7 = fmt in ('bc7', 'bc7_unorm')
     sizes, bh_log2 = _mip_layout(w, h, mips, bpb=16, bw=4, bhh=4) if bc7 else _mip_layout(w, h, mips)
     chain = mip_chain(img, mips)
     data = bytearray()
@@ -149,7 +150,7 @@ def build(template: bytes, name: str, img: np.ndarray, fmt: str = 'rgba8') -> by
     image_size = len(data)
     # BRTI
     struct.pack_into("<H", d, brti + 0x16, mips)
-    struct.pack_into("<I", d, brti + 0x1c, FMT_BC7_SRGB if bc7 else FMT_RGBA8_SRGB)
+    struct.pack_into("<I", d, brti + 0x1c, FMT_BC7_UNORM if fmt == 'bc7_unorm' else FMT_BC7_SRGB if bc7 else FMT_RGBA8_SRGB)
     struct.pack_into("<ii", d, brti + 0x24, w, h)
     struct.pack_into("<i", d, brti + 0x34, bh_log2)
     struct.pack_into("<II", d, brti + 0x50, image_size, 0x200)

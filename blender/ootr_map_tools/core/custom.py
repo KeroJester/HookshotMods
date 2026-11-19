@@ -41,8 +41,9 @@ def actor_name(banc):
     return f'Land_Ootr_{banc}_A_01', f'Land_Ootr_{banc}_A'
 
 
-def _tex_name(banc, key):
-    return 'Ootr' + hashlib.sha1(f'{banc}/{key}'.encode()).hexdigest()[:8] + '_Alb'
+def _tex_name(banc, key, kind='Alb'):
+    """(16 characters: the template texture's name length) kind Alb / Nrm / Rgh."""
+    return 'Ootr' + hashlib.sha1(f'{banc}/{key}'.encode()).hexdigest()[:8] + '_' + kind
 
 
 def _pow2_image(img, limit=1024):
@@ -53,6 +54,25 @@ def _pow2_image(img, limit=1024):
     if (H, W) == (h, w): return img
     ys = (np.arange(H) * h // H).clip(0, h - 1); xs = (np.arange(W) * w // W).clip(0, w - 1)
     return img[ys][:, xs]
+
+
+def uv_tangents(P, N, U, T):
+    """Per-vertex tangents along the texture's U (for normal maps): accumulated per triangle, orthogonalised against
+    the normal; vertices without a usable UV gradient fall back to _tangents."""
+    T = np.asarray(T, np.int64)
+    p0, p1, p2 = P[T[:, 0]], P[T[:, 1]], P[T[:, 2]]
+    u0, u1, u2 = U[T[:, 0]], U[T[:, 1]], U[T[:, 2]]
+    e1, e2, d1, d2 = p1 - p0, p2 - p0, u1 - u0, u2 - u0
+    r = d1[:, 0] * d2[:, 1] - d2[:, 0] * d1[:, 1]
+    ok = np.abs(r) > 1e-12
+    tv = np.zeros_like(e1)
+    tv[ok] = (e1[ok] * d2[ok, 1:2] - e2[ok] * d1[ok, 1:2]) / r[ok, None]
+    acc = np.zeros_like(P)
+    for k in range(3): np.add.at(acc, T[:, k], tv)
+    acc -= N * np.sum(acc * N, 1, keepdims=True)
+    ln = np.linalg.norm(acc, axis=1, keepdims=True)
+    fb = _tangents(N)
+    return np.where(ln > 1e-9, acc / np.maximum(ln, 1e-9), fb)
 
 
 def _tangents(nrm):
@@ -140,9 +160,10 @@ def _split_tiles(meshes):
     return out
 
 
-def write_custom(game, banc, mod_dir, meshes, images, collision):
+def write_custom(game, banc, mod_dir, meshes, images, collision, maps=None):
     """meshes: [dict(name, material (key), pos (n,3) game axes, nrm (n,3), uv (n,2), tris (m,3))];
-    images: {material key: RGBA uint8 [h, w, 4]}; collision: (V (n,3) game axes, T (m,3)) or None.
+    images: {material key: RGBA uint8 [h, w, 4]}; collision: (V (n,3) game axes, T (m,3)) or None;
+    maps: {material key: {'nrm': RGBA (X, Y in red / green), 'rgh': RGBA (roughness)}} (optional).
     -> (report lines, {rel: decompressed bytes written}, [placement dict(actor, translate)])."""
     from ..vendor.zstd_helper import compress_zs
     bfres_build, bntx1, bphsc, phsh = _mapimport()
@@ -150,10 +171,18 @@ def write_custom(game, banc, mod_dir, meshes, images, collision):
     if meshes:
         keys = sorted({m['material'] for m in meshes})
         tmpl_tex = _base_read(game, TEMPLATE_TEX)
-        texname = {}
+        texname, mapname = {}, {}
+        maps = maps or {}
         for k in keys:                                       # (BC7: a quarter of RGBA8, the game's own format)
             tname = _tex_name(banc, k); texname[k] = tname
             files[f'Tex/{tname}.bntx.zs'] = bntx1.build(tmpl_tex, tname, _pow2_image(images[k]), fmt='bc7')
+            nr = [NORMAL_TEX, ROUGH_TEX]
+            for i, kind in enumerate(('Nrm', 'Rgh')):        # (the material's own normal / roughness map, as data)
+                img = maps.get(k, {}).get(kind.lower())
+                if img is not None:
+                    n = _tex_name(banc, k, kind); nr[i] = n
+                    files[f'Tex/{n}.bntx.zs'] = bntx1.build(tmpl_tex, n, _pow2_image(img), fmt='bc7_unorm')
+            mapname[k] = nr
         tiles = _split_tiles(meshes)
         rows = merged_rows(game, mod_dir, ACTORINFO)
         grows = merged_rows(game, mod_dir, GAMEACTORINFO)
@@ -168,7 +197,7 @@ def write_custom(game, banc, mod_dir, meshes, images, collision):
             lo, hi = allp.min(0), allp.max(0)
             centre = (lo + hi) / 2
             mkeys = sorted({m['material'] for m in parts})
-            materials = [dict(name=f'Mt_Ootr_{banc}_{keys.index(mk):03d}', textures=[texname[mk], NORMAL_TEX, ROUGH_TEX] + BAKE_TEX)
+            materials = [dict(name=f'Mt_Ootr_{banc}_{keys.index(mk):03d}', textures=[texname[mk]] + mapname[mk] + BAKE_TEX)
                          for mk in mkeys]
             out_meshes = []
             for m in parts:                                  # (u16 indices: chunks of 65535 vertices)
@@ -178,9 +207,10 @@ def write_custom(game, banc, mod_dir, meshes, images, collision):
                 for s0 in range(0, len(flat), step):
                     sel = flat[s0:s0 + step]
                     used, inv = np.unique(sel, return_inverse=True)
+                    Tl = inv.reshape(-1, 3)
                     out_meshes.append(dict(name=f'{m["name"]}_{len(out_meshes)}', material=mkeys.index(m['material']),
-                                           pos=P[used], nrm=N[used], tan=_tangents(N[used]), uv=U[used],
-                                           idx=inv.astype(np.uint16)))
+                                           pos=P[used], nrm=N[used], tan=uv_tangents(P[used], N[used], U[used], Tl),
+                                           uv=U[used], idx=inv.astype(np.uint16)))
             files[f'Model/{project}.{FMDB}.bfres.zs'] = bfres_build.Writer(tmpl_model).build(
                 out_meshes, materials, template_shape=TEMPLATE_SHAPE)
             # (the template actor animates: the game opens Model/<project>.anim.bfres with the model; a new project
@@ -198,7 +228,9 @@ def write_custom(game, banc, mod_dir, meshes, images, collision):
             ntri += sum(len(m['idx']) // 3 for m in out_meshes)
         files[ACTORINFO] = write_byml([rows[k] for k in sorted(rows)])
         files[GAMEACTORINFO] = write_byml([grows[k] for k in sorted(grows)])
-        report.append(f'custom model: {ntri} triangles, {len(keys)} materials (BC7), {len(tiles)} tile(s) of {TILE:.0f} m')
+        nmaps = sum(1 for k in keys for x in mapname[k] if x not in (NORMAL_TEX, ROUGH_TEX))
+        report.append(f'custom model: {ntri} triangles, {len(keys)} materials (BC7), {nmaps} normal / roughness map(s), '
+                      f'{len(tiles)} tile(s) of {TILE:.0f} m')
     if collision is not None and len(collision[1]):
         files.update(collision_files(game, banc, mod_dir, collision, report))
     for rel, data in files.items():
