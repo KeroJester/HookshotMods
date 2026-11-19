@@ -418,7 +418,7 @@ def write_env(game, banc, env, edits, mod_dir, pack=None):
             name = f'ootr_{banc}_{i}_{t["name"]}.game__wm__ResEnvPalette.bgyml'
             mine[f'WorldMgr/ResEnvPalette/{name}'] = write_byml(y)
             e['EnvPalette'] = f'Work/WorldMgr/ResEnvPalette/{name.replace(".bgyml", ".gyml")}'
-        if mine:
+        if True:          # (always: the map's world names this table, also when every palette is the game's again)
             tname = f'ootr_{banc}.game__wm__ResEnvPaletteTimeTable.bgyml'
             mine[f'WorldMgr/ResEnvPaletteTimeTable/{tname}'] = write_byml(table)
             tw = f'Work/WorldMgr/ResEnvPaletteTimeTable/{tname.replace(".bgyml", ".gyml")}'

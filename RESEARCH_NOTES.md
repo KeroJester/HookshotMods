@@ -3432,3 +3432,7 @@ names** (75 of 94 found in image.bin / .longshot_exefs/main strings; core/enums.
   every time of day (Fill x5: ground 52 -> 117, x20: 197). Per-palette edits only show near their own hour (the user's
   Noon / Sunrise edits looked like "no effect"). Hemi values differ per time (BeforeSunrise 1, Noon 100) with
   exposure (EV 7.5 .. 12), so absolute Fill values mean different things at different times.
+- The user's wash-out (2026-11-18 21:51): every palette had ExposureValue 5 (the game: 7.5 night .. 14 noon; lower =
+  brighter, x2 per step), copied to all times. 0.16.4: "Reset to Game" / "Reset Whole Map to Game Lighting" restore
+  the game's palettes (game_palettes via _original_palette), not the last loaded values; Exposure labelled "lower =
+  brighter"; the map's time table is always written (a full reset points every entry back at the game's palettes).

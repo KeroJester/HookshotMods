@@ -138,8 +138,8 @@ class OOTR_PaletteProps(bpy.types.PropertyGroup):
     hemi_bottom: FloatVectorProperty(name='Ground Fill', subtype='COLOR', size=3, default=(0.25, 0.25, 0.25), min=0, update=_env_update)
     hemi_intensity: FloatProperty(name='Fill (Hemi)', default=50.0, min=0.0, soft_max=2000.0, update=_env_update,
                                   description='HemiLightIntensity: fill light for surfaces facing away from the sun (softens shadows)')
-    exposure: FloatProperty(name='Exposure (EV)', default=14.0, soft_min=6.0, soft_max=18.0, update=_env_update,
-                            description='ExposureValue: higher is darker')
+    exposure: FloatProperty(name='Exposure (EV, lower = brighter)', default=14.0, soft_min=6.0, soft_max=18.0, update=_env_update,
+                            description='ExposureValue: each step down doubles the brightness (the game: about 7.5 at night, 14 at noon)')
     shadow_exposure: FloatProperty(name='Shadow Exposure', default=-1.0, soft_min=-4.0, soft_max=4.0, update=_env_update,
                                    description='ExposureShadowCorrect: brightness of shadowed areas (game only)')
     white_balance: FloatProperty(name='White Balance (K)', default=6500.0, min=1500.0, max=15000.0, update=_env_update)
@@ -565,18 +565,42 @@ class OOTR_OT_palette_to_all(bpy.types.Operator):
         return {'FINISHED'}
 
 
+def game_palettes(context, banc):
+    """{time name: the game's own palette values} for the map's times of day (its edits in the map mod ignored)."""
+    from . import get_game
+    game = get_game(context)
+    env = L.read_env(game, banc)
+    pack = L.EnvPack(game)
+    out = {}
+    for i, t in enumerate(env['times'] if env else []):
+        out[t['name']] = L.resolved(pack.get, L._original_palette(game, banc, env, i, t))
+    return out
+
+
 class OOTR_OT_reset_palette(bpy.types.Operator):
-    """Reset this time of day to the game's values"""
+    """Reset this time of day to the game's own lighting"""
     bl_idname = 'ootr.reset_palette'
     bl_label = 'Reset to Game'
     bl_options = {'REGISTER', 'UNDO'}
+    whole_map: BoolProperty(default=False)
 
     def execute(self, context):
-        e = env_props(context); cur = e.current()
-        if cur is None: return {'CANCELLED'}
-        orig = cur.original
-        palette_from(cur, json.loads(orig)); cur.original = orig
+        e = env_props(context)
+        if not e.palettes: return {'CANCELLED'}
+        try:
+            game_vals = game_palettes(context, e.banc)
+        except Exception as ex:
+            self.report({'ERROR'}, f'{e.banc}: {ex}'); return {'CANCELLED'}
+        targets = list(e.palettes) if self.whole_map else [e.current()]
+        for pal in targets:
+            vals = game_vals.get(pal.name)
+            if not vals: continue
+            orig = pal.original
+            palette_from(pal, vals); pal.original = orig          # (export compares with what is in the mod now)
+        if self.whole_map:
+            e.all_fill, e.all_ambient, e.all_brightness = 1.0, 1.0, 0.0
         apply_env(context)
+        self.report({'INFO'}, 'Game lighting restored: Export to apply')
         return {'FINISHED'}
 
 
@@ -642,6 +666,7 @@ class OOTR_PT_lighting(bpy.types.Panel):
         sub.label(text='Whole map (every time of day)', icon='LIGHT_SUN')
         col = sub.column(align=True)
         col.prop(e, 'all_fill'); col.prop(e, 'all_ambient'); col.prop(e, 'all_brightness')
+        op = sub.operator('ootr.reset_palette', text='Reset Whole Map to Game Lighting', icon='LOOP_BACK'); op.whole_map = True
         box.separator()
         box.prop(e, 'time')
         box.label(text='Settings below are for this time of day only', icon='INFO')
