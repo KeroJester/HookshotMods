@@ -3479,3 +3479,11 @@ names** (75 of 94 found in image.bin / .longshot_exefs/main strings; core/enums.
 - Blender's curves (floor 0.18 under a uniform white world of strength s; Eevee): s = 0.016 / 0.063 / 0.25 / 1 / 4:
   Standard 9 / 27 / 60 / 117 / 219, AgX 4 / 21 / 54 / 117 / 184, Filmic 10 / 28 / 66 / 127 / 193, Khronos PBR Neutral
   0 / 3 / 30 / 104 / 214. (Headless Blender lists no view transforms; setting them by name works.)
+- **Field-palette calibration (Hyrule Field look, all times = Noon, sun forced to 45 / 50 by the time table; floor
+  albedo 0.18, display 0-255, median of the lower side regions; roof = a 120 m slab 15 m up over everything):**
+  N (BgDif 110000, Hemi 100, EV 14): open 241.4, roof 8.6. B (BgDif 55000): open 220.0, roof 8.5. F (Hemi 1000): open
+  241.6 (no change in the open), roof pending. So BgDif drives the open light (halving it: 241 -> 220, near the top of
+  the tone curve); shade under a large roof is nearly black (the sky light is occluded: the preview must occlude its
+  sky too). Pending: F roof, L (sun elevation 20) open / roof, E15 / E16 (tone curve under the field palette).
+  Scripts (scratchpad): calib_map2.py (map + palettes), force_sun.py (time table: IsForceMainLight), lsSweep.sh
+  (systemd-run batch, run folders in ~/.cache/ootr_tests).
