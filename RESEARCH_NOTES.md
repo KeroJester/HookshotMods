@@ -3442,3 +3442,16 @@ names** (75 of 94 found in image.bin / .longshot_exefs/main strings; core/enums.
   play_input.txt (appended lines are pressed: "0:A"); a thread waits for the title layout (UI/Layout2Archive/Title.)
   in play.log, then presses A every 2.5 s (from 4 s after) until the map's files open (Banc/<map>/), the game exits or
   30 presses. Headless test (EnvFx): title seen, 5 presses, map loading 38 s after launch, Link in the map.
+
+## §100. The 10 fps "lighting" slowdown = video memory (2026-11-18)
+- The user's laptop (RTX 4050, 6 GB): Blender held 2454 MB (lit viewport of a 2 km map); the game's VRAM allowance was
+  2325 MB, used 2264 ("image over budget, retrying", "slow submit ... memory sync 30-67 ms" on the main thread): 10-13
+  fps. Headless runs of the same files gave 12.7 or 32.8 fps depending on the moment (first run of a batch slow), so
+  the files were not the cause. Play now (preference "Free GPU Memory on Play", on) switches Material Preview /
+  Rendered views to Solid and gl_free()s Blender's GPU images before starting the game.
+- Ruled out on the way: per-profile shader cache (the pipeline cache is one file in the game folder,
+  mkw_vk_pipelines.bin, 1.2 GB), runtime lights (5 small ones), fog edits.
+- Real bug found on the way: world parents in Pack/Bootup (MainField.game__wm__WorldParam, the parent of every
+  field map) were not read, so Hyrule-Field-look maps used the first-visit table MainField_Bluesky_First (sun forced to
+  elevation 18, a permanent dawn) instead of MainField_Bluesky. Fixed: _world_reader reads the Bootup pack; exports
+  drop first-visit entries pointing at our table and restore our table's sun settings from the parent's.

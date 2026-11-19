@@ -296,6 +296,20 @@ class EnvPack:
         return parse_byml(self.files[rel]) if rel in self.files else None
 
 
+def _world_reader(game):
+    """rel -> dict for WorldMgr files: loose in the game / mods, else in Pack/Bootup (MainField.game__wm__WorldParam)."""
+    boot = {}
+    def read(r):
+        if not r: return None
+        if game.exists(r): return game.byml(r)
+        if not boot:
+            from ..vendor.zstd_helper import unpack_sarc_to_dict
+            try: boot.update(unpack_sarc_to_dict(game.read('Pack/Bootup.Nin_Ounce_NVN2.pack.zs')))
+            except Exception: boot['-'] = b''
+        return parse_byml(boot[r]) if r in boot else None
+    return read
+
+
 def read_env(game, banc, pack=None):
     """-> dict(world (own WorldParam file), world_rel, world_full, azimuth, elevation, cloud_shadow,
     times: [dict(name, hour, palette_path, palette (resolved), own (the palette file))]) or None."""
@@ -303,8 +317,8 @@ def read_env(game, banc, pack=None):
     wrel = work_to_rel(gbp.get('WorldMgrName'))
     if not wrel or not game.exists(wrel): return None
     pack = pack or EnvPack(game)
-    loose = lambda r: game.byml(r) if r and game.exists(r) else None
-    world_own = game.byml(wrel)
+    loose = _world_reader(game)                      # (loose files, and the Bootup pack: MainField, every field
+    world_own = game.byml(wrel)                      #  map's parent world, is in the pack)
     world = resolved(loose, rel_to_work(wrel))
     env = dict(world=world_own, world_rel=wrel, world_full=world, azimuth=float(world.get('MainLightAzimuth', 45.0)),
                elevation=float(world.get('MainLightElevation', 55.0)), cloud_shadow=bool(world.get('CloudShadowOnOff', False)),
@@ -405,6 +419,13 @@ def write_env(game, banc, env, edits, mod_dir, pack=None):
     mine = {}
     if env.get('table'):
         table = copy.deepcopy(env['table'])
+        if _ours(env.get('table_path'), banc) and env['world'].get('$parent'):
+            # (our own table, made by an earlier export: its sun settings from the parent world's table, the one the
+            #  game uses without a story flag; 0.16.1-0.16.5 copied Hyrule Field's first-visit table, sun forced to 18)
+            base_tp = resolved(_world_reader(game), env['world']['$parent']).get('BasePalette_Bluesky')
+            base_t = resolved(pack.get, base_tp) if base_tp else {}
+            for k in ('IsForceMainLight', 'MainLight_Azimuth', 'MainLight_Elevation', 'Name'):
+                if k in base_t: table[k] = base_t[k]
         for i, (e, t) in enumerate(zip(table['TimeTableArray'], env['times'])):
             ed = (edits.get('times') or {}).get(t['name']) or {}
             parent = _original_palette(game, banc, env, i, t)
@@ -423,10 +444,15 @@ def write_env(game, banc, env, edits, mod_dir, pack=None):
             mine[f'WorldMgr/ResEnvPaletteTimeTable/{tname}'] = write_byml(table)
             tw = f'Work/WorldMgr/ResEnvPaletteTimeTable/{tname.replace(".bgyml", ".gyml")}'
             world['BasePalette_Bluesky'] = tw
-            if isinstance(env.get('slot'), tuple):             # (Hyrule Field's flag-chosen table: ours in both places)
+            if isinstance(env.get('slot'), tuple):             # (only a flag-chosen table: ours there too)
                 conds = [dict(c) for c in world.get('ConditionEnvTimePalette') or []]
                 conds[env['slot'][1]]['BasePalette_Bluesky'] = tw
                 world['ConditionEnvTimePalette'] = conds
+            elif world.get('ConditionEnvTimePalette'):         # (0.16.1-0.16.5 put ours into Hyrule Field's first-visit
+                conds = [c for c in world['ConditionEnvTimePalette']   # entry, forcing its 18-degree sun: dropped)
+                         if not _ours(c.get('BasePalette_Bluesky'), banc)]
+                if conds: world['ConditionEnvTimePalette'] = conds
+                else: world.pop('ConditionEnvTimePalette', None)
     elif env.get('slot') == 'default' and env['times']:
         t = env['times'][0]
         ed = (edits.get('times') or {}).get(t['name']) or {}

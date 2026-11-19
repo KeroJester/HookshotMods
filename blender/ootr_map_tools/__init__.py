@@ -31,6 +31,10 @@ if bpy is not None:
                                  description='The mod folder (under <game folder>/mods/) that exports, new maps and Play use; '
                                              'maps in it are read back as they are now')
 
+        free_gpu_on_play: BoolProperty(name='Free GPU Memory on Play', default=True,
+                                       description='Play in Game switches lit 3D views (Material Preview / Rendered) to '
+                                                   'Solid and releases Blender\'s GPU images, so the game gets the video '
+                                                   'memory (laptop GPUs)')
         mm3d_source: StringProperty(name='Majora\'s Mask 3D copy', subtype='FILE_PATH', default='',
                                     update=lambda s, c: __import__(__package__ + '.mm3d_import', fromlist=['x']).reset_scene_items(),
                                     description='Your own Majora\'s Mask 3D: a decrypted .3ds, or its extracted RomFS folder '
@@ -40,9 +44,29 @@ if bpy is not None:
             draw_game_folder(self.layout, context, self)
             self.layout.prop(self, 'work_mod')
             self.layout.prop(self, 'mm3d_source')
+            self.layout.prop(self, 'free_gpu_on_play')
 
     def prefs(context):
         return context.preferences.addons[__package__].preferences
+
+    def free_gpu_memory(context):
+        """Before the game starts: 3D views in Material Preview / Rendered show Solid, and the images Blender keeps on
+        the GPU are released (laptop GPUs: the game gets what Blender leaves; 2.4 GB held by Blender's lit preview
+        made the game run at 10 fps). -> report text."""
+        views = 0
+        for win in context.window_manager.windows:
+            for area in win.screen.areas:
+                if area.type != 'VIEW_3D': continue
+                for sp in area.spaces:
+                    if sp.type == 'VIEW_3D' and sp.shading.type in ('MATERIAL', 'RENDERED'):
+                        sp.shading.type = 'SOLID'; views += 1
+        imgs = 0
+        for im in bpy.data.images:
+            try:
+                if im.bindcode: im.gl_free(); imgs += 1
+            except Exception:
+                pass
+        return f'; freed GPU memory for the game ({views} view(s) set to Solid, {imgs} image(s) released)' if views or imgs else ''
 
     def draw_game_folder(layout, context, p=None):
         from .core.game import is_game_folder
@@ -304,10 +328,11 @@ if bpy is not None:
             lines = export_root(context, game, root, self.mod_name)
             for line in lines: print('[ootr play]', line)
             pos = tuple(scene.GAME_TO_BLENDER.inverted() @ context.scene.cursor.location)
+            freed = free_gpu_memory(context) if prefs(context).free_gpu_on_play else ''
             profile, n, _proc = play(game.folder, banc, pos)
             from .core.play import log_path
             self.report({'INFO'}, f'{banc}: starting the game at {tuple(round(v, 1) for v in pos)} '
-                                  f'({n} saves of the test profile set; the title screen is skipped for you). Game log: {log_path(profile)}')
+                                  f'({n} saves of the test profile set; the title screen is skipped for you){freed}. Game log: {log_path(profile)}')
             return {'FINISHED'}
 
     def template_items(self, context):
