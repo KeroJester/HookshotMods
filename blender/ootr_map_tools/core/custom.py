@@ -26,6 +26,14 @@ TEMPLATE_MODEL = 'Model/Land_SageRoom_Base_A.Land_SageRoom_Base_A_01.bfres.zs'  
 TEMPLATE_SHAPE = 1
 BAKE_TEX = ['CmnTex_BakeDefault', 'CmnTex_BakeLightDefault']
 TEMPLATE_TEX = 'Tex/Etc_Gray50_A_Alb.bntx.zs'
+# material kinds (RESEARCH_NOTES.md §97): the game material each one is cloned from, and its texture slots
+METAL_MATERIAL = 7         # (the template model's Mt_Rock_SageRoom_Mark_A: albedo, normal, roughness, metallic, bake)
+GRAFTS = {
+    'cutout': ('Model/Land_CrumblingGanonCastle_Room01_A.Land_CrumblingGanonCastle_Room01_A_01.bfres.zs',
+               'Mt_Module_CrumblingGanonCastle_Room02A_K'),         # (render mode "mask": cut by the albedo alpha)
+    'emissive': ('Model/Land_CrumblingGanonCastle_Room02_A.Land_CrumblingGanonCastle_Room02_A_01.bfres.zs',
+                 'Mt_Module_InsideGanonCastle_CandleStandA03_A'),   # (albedo, normal, roughness, glow colour, bake)
+}
 ROW_FROM = 'Land_SageRoom_Base_A_01'
 ACTORINFO = 'RSDB/ActorInfo.Product.111.rstbl.byml.zs'
 GAMEACTORINFO = 'RSDB/GameActorInfo.Product.111.rstbl.byml.zs'   # (one row per actor too: a missing one crashed the game)
@@ -54,6 +62,35 @@ def _pow2_image(img, limit=1024):
     if (H, W) == (h, w): return img
     ys = (np.arange(H) * h // H).clip(0, h - 1); xs = (np.arange(W) * w // W).clip(0, w - 1)
     return img[ys][:, xs]
+
+
+def _graft_source(game, kind):
+    """-> (BFRES bytes, FMAT address) of a GRAFTS material."""
+    import struct
+    rel, name = GRAFTS[kind]
+    d = _base_read(game, rel)
+    u16 = lambda o: struct.unpack_from('<H', d, o)[0]; u64 = lambda o: struct.unpack_from('<Q', d, o)[0]
+    fmdl = u64(0x28); fmat0 = u64(fmdl + 0x38)
+    for i in range(u16(fmdl + 0x6c)):
+        at = fmat0 + 0xb0 * i
+        p = u64(at + 8)
+        if d[p + 2:p + 2 + u16(p)].decode() == name: return d, at
+    raise KeyError(f'{name} not in {rel}')
+
+
+def material_spec(game, banc, key, idx, alb, nrm, rgh, maps):
+    """The game material for one Blender material: its kind (emissive > cut-out > metallic > opaque) and textures."""
+    m = maps.get(key, {})
+    name = f'Mt_Ootr_{banc}_{idx:03d}'
+    if 'emc' in m:
+        return dict(name=name, textures=[alb, nrm, rgh, _tex_name(banc, key, 'Emc')] + BAKE_TEX,
+                    source=_graft_source(game, 'emissive')), 'emissive'
+    if m.get('cutout'):
+        return dict(name=name, textures=[alb, nrm, rgh] + BAKE_TEX, source=_graft_source(game, 'cutout')), 'cut-out'
+    if 'mtl' in m:
+        return dict(name=name, textures=[alb, nrm, rgh, _tex_name(banc, key, 'Mtl')] + BAKE_TEX,
+                    template_material=METAL_MATERIAL), 'metallic'
+    return dict(name=name, textures=[alb, nrm, rgh] + BAKE_TEX), 'opaque'
 
 
 def uv_tangents(P, N, U, T):
@@ -183,6 +220,12 @@ def write_custom(game, banc, mod_dir, meshes, images, collision, maps=None):
                     n = _tex_name(banc, k, kind); nr[i] = n
                     files[f'Tex/{n}.bntx.zs'] = bntx1.build(tmpl_tex, n, _pow2_image(img), fmt='bc7_unorm')
             mapname[k] = nr
+            for kind, fmt in (('Mtl', 'bc7_unorm'), ('Emc', 'bc7')):     # (metallic: data; glow colour: sRGB)
+                img = maps.get(k, {}).get(kind.lower())
+                if img is not None:
+                    n = _tex_name(banc, k, kind)
+                    files[f'Tex/{n}.bntx.zs'] = bntx1.build(tmpl_tex, n, _pow2_image(img), fmt=fmt)
+        kinds = {}
         tiles = _split_tiles(meshes)
         rows = merged_rows(game, mod_dir, ACTORINFO)
         grows = merged_rows(game, mod_dir, GAMEACTORINFO)
@@ -197,8 +240,10 @@ def write_custom(game, banc, mod_dir, meshes, images, collision, maps=None):
             lo, hi = allp.min(0), allp.max(0)
             centre = (lo + hi) / 2
             mkeys = sorted({m['material'] for m in parts})
-            materials = [dict(name=f'Mt_Ootr_{banc}_{keys.index(mk):03d}', textures=[texname[mk]] + mapname[mk] + BAKE_TEX)
-                         for mk in mkeys]
+            materials = []
+            for mk in mkeys:
+                spec, kind = material_spec(game, banc, mk, keys.index(mk), texname[mk], mapname[mk][0], mapname[mk][1], maps)
+                materials.append(spec); kinds[mk] = kind
             out_meshes = []
             for m in parts:                                  # (u16 indices: chunks of 65535 vertices)
                 P, N, U, T = m['pos'] - centre, m['nrm'], m['uv'], np.asarray(m['tris'])
@@ -229,6 +274,8 @@ def write_custom(game, banc, mod_dir, meshes, images, collision, maps=None):
         files[ACTORINFO] = write_byml([rows[k] for k in sorted(rows)])
         files[GAMEACTORINFO] = write_byml([grows[k] for k in sorted(grows)])
         nmaps = sum(1 for k in keys for x in mapname[k] if x not in (NORMAL_TEX, ROUGH_TEX))
+        special = sorted(f'{k}: {v}' for k, v in kinds.items() if v != 'opaque')
+        if special: report.append('materials: ' + ', '.join(special))
         report.append(f'custom model: {ntri} triangles, {len(keys)} materials (BC7), {nmaps} normal / roughness map(s), '
                       f'{len(tiles)} tile(s) of {TILE:.0f} m')
     if collision is not None and len(collision[1]):

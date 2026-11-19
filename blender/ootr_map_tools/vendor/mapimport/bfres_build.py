@@ -168,11 +168,47 @@ class Writer:
             if src + k in self.set1: self.ptrs_gpu.add(at + k)
             if src + k in self.set4: self.ptrs_pool.add(at + k)
 
+    # ---- grafting structures from another model file (materials with other shaders)
+    def graft(self, src: bytes, addr: int, size: int = None, _st=None) -> int:
+        """Deep copy of the block at `addr` of another BFRES (`src`) and of every block it points to, relocated into
+        this file (memoised per source block). Only pointers into the main section are followed; a structure that
+        points at GPU data or the memory pool cannot be grafted."""
+        if _st is None:
+            key = id(src)
+            if getattr(self, "_graft_key", None) != key:
+                secs = rlt_sections(src)
+                ptrs = sorted(secs[0][2])
+                self._graft_key, self._graft = key, dict(
+                    src=src, ptrs=np.array(ptrs, np.int64), pset=set(ptrs), bad=set(secs[1][2]) | set(secs[4][2]),
+                    targets=np.array(sorted({u64(src, q) for q in ptrs}), np.int64), end=secs[0][1], memo={}, total=0,
+                    parents={0: 0, u64(src, 0x28): u64(self.t, 0x28)})
+            _st = self._graft
+        if addr in _st["memo"]: return _st["memo"][addr]
+        if size is None:
+            i = np.searchsorted(_st["targets"], addr, side="right")
+            size = int(_st["targets"][i] if i < len(_st["targets"]) else _st["end"]) - addr
+        _st["total"] += size
+        assert _st["total"] < 1 << 20, "graft too large (a pointer leads outside the material)"
+        at = self.alloc(src[addr:addr + size], 16)
+        _st["memo"][addr] = at
+        i = np.searchsorted(_st["ptrs"], addr)
+        while i < len(_st["ptrs"]) and _st["ptrs"][i] < addr + size:
+            q = int(_st["ptrs"][i]); i += 1
+            assert q not in _st["bad"], "grafted structure points at GPU data"
+            tgt = u64(src, q)
+            if tgt in _st["parents"]:                     # (back-pointers: the file header (offset 0, a real
+                self.setp(at + (q - addr), _st["parents"][tgt])   # pointer, not null) and the model -> ours)
+            else:
+                self.setp(at + (q - addr), self.graft(src, tgt, None, _st))
+        return at
+
     # ---- build
     def build(self, meshes: List[dict], materials: List[dict], template_shape: int = TEMPLATE_SHAPE,
               model_name: str = None, file_name: str = None) -> bytes:
         """meshes: {name, material (index), pos (n,3) metres, nrm (n,3), tan (n,3), uv (n,2), idx (m,) u16};
-        materials: {name, textures: [albedo, normal, roughness]}."""
+        materials: {name, textures: [...], template_material (index into this template, optional),
+        source (src BFRES bytes, FMAT address) (optional: a material of another model, grafted)}; the texture list
+        follows the template material's samplers."""
         t = self.t
         fmdl = u64(t, 0x28)
         fvtx0, fshp0, fmat0 = u64(t, fmdl + 0x20), u64(t, fmdl + 0x28), u64(t, fmdl + 0x38)
@@ -247,13 +283,23 @@ class Writer:
             self.out[s + 0x5b] = 1
         for mi, mt in enumerate(materials):
             at = fmat_arr + 0xb0 * mi
-            self.copy_into(at, mat_t, 0xb0)
+            if mt.get("source"):
+                src, src_at = mt["source"]
+                g = self.graft(src, src_at, 0xb0)                  # (the FMAT and everything under it)
+                self.out[at:at + 0xb0] = self.out[g:g + 0xb0]
+                for k in range(0, 0xb0, 8):
+                    if g + k in self.ptrs_main: self.ptrs_main.add(at + k)
+                assert self.out[at + 0xa3] == len(mt["textures"]), f"{mt['name']}: {self.out[at + 0xa3]} texture slots"
+            else:
+                mt_src = fmat0 + 0xb0 * mt["template_material"] if mt.get("template_material") is not None else mat_t
+                self.copy_into(at, mt_src, 0xb0)
+                for f in (0x18, 0x28, 0x58, 0x80):
+                    self.copy_block(at + f, mt_src + f)
+                assert self.out[at + 0xa3] == len(mt["textures"]), f"{mt['name']}: {self.out[at + 0xa3]} texture slots"
             self.setp(at + 8, self.string(mt["name"]))
             names = self.alloc(bytes(8 * len(mt["textures"])), 8)
             for k, x in enumerate(mt["textures"]): self.setp(names + 8 * k, self.string(x))
             self.setp(at + 0x20, names)
-            for f in (0x18, 0x28, 0x58, 0x80):
-                self.copy_block(at + f, mat_t + f)
             struct.pack_into("<H", self.out, at + 0xa0, mi)
         # dictionaries
         empty = self.string("")

@@ -68,8 +68,9 @@ def _linked_image(inp):
 
 
 def _material_maps(mat):
-    """-> {'nrm': RGBA uint8 (X, Y, Z, 255), 'rgh': RGBA uint8 (roughness in every channel)} for the maps
-    wired into the material's Principled BSDF (Normal through a Normal Map node, Roughness as an image)."""
+    """-> {'nrm': RGBA (X, Y, Z, 255), 'rgh': RGBA (roughness in every channel), 'mtl': RGBA (metallic), 'emc': RGBA
+    (glow colour, sRGB), 'cutout': True} from the material's Principled BSDF (Normal through a Normal Map node,
+    Roughness / Metallic images or values, Emission Color x Strength, Alpha wired or below 1)."""
     out = {}
     if mat is None or not mat.use_nodes or not mat.node_tree: return out
     bsdf = next((n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None)
@@ -90,10 +91,46 @@ def _material_maps(mat):
             # (the game's own normal maps store X in RGB and Y in A with the channel remap R A 0 1, so its shader reads
             #  X from red and Y from green; ours carry no remap: X in red, Y in green)
             out['nrm'] = np.stack([x, y, z, np.full_like(x, 255)], -1).astype(np.uint8)
-    im, _ = _linked_image(bsdf.inputs.get('Roughness'))
+    rin = bsdf.inputs.get('Roughness')
+    im, _ = _linked_image(rin)
     if im is not None:
         r = np.clip(np.round(_pixels(im)[..., 0] * 255), 0, 255).astype(np.uint8)
         out['rgh'] = np.stack([r, r, r, r], -1)        # (the game's roughness maps remap red to every channel)
+    elif rin is not None and not rin.is_linked and abs(rin.default_value - 0.5) > 0.001:
+        out['rgh'] = np.full((8, 8, 4), int(round(rin.default_value * 255)), np.uint8)   # (a set value; 0.5, Blender's
+        #  default, keeps the game's stone roughness)
+    # metallic: an image, or the value (the game's metallic maps remap red to every channel, like roughness)
+    inp = bsdf.inputs.get('Metallic')
+    im, _ = _linked_image(inp)
+    if im is not None:
+        m = np.clip(np.round(_pixels(im)[..., 0] * 255), 0, 255).astype(np.uint8)
+        out['mtl'] = np.stack([m, m, m, m], -1)
+    elif inp is not None and not inp.is_linked and inp.default_value > 0.001:
+        out['mtl'] = np.full((8, 8, 4), int(round(inp.default_value * 255)), np.uint8)
+    # emission: the colour (image or value) times the strength (up to 1: the texture is the glow colour)
+    st = bsdf.inputs.get('Emission Strength')
+    strength = float(st.default_value) if st is not None and not st.is_linked else 0.0
+    ec = bsdf.inputs.get('Emission Color') or bsdf.inputs.get('Emission')
+    if strength > 0.001 and ec is not None:
+        im, _ = _linked_image(ec)
+        k = min(strength, 1.0)
+        if im is not None:
+            a = _pixels(im).copy()
+            if im.is_float:
+                c = np.clip(a[..., :3], 0, 1); a[..., :3] = np.where(c <= 0.0031308, c * 12.92, 1.055 * c ** (1 / 2.4) - 0.055)
+            rgb = a[..., :3] * k
+        else:
+            lin = np.clip(np.array(ec.default_value[:3], float) * k, 0, 1)
+            srgb = np.where(lin <= 0.0031308, lin * 12.92, 1.055 * lin ** (1 / 2.4) - 0.055)
+            rgb = np.broadcast_to(srgb, (8, 8, 3))
+        if np.max(rgb) > 0.004:
+            img = np.empty(rgb.shape[:2] + (4,), np.uint8)
+            img[..., :3] = np.clip(np.round(rgb * 255), 0, 255); img[..., 3] = 255
+            out['emc'] = img
+    # cut-out: the Alpha input wired (e.g. the image's Alpha) or below 1
+    al = bsdf.inputs.get('Alpha')
+    if al is not None and (al.is_linked or al.default_value < 0.999):
+        out['cutout'] = True
     return out
 
 
