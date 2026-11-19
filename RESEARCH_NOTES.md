@@ -3499,3 +3499,15 @@ names** (75 of 94 found in image.bin / .longshot_exefs/main strings; core/enums.
   the ground more than the cosine law. Not calibrated yet: the sky's own look, fog, bloom, colours (only brightness),
   runtime point / spot lights. Panel labels now say what the game does ("Sun & Sky (BgDif)", "Shadow Fill (Hemi)",
   "Sky Sun Glow (unused by the game)").
+- **Sky backdrop (0.17.1):** the game's noon sky scales with BgDif x 2^-EV like the floor (zenith display: EV14 240/250/251,
+  EV15 207/234/240, EV16 166/210/220). Inverted through AgX: linear zenith (2.35, 5.67, 6.83), horizon (2.78, 6.15,
+  6.50) per 110000 BgDif at EV 14. The preview's camera-visible sky is now a horizon -> zenith gradient of those x
+  BgDif/110000 (EV16: Eevee 184/209/213 vs game 166/210/220; noon 226/241/243 vs 240/250/251; was navy 31/58/78).
+  Noon only: the sky's hue per time of day (SkyArbitraryColor*, Rayleigh / Mie) is not modelled yet.
+- **Open shadows (unsolved):** shadows of small objects in open light are bright in the game (slab / sphere shadow
+  93.7 at BgDif 110000, 48.1 at 55000; 2 frames each), shade under a 120 m roof is dark (8.6): a BgDif sky light that
+  large geometry blocks. Eevee: a world sky term lights both equally (k 0.3: shadow 42, roof 40); a light probe
+  volume (capture_world only, capture_indirect off) did not separate them either (res 48, box between floor and
+  roof: shadow 80, roof 76); with indirect capture it adds the floor's bounced sunlight (shadow ~146). Left off
+  (SKY_LIGHT_PER_BGDIF 0): Eevee's small-object shadows stay darker (~12) than the game's (~94). Belongs with Bake
+  Lighting (occlusion data shared by the game bake and the preview).

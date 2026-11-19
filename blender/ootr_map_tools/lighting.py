@@ -28,6 +28,10 @@ def env_props(context):
 
 SUN_PER_BGDIF = 88.3 * 1.25 / 110000.0  # (Blender sun W/m2 per BgDifIntensity at Blender exposure 0 = EV 14; x1.25: residual fit)
 WORLD_PER_HEMI = 0.000376 * 1.5      # (Blender world strength per HemiLightIntensity; x1.5: Eevee shades the world under roofs, the game does not)
+SKY_LIGHT_PER_BGDIF = float(__import__('os').environ.get('OOTR_SKY_K', '0.0'))   # (open-sky light per 110000 BgDif: off until
+#  Eevee can occlude it under large roofs like the game, §101; OOTR_SKY_K for experiments)
+SKY_ZENITH = (2.352, 5.671, 6.828)     # (linear sky colour per 110000 BgDif at EV 14: the game's noon, §101)
+SKY_HORIZON = (2.777, 6.146, 6.498)
 BAKED_COMPENSATION = 2 ** (math.log2(683 / 1.2) - 14.0)   # (the baked-light stand-ins keep their look: the view
 #  exposure reference moved from log2(683 / 1.2) to 14)
 
@@ -307,8 +311,23 @@ def apply_env(context):
     for attr, val in (('sun_elevation', math.radians(e.elevation)), ('sun_rotation', math.atan2(to_sun.x, to_sun.y)),
                       ('sun_disc', False)):
         if hasattr(sky, attr): setattr(sky, attr, val)
-    link(sky.outputs['Color'], sky_bg.inputs['Color'])
-    sky_bg.inputs['Strength'].default_value = 0.3 / max(2 ** view_exposure(ev), 1e-6) * 0.035
+    # (what the camera sees of the sky, calibrated against the game's noon sky, §101: a horizon -> zenith gradient
+    #  that scales with BgDif like the sunlight)
+    tc = node('OoT Sky Dir', 'ShaderNodeTexCoord', (-900, 450))
+    sz = node('OoT Sky Up', 'ShaderNodeSeparateXYZ', (-700, 450))
+    sr = node('OoT Sky Ramp', 'ShaderNodeMapRange', (-500, 450))
+    smix = node('OoT Sky Mix', 'ShaderNodeMix', (-300, 450))
+    smix.data_type = 'RGBA'
+    link(tc.outputs['Generated'], sz.inputs[0])
+    link(sz.outputs['Z'], sr.inputs['Value'])
+    sr.inputs['From Min'].default_value, sr.inputs['From Max'].default_value = 0.0, 0.6
+    link(sr.outputs['Result'], smix.inputs['Factor'])
+    k = pal.ambient_intensity * e.all_ambient / 110000.0
+    smix.inputs[6].default_value = (*(c * k for c in SKY_HORIZON), 1.0)
+    smix.inputs[7].default_value = (*(c * k for c in SKY_ZENITH), 1.0)
+    for l in list(sky_bg.inputs['Color'].links): links.remove(l)
+    link(smix.outputs[2], sky_bg.inputs['Color'])
+    sky_bg.inputs['Strength'].default_value = 1.0
     link(geo.outputs['Normal'] if 'Normal' in geo.outputs else geo.outputs[1], sep.inputs[0])
     link(sep.outputs['Z'], ramp.inputs['Value'])
     ramp.inputs['From Min'].default_value, ramp.inputs['From Max'].default_value = -1.0, 1.0
@@ -317,8 +336,11 @@ def apply_env(context):
     # (calibrated, §101: what lights the shade of custom geometry is the hemisphere fill alone (BgDif does not reach
     #  it without a bake): a world of strength 0.000376 x HemiLightIntensity, top / bottom colours by the normal)
     h_rad = pal.hemi_intensity * e.all_fill * WORLD_PER_HEMI
-    top = [pal.hemi_top[i] * h_rad for i in range(3)]
-    bottom = [pal.hemi_bottom[i] * h_rad for i in range(3)]
+    # (plus the open sky's light, BgDif-scaled: it lights shadows of small objects; large roofs block it, §101)
+    k_sky = pal.ambient_intensity * e.all_ambient / 110000.0 * SKY_LIGHT_PER_BGDIF
+    sky_rgb = [c / max(SKY_ZENITH) for c in SKY_ZENITH]
+    top = [pal.hemi_top[i] * h_rad + sky_rgb[i] * k_sky for i in range(3)]
+    bottom = [pal.hemi_bottom[i] * h_rad + sky_rgb[i] * k_sky * 0.25 for i in range(3)]
     mix.inputs[6].default_value = (*bottom, 1.0)
     mix.inputs[7].default_value = (*top, 1.0)
     link(mix.outputs[2], amb_bg.inputs['Color'])
