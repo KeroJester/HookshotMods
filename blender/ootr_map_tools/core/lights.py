@@ -37,12 +37,16 @@ def rel_to_work(rel):
     return 'Work/' + rel.replace('.bgyml', '.gyml')
 
 
-def resolved(read, w):
-    """A Work/ path's file with its $parent chain applied (read: rel -> dict or None)."""
+def resolved(read, w, _seen=None):
+    """A Work/ path's file with its $parent chain applied (read: rel -> dict or None); a chain that loops (a file
+    naming itself) stops there."""
+    _seen = set() if _seen is None else _seen
+    if w in _seen: return {}
+    _seen.add(w)
     y = read(work_to_rel(w))
     if y is None: return {}
     if '$parent' in y:
-        base = resolved(read, y['$parent'])
+        base = resolved(read, y['$parent'], _seen)
         base.update({k: v for k, v in y.items() if k != '$parent'})
         return base
     return dict(y)
@@ -357,6 +361,30 @@ def sarc_add_many(d, add):
     return bytes(out)
 
 
+def _ours(path, banc):
+    return bool(path) and f'/ootr_{banc}_' in path or bool(path) and f'/ootr_{banc}.' in path
+
+
+def _original_palette(game, banc, env, i, t):
+    """The game palette time i of this map builds on: the table's entry, or, when that is already this map's own
+    edited palette (a re-export), that palette's $parent; a palette that lost it (an earlier bug made it name itself)
+    gets it back from the game's time table with the same times of day."""
+    p = t['palette_path']
+    if not _ours(p, banc): return p
+    q = (t.get('own') or {}).get('$parent')
+    if q and not _ours(q, banc): return q
+    names = [(x['name'], x['hour']) for x in env['times']]
+    from .game import Game
+    vpack = EnvPack(Game(game.folder))
+    for rel in sorted(vpack.files):
+        if 'ResEnvPaletteTimeTable/' not in rel: continue
+        tb = resolved(vpack.get, rel_to_work(rel))
+        arr = tb.get('TimeTableArray') or []
+        if [(x.get('Name'), int(x.get('Hour', 0))) for x in arr] == names and i < len(arr):
+            return arr[i].get('EnvPalette')
+    raise ValueError(f'{t["name"]}: the original palette of this time of day was not found')
+
+
 def write_env(game, banc, env, edits, mod_dir, pack=None):
     """edits: dict(azimuth, elevation, cloud_shadow, times: {time name: {palette key: value}}) -> ({rel: bytes},
     report). A WorldParam and time table of the map's own (ootr_<banc>) and one palette per time of day ($parent = the
@@ -379,9 +407,13 @@ def write_env(game, banc, env, edits, mod_dir, pack=None):
         table = copy.deepcopy(env['table'])
         for i, (e, t) in enumerate(zip(table['TimeTableArray'], env['times'])):
             ed = (edits.get('times') or {}).get(t['name']) or {}
-            diff = {k: v for k, v in ed.items() if not _same(t['palette'].get(k), v)}
-            if not diff: continue
-            y = {'$parent': t['palette_path']}
+            parent = _original_palette(game, banc, env, i, t)
+            orig = resolved(pack.get, parent)
+            # (the palette's values as edited, against the original: unchanged keys are left to the original)
+            diff = {k: v for k, v in ed.items() if not _same(orig.get(k), v)}
+            if not diff:
+                e['EnvPalette'] = parent; continue
+            y = {'$parent': parent}
             y.update(_typed(diff))
             name = f'ootr_{banc}_{i}_{t["name"]}.game__wm__ResEnvPalette.bgyml'
             mine[f'WorldMgr/ResEnvPalette/{name}'] = write_byml(y)
@@ -398,9 +430,11 @@ def write_env(game, banc, env, edits, mod_dir, pack=None):
     elif env.get('slot') == 'default' and env['times']:
         t = env['times'][0]
         ed = (edits.get('times') or {}).get(t['name']) or {}
-        diff = {k: v for k, v in ed.items() if not _same(t['palette'].get(k), v)}
+        parent = _original_palette(game, banc, env, 0, t)
+        orig = resolved(pack.get, parent)
+        diff = {k: v for k, v in ed.items() if not _same(orig.get(k), v)}
         if diff:
-            y = {'$parent': t['palette_path']}
+            y = {'$parent': parent}
             y.update(_typed(diff))
             name = f'ootr_{banc}_0_Fixed.game__wm__ResEnvPalette.bgyml'
             mine[f'WorldMgr/ResEnvPalette/{name}'] = write_byml(y)
@@ -420,8 +454,11 @@ def write_env(game, banc, env, edits, mod_dir, pack=None):
         mine_dir = os.path.abspath(os.path.join(mod_dir, 'romfs'))
         others = [os.path.dirname(o) for o in game.overlays if os.path.abspath(o) != mine_dir]
         base = EnvPack(Game(game.folder, overlays=others))
-        add = {k: v for k, v in allp.items() if k not in base.files}
-        files[packrel] = ('zs', sarc_add_many(base.raw, add))
+        raw = base.raw
+        from .sound import _sarc_drop
+        for k in allp:
+            if k in base.files: raw = _sarc_drop(raw, k)     # (ours replace any copy already there)
+        files[packrel] = ('zs', sarc_add_many(raw, allp))
     else:
         p = os.path.join(mod_dir, 'romfs', packrel)
         if os.path.exists(p): os.remove(p)

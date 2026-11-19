@@ -3423,3 +3423,7 @@ names** (75 of 94 found in image.bin / .longshot_exefs/main strings; core/enums.
   vanilla pack, 2026-11-18 04:18) hid Clock Town's time table in game; rebuilt (backup in ~/.cache/ootr_tests/).
 - Panel: "Load Environment of <map>" for scenes whose environment was never loaded. Soft shadows: palette
   HemiLightIntensity (Fill); Blank maps with the Hyrule Field look have Fill 100 / BgDif 110000 at Noon.
+- Bug (fixed 0.16.2): a re-export read the map's own edited palette as the original, and wrote a palette whose
+  $parent was itself (RecursionError on the next read). Now: palettes build on _original_palette (the entry, or our
+  palette's $parent, or for a looped one the game time table with the same times of day); resolved() stops at loops;
+  our palettes replace copies already in the base pack.
