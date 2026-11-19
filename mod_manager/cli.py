@@ -380,7 +380,7 @@ def main():
     # create
     p_cre = subparsers.add_parser("create", help="Create a new mod template")
     p_cre.add_argument("name", help="Name of the new mod")
-    p_cre.add_argument("--author", "-a", default="Justin", help="Author name")
+    p_cre.add_argument("--author", "-a", default="", help="Author name")
     p_cre.add_argument("--version", "-v", default="1.0.0", help="Mod version")
     p_cre.add_argument("--desc", "-d", default="", help="Description")
     p_cre.add_argument("--category", "-c", default="General", help="Category")

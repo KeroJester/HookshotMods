@@ -3,7 +3,7 @@
 from it), with function boundaries from Hookshot's lifted f_<addr> symbols. Needs re/img.elf in the game folder and
 a function-start list (nm bin/hookshot | f_ names) in $FSTARTS."""
 import bisect, os, subprocess, sys
-GAME = os.environ.get("HOOKSHOT_GAME_DIR", "/home/justin/Games/Hookshot")
+GAME = os.environ.get("HOOKSHOT_GAME_DIR", os.path.expanduser("~/Games/Hookshot"))
 starts = [int(l, 16) for l in open(os.environ["FSTARTS"])]
 a = int(sys.argv[1], 16)
 i = bisect.bisect_right(starts, a) - 1

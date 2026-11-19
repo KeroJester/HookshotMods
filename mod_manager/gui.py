@@ -183,7 +183,7 @@ class CreateModDialog(QDialog):
         form = QFormLayout()
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("e.g. KokiriSwordDamageBuff")
-        self.author_edit = QLineEdit("Justin")
+        self.author_edit = QLineEdit("")
         self.version_edit = QLineEdit("1.0.0")
         self.category_edit = QLineEdit("Gameplay")
         self.desc_edit = QTextEdit()

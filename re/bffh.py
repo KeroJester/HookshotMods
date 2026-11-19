@@ -22,7 +22,7 @@ def panes(lay):
     return out
 
 if __name__ == "__main__":
-    src = sys.argv[1] if len(sys.argv) > 1 else "/home/justin/Games/Hookshot/prompts/Common.blarc"
+    src = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser("~/Games/Hookshot/prompts/Common.blarc")
     files = zstd_helper.unpack_sarc_to_dict(open(src, "rb").read())
     want = sys.argv[2] if len(sys.argv) > 2 else None
     for name, lay in layouts(files):

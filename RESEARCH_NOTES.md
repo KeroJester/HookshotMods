@@ -152,7 +152,7 @@ Early observations:
   (`Player_{Child,Adult}{,_01.._04,_Cba,_Demo}_Animation.anim.bfres.zs`, and the Demo set has a
   `.Skeleton.bfres`). Cutscene anims are suffixed `_Player_Child` (73) or `_Player_Adult` (96).
 - Unpacked copies for inspection are in
-  `/tmp/claude-1000/-home-justin-Games-Hookshot/7462094f-f521-4c10-8e4e-c515f6e62042/scratchpad/packs/`
+  `<scratch folder>/packs/`
   (temporary). The unpack script is in the same scratchpad, `unpack.py`.
 
 TODO:
@@ -171,7 +171,7 @@ The recomp's own `patches/` only touch Goron for input remaps (`input.c:1438`), 
 (`camera_patches.c:689`), and cheats (magic). **All transformation logic is vanilla decomp code.**
 
 Local copies (temporary scratchpad, re-clone if missing):
-`/tmp/claude-1000/-home-justin-Games-Hookshot/7462094f-f521-4c10-8e4e-c515f6e62042/scratchpad/ref/`
+`<scratch folder>/ref/`
 (`Zelda64Recomp/`, plus a sparse `mm-decomp/` holding the player files).
 
 ### 4a. How MM structures forms (opposite of this game)
@@ -3444,7 +3444,7 @@ names** (75 of 94 found in image.bin / .longshot_exefs/main strings; core/enums.
   30 presses. Headless test (EnvFx): title seen, 5 presses, map loading 38 s after launch, Link in the map.
 
 ## §100. The 10 fps "lighting" slowdown = video memory (2026-11-18)
-- The user's laptop (RTX 4050, 6 GB): Blender held 2454 MB (lit viewport of a 2 km map); the game's VRAM allowance was
+- The user's laptop GPU (6 GB): Blender held 2454 MB (lit viewport of a 2 km map); the game's VRAM allowance was
   2325 MB, used 2264 ("image over budget, retrying", "slow submit ... memory sync 30-67 ms" on the main thread): 10-13
   fps. Headless runs of the same files gave 12.7 or 32.8 fps depending on the moment (first run of a batch slow), so
   the files were not the cause. Play now (preference "Free GPU Memory on Play", on) switches Material Preview /

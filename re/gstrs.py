@@ -3,7 +3,7 @@
 import os, re, subprocess, sys
 here = os.path.dirname(os.path.abspath(__file__))
 out = subprocess.run([sys.executable, os.path.join(here, "gdis.py"), sys.argv[1]], capture_output=True, text=True).stdout
-d = open(os.path.join(os.environ.get("HOOKSHOT_GAME_DIR", "/home/justin/Games/Hookshot"), "image.bin"), "rb").read()
+d = open(os.path.join(os.environ.get("HOOKSHOT_GAME_DIR", os.path.expanduser("~/Games/Hookshot")), "image.bin"), "rb").read()
 def cstr(a):
     o = a - 0x80000000
     if not 0 <= o < len(d): return None
