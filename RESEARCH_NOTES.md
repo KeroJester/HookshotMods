@@ -3216,7 +3216,7 @@ A checklist for the next map (North / East / West Clock Town, other MM3D scenes)
   by the add-on's operators) load from a patched save (screenshots/new_map).
 - Game(folder, overlays=[mods/<map mod>]): the add-on reads new maps and earlier edits back from the map mod.
 
-## §89. Custom geometry from the Blender map tools (2026-11-18, in progress)
+## §89. Custom geometry from the Blender map tools (2026-11-18)
 - A map's own model = a NEW actor Land_Ootr_<map>_A_01 (additive): Pack/Actor/<actor>.pack.zs made with create_sarc
   {ActorParam (ActorLogicSimpleActor, LOD Default, Physics MapDefault, PreActorSetting UsePreActorRenderer,
   GameActorDefault), ModelInfo {FmdbName, ModelProjectName}}, an RSDB/ActorInfo row (copy of Land_SageRoom_Base_A_01:
@@ -3384,3 +3384,29 @@ names** (75 of 94 found in image.bin / .longshot_exefs/main strings; core/enums.
   roughness. Tangents now follow the UVs (custom.uv_tangents; were arbitrary).
 - Verified (tests on Longshot, screenshots/materials): a flat panel with a sphere's normal map shades exactly like a
   real sphere beside it (both axes, under a high sun); a 0.3 roughness map shows a highlight.
+
+## §97. Material kinds: metallic, cut-out, emissive (2026-11-18)
+- FMAT (0xb0) fields: +0x08 name, +0x10 shader assign (attribute names, options, archive "Model"), +0x20 texture
+  names, +0x38 sampler names (_a0 albedo, _n0 normal, _rgh0 roughness, _mt0 metallic, _ec0 emissive colour, _hgt0,
+  bake0 / bake1, ...), +0x40 render info (render mode **opaque / mask / translucent ("color")**, cull **front /
+  both**, blend factors), +0x18 / +0x28 / +0x58 / +0x80 runtime blocks, **+0x70 / +0x78 point back to the file
+  header (offset 0: a relocated pointer, not null)**, +0xa0 u16 index, +0xa3 u8 texture count. FMDL +0x6c u16
+  material count.
+- Texture kinds: _Emc emissive colour (sRGB, remap RGBA; ASTC 0x3106 / BC1), _Mtl metallic (BC4, remap RRRR), cut-out
+  albedo BC7 sRGB with alpha.
+- Templates (same vertex layout or a subset of ours): metallic = the SageRoom model's own Mt_Rock_SageRoom_Mark_A
+  (index 7); cut-out = Land_CrumblingGanonCastle_Room01_A_01 Mt_Module_CrumblingGanonCastle_Room02A_K (mask, front);
+  emissive = Land_CrumblingGanonCastle_Room02_A_01 Mt_Module_InsideGanonCastle_CandleStandA03_A (+_ec0).
+- **Materials cannot move between models.** Every material's shader assign (+0x10) points at its model's one shared
+  shader record (FMDL +0x48, 0x58 bytes, with the model's option tables), and its option lists are indices into
+  that record. A material grafted from another file (bfres_build.Writer.graft: deep copy, back-pointers mapped)
+  crashed the game on the loading screen (longshot+0x4bc14c5, read 0); bisect (systemd-run, three runs): metallic
+  (same-file clone) fine, cut-out and emissive (grafted) crashed.
+- So each material family is its own model / actor made from its own template file (core/custom.FAMILIES):
+  base (SageRoom: opaque + metallic), emissive (Land_Ootr_<map>_E<tile>_01 from Land_CrumblingGanonCastle_Room02_A_01
+  shape 0), cut-out (..._C<tile>_01 from Land_CrumblingGanonCastle_Room01_A_01 shape 35); FmdbName = the template's
+  model name; the SageRoom pack components and .anim copy as before.
+- Verified on Longshot (screenshots/materials/03): emissive glows, cut-out holes (and shadow), metallic highlight
+  (dark without reflection probes). Roughness values export as flat maps (0.5, Blender's default, keeps the stone
+  roughness). The disk-full sessions: test run folders moved to ~/.cache/ootr_tests (the pipeline cache in each
+  run's user/ copy is GBs; /tmp is a 16 GB tmpfs).

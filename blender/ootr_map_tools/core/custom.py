@@ -28,12 +28,15 @@ BAKE_TEX = ['CmnTex_BakeDefault', 'CmnTex_BakeLightDefault']
 TEMPLATE_TEX = 'Tex/Etc_Gray50_A_Alb.bntx.zs'
 # material kinds (RESEARCH_NOTES.md §97): the game material each one is cloned from, and its texture slots
 METAL_MATERIAL = 7         # (the template model's Mt_Rock_SageRoom_Mark_A: albedo, normal, roughness, metallic, bake)
-GRAFTS = {
-    'cutout': ('Model/Land_CrumblingGanonCastle_Room01_A.Land_CrumblingGanonCastle_Room01_A_01.bfres.zs',
-               'Mt_Module_CrumblingGanonCastle_Room02A_K'),         # (render mode "mask": cut by the albedo alpha)
-    'emissive': ('Model/Land_CrumblingGanonCastle_Room02_A.Land_CrumblingGanonCastle_Room02_A_01.bfres.zs',
-                 'Mt_Module_InsideGanonCastle_CandleStandA03_A'),   # (albedo, normal, roughness, glow colour, bake)
-}
+FAMILIES = {      # (kind -> template model, its shape whose material is cloned, the model name inside = FmdbName)
+    'base': (TEMPLATE_MODEL, TEMPLATE_SHAPE, 'Land_SageRoom_Base_A_01'),
+    'emissive': ('Model/Land_CrumblingGanonCastle_Room02_A.Land_CrumblingGanonCastle_Room02_A_01.bfres.zs', 0,
+                 'Land_CrumblingGanonCastle_Room02_A_01'),       # (Mt_..._CandleStandA03_A: albedo, normal, roughness,
+                                                                 #  glow colour (_ec0), bake)
+    'cutout': ('Model/Land_CrumblingGanonCastle_Room01_A.Land_CrumblingGanonCastle_Room01_A_01.bfres.zs', 35,
+               'Land_CrumblingGanonCastle_Room01_A_01'),         # (Mt_..._Room02A_K: render mode "mask", cut by the
+}                                                                #  albedo's alpha)
+FAMILY_TAG = {'emissive': 'E', 'cutout': 'C'}
 ROW_FROM = 'Land_SageRoom_Base_A_01'
 ACTORINFO = 'RSDB/ActorInfo.Product.111.rstbl.byml.zs'
 GAMEACTORINFO = 'RSDB/GameActorInfo.Product.111.rstbl.byml.zs'   # (one row per actor too: a missing one crashed the game)
@@ -64,33 +67,20 @@ def _pow2_image(img, limit=1024):
     return img[ys][:, xs]
 
 
-def _graft_source(game, kind):
-    """-> (BFRES bytes, FMAT address) of a GRAFTS material."""
-    import struct
-    rel, name = GRAFTS[kind]
-    d = _base_read(game, rel)
-    u16 = lambda o: struct.unpack_from('<H', d, o)[0]; u64 = lambda o: struct.unpack_from('<Q', d, o)[0]
-    fmdl = u64(0x28); fmat0 = u64(fmdl + 0x38)
-    for i in range(u16(fmdl + 0x6c)):
-        at = fmat0 + 0xb0 * i
-        p = u64(at + 8)
-        if d[p + 2:p + 2 + u16(p)].decode() == name: return d, at
-    raise KeyError(f'{name} not in {rel}')
-
-
 def material_spec(game, banc, key, idx, alb, nrm, rgh, maps):
-    """The game material for one Blender material: its kind (emissive > cut-out > metallic > opaque) and textures."""
+    """The game material for one Blender material: (spec, kind, family). Kinds: emissive > cut-out > metallic > opaque;
+    emissive and cut-out materials live in models made from their own template file (a material's shader options
+    index its model's shared shader record, model header +0x48, so materials cannot move between models)."""
     m = maps.get(key, {})
     name = f'Mt_Ootr_{banc}_{idx:03d}'
     if 'emc' in m:
-        return dict(name=name, textures=[alb, nrm, rgh, _tex_name(banc, key, 'Emc')] + BAKE_TEX,
-                    source=_graft_source(game, 'emissive')), 'emissive'
+        return dict(name=name, textures=[alb, nrm, rgh, _tex_name(banc, key, 'Emc')] + BAKE_TEX), 'emissive', 'emissive'
     if m.get('cutout'):
-        return dict(name=name, textures=[alb, nrm, rgh] + BAKE_TEX, source=_graft_source(game, 'cutout')), 'cut-out'
+        return dict(name=name, textures=[alb, nrm, rgh] + BAKE_TEX), 'cut-out', 'cutout'
     if 'mtl' in m:
         return dict(name=name, textures=[alb, nrm, rgh, _tex_name(banc, key, 'Mtl')] + BAKE_TEX,
-                    template_material=METAL_MATERIAL), 'metallic'
-    return dict(name=name, textures=[alb, nrm, rgh] + BAKE_TEX), 'opaque'
+                    template_material=METAL_MATERIAL), 'metallic', 'base'
+    return dict(name=name, textures=[alb, nrm, rgh] + BAKE_TEX), 'opaque', 'base'
 
 
 def uv_tangents(P, N, U, T):
@@ -153,7 +143,7 @@ def _base_read(game, rel):
         return zstd_helper.decompress_zs(f.read(), rel, game.romfs)
 
 
-def build_pack(game, actor, project):
+def build_pack(game, actor, project, fmdb=None):
     """The actor's pack: Land_SageRoom_Base_A_01's components (its AS, dummy animation, event performer: without them
     the pre-actor renderer crashed in PreActorModelCompose), its own ModelInfo, and no physics of its own (the
     collision is in the map's compound body)."""
@@ -165,7 +155,7 @@ def build_pack(game, actor, project):
     comps['PhysicsRef'] = '?Component/Physics/MapDefault.engine__component__PhysicsParam.bgyml'
     files = {f'Actor/{actor}.engine__actor__ActorParam.bgyml': write_byml({'Components': comps}),
              f'Component/ModelInfo/{actor}.engine__component__ModelInfo.bgyml':
-                 write_byml({'FmdbName': FMDB, 'ModelProjectName': project})}
+                 write_byml({'FmdbName': fmdb or FMDB, 'ModelProjectName': project})}
     for k, v in src.items():                       # (the shared components the template's pack carries)
         if k.startswith(('Component/AnimationParam/', 'Component/EventPerformerParam/')): files[k] = v
     return create_sarc(files)
@@ -231,53 +221,61 @@ def write_custom(game, banc, mod_dir, meshes, images, collision, maps=None):
         grows = merged_rows(game, mod_dir, GAMEACTORINFO)
         for k in [r for r in rows if r.startswith(f'Land_Ootr_{banc}_')]: rows.pop(k)      # (the previous export's tiles)
         for k in [r for r in grows if r.startswith(f'Land_Ootr_{banc}_')]: grows.pop(k)
-        tmpl_model = _base_read(game, TEMPLATE_MODEL)
         anim = _base_read(game, TEMPLATE_MODEL.split('.')[0] + '.anim.bfres.zs')
-        ntri = 0
-        for ti, (tkey, parts) in enumerate(sorted(tiles.items())):
-            actor, project = tile_actor(banc, ti, len(tiles))
-            allp = np.concatenate([m['pos'] for m in parts])
-            lo, hi = allp.min(0), allp.max(0)
-            centre = (lo + hi) / 2
-            mkeys = sorted({m['material'] for m in parts})
-            materials = []
-            for mk in mkeys:
-                spec, kind = material_spec(game, banc, mk, keys.index(mk), texname[mk], mapname[mk][0], mapname[mk][1], maps)
-                materials.append(spec); kinds[mk] = kind
-            out_meshes = []
-            for m in parts:                                  # (u16 indices: chunks of 65535 vertices)
-                P, N, U, T = m['pos'] - centre, m['nrm'], m['uv'], np.asarray(m['tris'])
-                step = 65535 // 3 * 3
-                flat = T.reshape(-1)
-                for s0 in range(0, len(flat), step):
-                    sel = flat[s0:s0 + step]
-                    used, inv = np.unique(sel, return_inverse=True)
-                    Tl = inv.reshape(-1, 3)
-                    out_meshes.append(dict(name=f'{m["name"]}_{len(out_meshes)}', material=mkeys.index(m['material']),
-                                           pos=P[used], nrm=N[used], tan=uv_tangents(P[used], N[used], U[used], Tl),
-                                           uv=U[used], idx=inv.astype(np.uint16)))
-            files[f'Model/{project}.{FMDB}.bfres.zs'] = bfres_build.Writer(tmpl_model).build(
-                out_meshes, materials, template_shape=TEMPLATE_SHAPE)
-            # (the template actor animates: the game opens Model/<project>.anim.bfres with the model; a new project
-            #  without one crashed the pre-actor renderer)
-            files[f'Model/{project}.anim.bfres.zs'] = anim
-            files[f'Pack/Actor/{actor}.pack.zs'] = build_pack(game, actor, project)
-            row = copy.deepcopy(rows.get(ROW_FROM) or merged_rows(game, mod_dir, ACTORINFO)[ROW_FROM])
-            row.update({'__RowId': actor, 'FmdbName': FMDB, 'ModelProjectName': project,
-                        'ModelAabbMin': {'X': float(lo[0] - centre[0]), 'Y': float(lo[1] - centre[1]), 'Z': float(lo[2] - centre[2])},
-                        'ModelAabbMax': {'X': float(hi[0] - centre[0]), 'Y': float(hi[1] - centre[1]), 'Z': float(hi[2] - centre[2])}})
-            rows[actor] = row
-            grow = copy.deepcopy(grows[ROW_FROM]); grow['__RowId'] = actor
-            grows[actor] = grow
-            placements.append(dict(actor=actor, translate=tuple(float(v) for v in centre)))
-            ntri += sum(len(m['idx']) // 3 for m in out_meshes)
+        specs = {}
+        for mk in keys:
+            spec, kind, fam = material_spec(game, banc, mk, keys.index(mk), texname[mk], mapname[mk][0], mapname[mk][1], maps)
+            specs[mk] = (spec, fam); kinds[mk] = kind
+        tmpl_cache = {}
+        ntri = nact = 0
+        for ti, (tkey, tparts) in enumerate(sorted(tiles.items())):
+            for fam in ('base', 'emissive', 'cutout'):
+                parts = [m for m in tparts if specs[m['material']][1] == fam]
+                if not parts: continue
+                actor, project = tile_actor(banc, ti, len(tiles))
+                if fam != 'base':
+                    actor = f'Land_Ootr_{banc}_{FAMILY_TAG[fam]}{ti:02d}_01'; project = actor[:-3]
+                trel, tshape, fmdb = FAMILIES[fam]
+                if trel not in tmpl_cache: tmpl_cache[trel] = _base_read(game, trel)
+                allp = np.concatenate([m['pos'] for m in parts])
+                lo, hi = allp.min(0), allp.max(0)
+                centre = (lo + hi) / 2
+                mkeys = sorted({m['material'] for m in parts})
+                materials = [specs[mk][0] for mk in mkeys]
+                out_meshes = []
+                for m in parts:                              # (u16 indices: chunks of 65535 vertices)
+                    P, N, U, T = m['pos'] - centre, m['nrm'], m['uv'], np.asarray(m['tris'])
+                    step = 65535 // 3 * 3
+                    flat = T.reshape(-1)
+                    for s0 in range(0, len(flat), step):
+                        sel = flat[s0:s0 + step]
+                        used, inv = np.unique(sel, return_inverse=True)
+                        Tl = inv.reshape(-1, 3)
+                        out_meshes.append(dict(name=f'{m["name"]}_{len(out_meshes)}', material=mkeys.index(m['material']),
+                                               pos=P[used], nrm=N[used], tan=uv_tangents(P[used], N[used], U[used], Tl),
+                                               uv=U[used], idx=inv.astype(np.uint16)))
+                files[f'Model/{project}.{fmdb}.bfres.zs'] = bfres_build.Writer(tmpl_cache[trel]).build(
+                    out_meshes, materials, template_shape=tshape)
+                # (the template actor animates: the game opens Model/<project>.anim.bfres with the model; a new
+                #  project without one crashed the pre-actor renderer)
+                files[f'Model/{project}.anim.bfres.zs'] = anim
+                files[f'Pack/Actor/{actor}.pack.zs'] = build_pack(game, actor, project, fmdb)
+                row = copy.deepcopy(rows.get(ROW_FROM) or merged_rows(game, mod_dir, ACTORINFO)[ROW_FROM])
+                row.update({'__RowId': actor, 'FmdbName': fmdb, 'ModelProjectName': project,
+                            'ModelAabbMin': {'X': float(lo[0] - centre[0]), 'Y': float(lo[1] - centre[1]), 'Z': float(lo[2] - centre[2])},
+                            'ModelAabbMax': {'X': float(hi[0] - centre[0]), 'Y': float(hi[1] - centre[1]), 'Z': float(hi[2] - centre[2])}})
+                rows[actor] = row
+                grow = copy.deepcopy(grows[ROW_FROM]); grow['__RowId'] = actor
+                grows[actor] = grow
+                placements.append(dict(actor=actor, translate=tuple(float(v) for v in centre)))
+                ntri += sum(len(m['idx']) // 3 for m in out_meshes); nact += 1
         files[ACTORINFO] = write_byml([rows[k] for k in sorted(rows)])
         files[GAMEACTORINFO] = write_byml([grows[k] for k in sorted(grows)])
         nmaps = sum(1 for k in keys for x in mapname[k] if x not in (NORMAL_TEX, ROUGH_TEX))
         special = sorted(f'{k}: {v}' for k, v in kinds.items() if v != 'opaque')
         if special: report.append('materials: ' + ', '.join(special))
         report.append(f'custom model: {ntri} triangles, {len(keys)} materials (BC7), {nmaps} normal / roughness map(s), '
-                      f'{len(tiles)} tile(s) of {TILE:.0f} m')
+                      f'{len(tiles)} tile(s) of {TILE:.0f} m, {nact} model(s)')
     if collision is not None and len(collision[1]):
         files.update(collision_files(game, banc, mod_dir, collision, report))
     for rel, data in files.items():
