@@ -307,7 +307,7 @@ if bpy is not None:
             profile, n, _proc = play(game.folder, banc, pos)
             from .core.play import log_path
             self.report({'INFO'}, f'{banc}: starting the game at {tuple(round(v, 1) for v in pos)} '
-                                  f'({n} saves of the test profile set; press Continue at the title). Game log: {log_path(profile)}')
+                                  f'({n} saves of the test profile set; the title screen is skipped for you). Game log: {log_path(profile)}')
             return {'FINISHED'}
 
     def template_items(self, context):

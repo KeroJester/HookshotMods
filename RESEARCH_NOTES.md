@@ -3436,3 +3436,9 @@ names** (75 of 94 found in image.bin / .longshot_exefs/main strings; core/enums.
   brighter, x2 per step), copied to all times. 0.16.4: "Reset to Game" / "Reset Whole Map to Game Lighting" restore
   the game's palettes (game_palettes via _original_palette), not the last loaded values; Exposure labelled "lower =
   brighter"; the map's time table is always written (a full reset points every entry back at the game's palettes).
+
+## §99. Play skips the title screen (2026-11-18)
+- core/play.launch starts the runtime with HOS_FS_TRACE=1 (file opens logged) and HOS_INPUT_LIVE=<profile dir>/
+  play_input.txt (appended lines are pressed: "0:A"); a thread waits for the title layout (UI/Layout2Archive/Title.)
+  in play.log, then presses A every 2.5 s (from 4 s after) until the map's files open (Banc/<map>/), the game exits or
+  30 presses. Headless test (EnvFx): title seen, 5 presses, map loading 38 s after launch, Link in the map.

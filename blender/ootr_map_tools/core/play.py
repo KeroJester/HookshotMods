@@ -92,16 +92,51 @@ def game_binary(game_folder):
     raise FileNotFoundError(f'no bin/longshot or bin/hookshot in {game_folder}')
 
 
-def launch(game_folder, profile):
-    """Starts the game itself (bin/<runtime>, not the folder's launcher script) with the test profile."""
+TITLE_MARK = 'UI/Layout2Archive/Title.'          # (the game opens the title screen's layout: it is about to show)
+
+
+def launch(game_folder, profile, banc=None, skip_title=True):
+    """Starts the game itself (bin/<runtime>, not the folder's launcher script) with the test profile. skip_title:
+    the title screen is passed by pressing A for the player (the runtime's live input file, HOS_INPUT_LIVE) once the
+    title shows, until the map's files load (the runtime's file trace, HOS_FS_TRACE)."""
     exe = game_binary(game_folder)
     flags = {'creationflags': 0x00000008} if sys.platform == 'win32' else {'start_new_session': True}   # (detached)
-    log = open(log_path(profile), 'wb')               # (the game's output: why a map does not load)
+    lp = log_path(profile)
+    log = open(lp, 'wb')                              # (the game's output: why a map does not load)
     from .game import Game
     from .runtime import layer_env                    # (the code mods: BlenderMod, MajoraMod, ...)
     env = layer_env(Game(game_folder))
-    return subprocess.Popen([exe, '--user', profile], cwd=game_folder, stdout=log, stderr=subprocess.STDOUT, env=env,
+    live = os.path.join(os.path.dirname(lp), 'play_input.txt')
+    if skip_title and banc:
+        open(live, 'w').close()
+        env = dict(env, HOS_FS_TRACE='1', HOS_INPUT_LIVE=live)
+    proc = subprocess.Popen([exe, '--user', profile], cwd=game_folder, stdout=log, stderr=subprocess.STDOUT, env=env,
                             **flags)
+    if skip_title and banc:
+        import threading
+        threading.Thread(target=_skip_title, args=(proc, lp, live, banc), daemon=True).start()
+    return proc
+
+
+def _skip_title(proc, log_file, live, banc, title_wait=300.0, presses=30):
+    """Presses A (every 2.5 s, from 4 s after the title screen's layout opens) until the map's files are opened."""
+    import time
+    mark = f'Banc/{banc}/'.encode()
+    def seen(token, since=0):
+        try:
+            with open(log_file, 'rb') as f:
+                f.seek(since); return token in f.read()
+        except OSError:
+            return False
+    t0 = time.time()
+    while proc.poll() is None and not seen(TITLE_MARK.encode()):
+        if time.time() - t0 > title_wait: return
+        time.sleep(0.5)
+    time.sleep(4.0)                                   # (the title fades in before it takes input)
+    for _ in range(presses):
+        if proc.poll() is not None or seen(mark): return
+        with open(live, 'a') as f: f.write('0:A\n')
+        time.sleep(2.5)
 
 
 def log_path(profile=None):
@@ -114,4 +149,4 @@ def play(game_folder, banc, pos, refresh=True):
     n = patch_profile(profile, banc, pos)
     if n == 0:
         raise RuntimeError('no save in the profile has the map / position fields (start the game once and save)')
-    return profile, n, launch(game_folder, profile)
+    return profile, n, launch(game_folder, profile, banc)
