@@ -3356,3 +3356,20 @@ names** (75 of 94 found in image.bin / .longshot_exefs/main strings; core/enums.
   replaces it: _sarc_drop) + AltoConfig Scenery entry; SoundSceneryName / GameBancInfo row = the label. Music choices
   = the 27 BgmName values of the game's sceneries. In-map audio RMS 270-1250 vs 0.
 - Blender enum items cannot have an empty identifier (dropped): 'NONE' for "No music / No ambience".
+
+## §95. Import MM3D Scene; void-out search (2026-11-18, tests X-Z on Longshot)
+- **Import MM3D Scene** (mm3d_import.py, core/mm3d.py; vendor cmb.py, mm3d.py, ctr_romfs.py, mapimport/mm3d_room.py):
+  preference "Majora's Mask 3D copy" = a decrypted .3ds (scenes/ extracted once to ~/.cache/ootr_map_tools/mm3d/<key>)
+  or an extracted RomFS. 111 scenes listed with readable names (core/mm3d.NAMES). Rooms -> one Blender mesh each
+  (one material per texture, packed images, MM3D vertex colours as a colour attribute, custom normals, 0.025 m/unit,
+  at the 3D cursor), "Visible in Game" on and collision off; the scene's own collision (command 0x03) -> an
+  invisible solid object. Test Z: South Clock Town (10507 tris, 41 BC7 textures = 844 KB) in a Blank map with the
+  Market sky and a custom soundscape: textured, shadowed, walkable, music playing.
+- **Void-outs**: not the world box (Test T), not fall height (Test X: a 50 m drop onto a floor, Navi "Be careful..."),
+  no void actor. Flag bit 8 (0x100) marks grotto holes (HidingHoleJoint), Desert Colossus quicksand (AntiArea), Well
+  and Shadow Temple rooms; setting it on every material of a Blank map's compound (section 5) changed nothing (Test
+  Y): either not the void flag or compound section 5 is not where a mesh instance's materials come from (compound
+  mesh tags are per instance; sec4 (757 rows in Market) may map them). Next: a floor known to void out, read through
+  its own .bphsh, put on our floor via a real per-instance material.
+- Tiles split by triangle centres: one huge triangle stays in one tile (precision falls off far from its centre);
+  tessellate big triangles before tiling (todo).

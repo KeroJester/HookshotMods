@@ -31,9 +31,15 @@ if bpy is not None:
                                  description='The mod folder (under <game folder>/mods/) that exports, new maps and Play use; '
                                              'maps in it are read back as they are now')
 
+        mm3d_source: StringProperty(name='Majora\'s Mask 3D copy', subtype='FILE_PATH', default='',
+                                    update=lambda s, c: __import__(__package__ + '.mm3d_import', fromlist=['x']).reset_scene_items(),
+                                    description='Your own Majora\'s Mask 3D: a decrypted .3ds, or its extracted RomFS folder '
+                                                '(for Import MM3D Scene; nothing from it is shipped)')
+
         def draw(self, context):
             draw_game_folder(self.layout, context, self)
             self.layout.prop(self, 'work_mod')
+            self.layout.prop(self, 'mm3d_source')
 
     def prefs(context):
         return context.preferences.addons[__package__].preferences
@@ -437,6 +443,7 @@ if bpy is not None:
             self.layout.operator('ootr.new_map', icon='ADD')
             col = self.layout.column(align=True)
             col.operator('ootr.import_map', icon='IMPORT')
+            col.operator('ootr.import_mm3d', icon='IMPORT')
             col.operator('ootr.export_map', icon='EXPORT')
             col.separator()
             col.operator('ootr.build_library', icon='ASSET_MANAGER')
@@ -462,17 +469,19 @@ if bpy is not None:
 
     def register():
         for c in classes: bpy.utils.register_class(c)
-        from . import lighting, custom_geo, scene, mapsettings_ui, sound_ui
+        from . import lighting, custom_geo, scene, mapsettings_ui, sound_ui, mm3d_import
         lighting.register()
         custom_geo.register()
         mapsettings_ui.register()
         sound_ui.register()
+        mm3d_import.register()
         bpy.app.handlers.depsgraph_update_post.append(_upright)
         bpy.types.TOPBAR_MT_file_import.append(menu_import)
         bpy.types.TOPBAR_MT_file_export.append(menu_export)
 
     def unregister():
-        from . import lighting, custom_geo, mapsettings_ui, sound_ui
+        from . import lighting, custom_geo, mapsettings_ui, sound_ui, mm3d_import
+        mm3d_import.unregister()
         sound_ui.unregister()
         mapsettings_ui.unregister()
         if _upright in bpy.app.handlers.depsgraph_update_post:
