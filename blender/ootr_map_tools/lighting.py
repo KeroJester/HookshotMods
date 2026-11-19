@@ -30,6 +30,7 @@ SUN_PER_BGDIF = 88.3 * 1.25 / 110000.0  # (Blender sun W/m2 per BgDifIntensity a
 WORLD_PER_HEMI = 0.000376 * 1.5      # (Blender world strength per HemiLightIntensity; x1.5: Eevee shades the world under roofs, the game does not)
 SKY_LIGHT_PER_BGDIF = float(__import__('os').environ.get('OOTR_SKY_K', '0.0'))   # (open-sky light per 110000 BgDif: off until
 #  Eevee can occlude it under large roofs like the game, §101; OOTR_SKY_K for experiments)
+FILL_TINT = (0.963, 1.0, 0.988)        # (the game's shade is a little cooler / greener than its fill colour, §101)
 SKY_ZENITH = (2.352, 5.671, 6.828)     # (linear sky colour per 110000 BgDif at EV 14: the game's noon, §101)
 SKY_HORIZON = (2.777, 6.146, 6.498)
 BAKED_COMPENSATION = 2 ** (math.log2(683 / 1.2) - 14.0)   # (the baked-light stand-ins keep their look: the view
@@ -339,8 +340,8 @@ def apply_env(context):
     # (plus the open sky's light, BgDif-scaled: it lights shadows of small objects; large roofs block it, §101)
     k_sky = pal.ambient_intensity * e.all_ambient / 110000.0 * SKY_LIGHT_PER_BGDIF
     sky_rgb = [c / max(SKY_ZENITH) for c in SKY_ZENITH]
-    top = [pal.hemi_top[i] * h_rad + sky_rgb[i] * k_sky for i in range(3)]
-    bottom = [pal.hemi_bottom[i] * h_rad + sky_rgb[i] * k_sky * 0.25 for i in range(3)]
+    top = [pal.hemi_top[i] * h_rad * FILL_TINT[i] + sky_rgb[i] * k_sky for i in range(3)]
+    bottom = [pal.hemi_bottom[i] * h_rad * FILL_TINT[i] + sky_rgb[i] * k_sky * 0.25 for i in range(3)]
     mix.inputs[6].default_value = (*bottom, 1.0)
     mix.inputs[7].default_value = (*top, 1.0)
     link(mix.outputs[2], amb_bg.inputs['Color'])

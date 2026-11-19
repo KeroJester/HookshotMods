@@ -3511,3 +3511,6 @@ names** (75 of 94 found in image.bin / .longshot_exefs/main strings; core/enums.
   roof: shadow 80, roof 76); with indirect capture it adds the floor's bounced sunlight (shadow ~146). Left off
   (SKY_LIGHT_PER_BGDIF 0): Eevee's small-object shadows stay darker (~12) than the game's (~94). Belongs with Bake
   Lighting (occlusion data shared by the game bake and the preview).
+- **Colour (0.17.2):** the gray floor's tint: sunlit (E16) game 190/189/181 (R/G 1.005, B/G 0.958) vs Eevee 197/195/189
+  (1.010, 0.969): white balance and the BgDif colour translate. Shade (F roof) game 65/72/70 (0.903, 0.972) vs Eevee
+  60/64/63 (0.938, 0.984) -> FILL_TINT (0.963, 1, 0.988) on the fill light: now 59/64/63 (0.922, 0.984).
