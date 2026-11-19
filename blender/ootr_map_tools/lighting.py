@@ -2,8 +2,9 @@
 added / deleted in the viewport, exported back), the baked lights as reference lights for the Eevee look, and the
 environment (sun, ambient, hemisphere fill, exposure, white balance, fog, bloom per time of day) as scene properties.
 
-Units: the game's environment is physical (lux, EV). Blender gets sun strength = lux / 683 (W/m2) and a view exposure
-of log2(683 / 1.2) - EV stops, so an EV 14 noon looks like a normal Blender daylight scene. Runtime lights (not
+Units, calibrated against the game (RESEARCH_NOTES.md §101): the game's sunlight is BgDifIntensity (SkySunColorIntensity
+is switched off in its palettes); Blender gets a sun of 88.3 W/m2 per 110000 BgDif, a world (the shade) of 0.000376 x
+HemiLightIntensity, AgX, and a view exposure of 14 - EV stops. Runtime lights (not
 exposure linked) are scaled to cancel the view exposure (light_scale per unit of Intensity)."""
 import json
 import math
@@ -18,11 +19,17 @@ from .scene import GAME_TO_BLENDER, collection
 
 G2B3 = GAME_TO_BLENDER.to_3x3()
 B2G3 = G2B3.inverted()
-EV_OFFSET = math.log2(683 / 1.2)          # (view exposure = EV_OFFSET - EV)
+EV_OFFSET = 14.0      # (Blender exposure 0 = the game's EV 14: calibrated against the game, RESEARCH_NOTES.md §101)
 
 
 def env_props(context):
     return context.scene.ootr_env
+
+
+SUN_PER_BGDIF = 88.3 * 1.25 / 110000.0  # (Blender sun W/m2 per BgDifIntensity at Blender exposure 0 = EV 14; x1.25: residual fit)
+WORLD_PER_HEMI = 0.000376 * 1.5      # (Blender world strength per HemiLightIntensity; x1.5: Eevee shades the world under roofs, the game does not)
+BAKED_COMPENSATION = 2 ** (math.log2(683 / 1.2) - 14.0)   # (the baked-light stand-ins keep their look: the view
+#  exposure reference moved from log2(683 / 1.2) to 14)
 
 
 def view_exposure(ev):
@@ -126,17 +133,18 @@ class OOTR_PaletteProps(bpy.types.PropertyGroup):
     hour: IntProperty()
     original: StringProperty()     # (json: the resolved values when imported)
     sun_color: FloatVectorProperty(name='Sun Color', subtype='COLOR', size=3, default=(1, 1, 1), min=0, update=_env_update)
-    sun_intensity: FloatProperty(name='Sun (lux)', default=100000.0, min=0.0, soft_max=200000.0, update=_env_update)
+    sun_intensity: FloatProperty(name='Sky Sun Glow (unused by the game)', default=100000.0, min=0.0, soft_max=200000.0, update=_env_update,
+                                  description='SkySunColorIntensity: the game\'s palettes switch it off (SkySunColorNoUse); the sunlight is Sun & Sky')
     ambient_color: FloatVectorProperty(name='Ambient Color', subtype='COLOR', size=3, default=(1, 1, 1), min=0, update=_env_update)
     ambient_use_temperature: BoolProperty(name='Ambient Uses Temperature', default=True, update=_env_update)
     ambient_temperature: FloatProperty(name='Ambient Temperature', default=5500.0, min=1000.0, max=20000.0, update=_env_update)
-    ambient_intensity: FloatProperty(name='Ambient (BgDif)', default=110000.0, min=0.0, soft_max=300000.0, update=_env_update,
-                                     description='BgDifIntensity: the overall ambient light')
+    ambient_intensity: FloatProperty(name='Sun & Sky (BgDif)', default=110000.0, min=0.0, soft_max=300000.0, update=_env_update,
+                                     description='BgDifIntensity: the strength of the sunlight (and of the sky light baked maps get)')
     ambient_scale: FloatProperty(name='Ambient Scale', default=1.0, min=0.0, soft_max=4.0, update=_env_update,
                                  description='AmbientIntensity')
     hemi_top: FloatVectorProperty(name='Sky Fill', subtype='COLOR', size=3, default=(1, 1, 1), min=0, update=_env_update)
     hemi_bottom: FloatVectorProperty(name='Ground Fill', subtype='COLOR', size=3, default=(0.25, 0.25, 0.25), min=0, update=_env_update)
-    hemi_intensity: FloatProperty(name='Fill (Hemi)', default=50.0, min=0.0, soft_max=2000.0, update=_env_update,
+    hemi_intensity: FloatProperty(name='Shadow Fill (Hemi)', default=50.0, min=0.0, soft_max=2000.0, update=_env_update,
                                   description='HemiLightIntensity: fill light for surfaces facing away from the sun (softens shadows)')
     exposure: FloatProperty(name='Exposure (EV, lower = brighter)', default=14.0, soft_min=6.0, soft_max=18.0, update=_env_update,
                             description='ExposureValue: each step down doubles the brightness (the game: about 7.5 at night, 14 at noon)')
@@ -209,10 +217,10 @@ class OOTR_EnvProps(bpy.types.PropertyGroup):
     original_sun: StringProperty()
     cloud_shadow: BoolProperty(name='Cloud Shadows', default=False, description='CloudShadowOnOff')
     palettes: CollectionProperty(type=OOTR_PaletteProps)
-    all_fill: FloatProperty(name='Fill ×', default=1.0, min=0.0, soft_max=20.0, update=_env_update,
+    all_fill: FloatProperty(name='Shadow Fill ×', default=1.0, min=0.0, soft_max=20.0, update=_env_update,
                             description='Multiplies the fill light (softer shadows) of every time of day')
-    all_ambient: FloatProperty(name='Ambient ×', default=1.0, min=0.0, soft_max=5.0, update=_env_update,
-                               description='Multiplies the ambient light of every time of day')
+    all_ambient: FloatProperty(name='Sun & Sky ×', default=1.0, min=0.0, soft_max=5.0, update=_env_update,
+                               description='Multiplies the sunlight (BgDif) of every time of day')
     all_brightness: FloatProperty(name='Brightness (EV)', default=0.0, soft_min=-3.0, soft_max=3.0, update=_env_update,
                                   description='Brightens (+) or darkens (-) every time of day, in camera stops')
     time: EnumProperty(name='Time of Day', items=_time_items, update=_env_update)
@@ -254,8 +262,11 @@ def apply_env(context):
     to_sun = to_sun_vector(e.azimuth, e.elevation)
     sun.rotation_mode = 'XYZ'
     sun.rotation_euler = (-to_sun).to_track_quat('-Z', 'Y').to_euler()
-    sun.data.color = tuple(pal.sun_color)
-    sun.data.energy = pal.sun_intensity / 683.0 if e.elevation > -5 else 0.0
+    # (calibrated, §101: the game's sunlight is BgDifIntensity (its SkySunColorIntensity is unused: SkySunColorNoUse), in
+    #  the BgDif colour; AgX; 88.3 W/m2 for 110000 at EV 14)
+    amb_col = L.kelvin_rgb(pal.ambient_temperature) if pal.ambient_use_temperature else tuple(pal.ambient_color)
+    sun.data.color = tuple(amb_col)
+    sun.data.energy = SUN_PER_BGDIF * pal.ambient_intensity * e.all_ambient if e.elevation > -5 else 0.0
     sun.data.angle = math.radians(1.0)
     ev = pal.exposure - e.all_brightness
     try:
@@ -303,13 +314,11 @@ def apply_env(context):
     ramp.inputs['From Min'].default_value, ramp.inputs['From Max'].default_value = -1.0, 1.0
     mix.data_type = 'RGBA'
     link(ramp.outputs['Result'], mix.inputs['Factor'])
-    amb = L.kelvin_rgb(pal.ambient_temperature) if pal.ambient_use_temperature else tuple(pal.ambient_color)
-    # BgDif is physical (lux-like, divided by the exposure like the sun); the hemisphere fill is exposure linked
-    # (HemiLightIsEnableExposureLink): its on-screen brightness does not change with the EV
-    a_rad = pal.ambient_intensity * e.all_ambient * pal.ambient_scale / (683.0 * math.pi) * 0.15
-    h_rad = pal.hemi_intensity * e.all_fill * 0.001 / max(2 ** view_exposure(ev), 1e-9)
-    top = [amb[i] * a_rad + pal.hemi_top[i] * h_rad for i in range(3)]
-    bottom = [amb[i] * a_rad * 0.35 + pal.hemi_bottom[i] * h_rad for i in range(3)]
+    # (calibrated, §101: what lights the shade of custom geometry is the hemisphere fill alone (BgDif does not reach
+    #  it without a bake): a world of strength 0.000376 x HemiLightIntensity, top / bottom colours by the normal)
+    h_rad = pal.hemi_intensity * e.all_fill * WORLD_PER_HEMI
+    top = [pal.hemi_top[i] * h_rad for i in range(3)]
+    bottom = [pal.hemi_bottom[i] * h_rad for i in range(3)]
     mix.inputs[6].default_value = (*bottom, 1.0)
     mix.inputs[7].default_value = (*top, 1.0)
     link(mix.outputs[2], amb_bg.inputs['Color'])
@@ -322,7 +331,7 @@ def apply_env(context):
     if hasattr(eevee, 'use_bloom'): eevee.use_bloom = pal.bloom > 0; eevee.bloom_intensity = pal.bloom * 0.5
     for ob in bpy.data.objects:
         if ob.type == 'LIGHT' and 'ootr_baked' in ob:
-            ob.data.energy = float(ob['ootr_power']) * e.baked_scale / 683.0
+            ob.data.energy = float(ob['ootr_power']) * e.baked_scale / 683.0 * BAKED_COMPENSATION
     for l in bpy.data.lights:
         if l.ootr.enabled: apply_light(l, context)
 
@@ -375,7 +384,7 @@ def import_lighting(context, game, banc, root, baked=True, report=print):
             ob.location = G2B3 @ Vector(pos)
             ob['ootr_baked'] = typ
             ob['ootr_power'] = m
-            ld.energy = m * env_props(context).baked_scale / 683.0
+            ld.energy = m * env_props(context).baked_scale / 683.0 * BAKED_COMPENSATION
             ld.shadow_soft_size = size if typ != 'AREA' else 0.0
             ld.use_shadow = False                  # (stand-ins for precomputed light: soft, no shadow maps)
             if hasattr(ld, 'use_custom_distance'):
@@ -675,15 +684,13 @@ class OOTR_PT_lighting(bpy.types.Panel):
         col.prop(e, 'azimuth'); col.prop(e, 'elevation')
         box.prop(e, 'cloud_shadow')
         col = box.column(align=True)
-        col.label(text='Sun')
-        col.prop(pal, 'sun_color', text=''); col.prop(pal, 'sun_intensity')
+        col.label(text='Sun & Sky (the game\'s sunlight)')
         col = box.column(align=True)
-        col.label(text='Ambient')
         row = col.row(); row.prop(pal, 'ambient_use_temperature', text='Temperature')
         row.prop(pal, 'ambient_temperature' if pal.ambient_use_temperature else 'ambient_color', text='')
         col.prop(pal, 'ambient_intensity'); col.prop(pal, 'ambient_scale')
         col = box.column(align=True)
-        col.label(text='Fill (softens shadows)')
+        col.label(text='Shadow Fill (the light in shade)')
         row = col.row(align=True); row.prop(pal, 'hemi_top', text=''); row.prop(pal, 'hemi_bottom', text='')
         col.prop(pal, 'hemi_intensity')
         col = box.column(align=True)

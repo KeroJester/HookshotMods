@@ -3487,3 +3487,15 @@ names** (75 of 94 found in image.bin / .longshot_exefs/main strings; core/enums.
   sky too). Pending: F roof, L (sun elevation 20) open / roof, E15 / E16 (tone curve under the field palette).
   Scripts (scratchpad): calib_map2.py (map + palettes), force_sun.py (time table: IsForceMainLight), lsSweep.sh
   (systemd-run batch, run folders in ~/.cache/ootr_tests).
+- **Remaining runs and the fit (2026-11-19):** F roof (Hemi 1000) 70.4 (vs 8.6 at Hemi 100: **the shade of custom
+  geometry is lit by the hemisphere fill**; BgDif does not reach it: B roof 8.5); L (sun elevation 20) open 220.2,
+  roof 8.7; E15 219.6, E16 187.8 (open floor ~ BgDif x 2^-EV: B = E15). Fit against Blender's curves (scale + rms on
+  0-255): AgX open 21.54 / 5.5, shade 0.0376 / 2.9; Filmic 16.25 / 4.8, 0.0269 / 5.0; Standard 26.5 / 41;
+  Khronos 10.1 / 9.8. -> **AgX; Blender sun = 88.3 x 1.25 W/m2 per 110000 BgDif (BgDif colour), world (the shade)
+  = 0.000376 x 1.5 x Hemi (Hemi top / bottom colours), view exposure = 14 - EV** (the x1.25 / x1.5: residuals after
+  rendering the calibration scenes; Eevee shades the world under roofs, the game does not). Result, game / Eevee:
+  N open 241.4 / 232.0, B 220.0 / 216.1, E15 219.6 / 216.1, E16 187.8 / 195.0, L 220.2 / 212.9, N roof 8.6 / 10.8,
+  F roof 70.4 / 63.1 (rms ~6.5). Residuals: the game's tone curve rolls off less near white than AgX; a low sun lights
+  the ground more than the cosine law. Not calibrated yet: the sky's own look, fog, bloom, colours (only brightness),
+  runtime point / spot lights. Panel labels now say what the game does ("Sun & Sky (BgDif)", "Shadow Fill (Hemi)",
+  "Sky Sun Glow (unused by the game)").
