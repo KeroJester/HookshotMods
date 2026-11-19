@@ -3468,3 +3468,14 @@ names** (75 of 94 found in image.bin / .longshot_exefs/main strings; core/enums.
   0x73736cde, 0x37c3f735 (Int, 0-23), 0xe573f564, 0x3f8d9d86 (UInt, 4400-6550; set to 43200), 0x39ec7e22 (Float 90.005,
   default -1; 270 changed the sky / clouds only). Tests on a Hyrule-Field-cycle map (normal table): every run shows the
   same dawn. Next: the user saves at two known in-game hours and the two progress.sav are diffed.
+- **What the palette values do (calibration 2026-11-19, SageRoom-look map, fixed palette):** SkySunColorNoUse is True in
+  the game's palettes (MainField Noon, SageRoom), and SkySunColorIntensity then does nothing: sun-only runs (BgDif 0,
+  SkySun 100000, EV 12-14) are black, sky included. **BgDifIntensity drives the sunlight and the sky light** (an
+  "ambient only" run casts a sharp sun shadow). HemiLightIntensity alone (BgDif 0) is black too: it acts with the
+  sky light, not as a light of its own. Floor 0.18 vs EV, BgDif 110000 (SageRoom palette): EV14 207, 15 163, 16 114,
+  17 69, 18 39 (display 0-255). SageRoom's palette differs from field palettes (IsExposureLow True, SkyLightAdhocScale 2,
+  SkyCubeMapCoef 1, ExposureShadowCorrect 0): the calibration is repeated with Hyrule Field's (all times = Noon, the
+  time table forcing the sun: IsForceMainLight / MainLight_Azimuth / MainLight_Elevation), sun / roof pairs.
+- Blender's curves (floor 0.18 under a uniform white world of strength s; Eevee): s = 0.016 / 0.063 / 0.25 / 1 / 4:
+  Standard 9 / 27 / 60 / 117 / 219, AgX 4 / 21 / 54 / 117 / 184, Filmic 10 / 28 / 66 / 127 / 193, Khronos PBR Neutral
+  0 / 3 / 30 / 104 / 214. (Headless Blender lists no view transforms; setting them by name works.)
