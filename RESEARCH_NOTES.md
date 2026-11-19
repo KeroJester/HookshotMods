@@ -3427,3 +3427,8 @@ names** (75 of 94 found in image.bin / .longshot_exefs/main strings; core/enums.
   $parent was itself (RecursionError on the next read). Now: palettes build on _original_palette (the entry, or our
   palette's $parent, or for a looped one the game time table with the same times of day); resolved() stops at loops;
   our palettes replace copies already in the base pack.
+- Environment edits verified in game (screenshots/lighting_editor): Fill 3000 on every palette washes the map out,
+  Ambient x1.5 brightens; map-wide multipliers (OoT Lighting > Whole map: Fill x, Ambient x, Brightness EV) apply to
+  every time of day (Fill x5: ground 52 -> 117, x20: 197). Per-palette edits only show near their own hour (the user's
+  Noon / Sunrise edits looked like "no effect"). Hemi values differ per time (BeforeSunrise 1, Noon 100) with
+  exposure (EV 7.5 .. 12), so absolute Fill values mean different things at different times.

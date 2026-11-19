@@ -167,8 +167,14 @@ PALETTE_COLORS = (('sun_color', 'SkySunColor'), ('ambient_color', 'BgDifColor'),
 FOG_DENSITY_KEYS = ('MieDensity', 'NearDensity', 'FarDensity', 'RayleighDensity')
 
 
-def palette_values(pal):
+def palette_values(pal, e=None):
+    """The palette's values for export; e (the environment settings): the map-wide Fill / Ambient / Brightness
+    adjustments applied."""
     out = {key: getattr(pal, attr) for attr, key in PALETTE_MAP}
+    if e is not None:
+        out['HemiLightIntensity'] = pal.hemi_intensity * e.all_fill
+        out['BgDifIntensity'] = pal.ambient_intensity * e.all_ambient
+        out['ExposureValue'] = pal.exposure - e.all_brightness
     for attr, key in PALETTE_COLORS:
         c = getattr(pal, attr); out[key] = {'R': c[0], 'G': c[1], 'B': c[2], 'A': 1.0}
     if abs(pal.fog_density - 1.0) > 1e-4 and pal.fog_params:     # (only when changed: the scaled fog blocks)
@@ -203,6 +209,12 @@ class OOTR_EnvProps(bpy.types.PropertyGroup):
     original_sun: StringProperty()
     cloud_shadow: BoolProperty(name='Cloud Shadows', default=False, description='CloudShadowOnOff')
     palettes: CollectionProperty(type=OOTR_PaletteProps)
+    all_fill: FloatProperty(name='Fill ×', default=1.0, min=0.0, soft_max=20.0, update=_env_update,
+                            description='Multiplies the fill light (softer shadows) of every time of day')
+    all_ambient: FloatProperty(name='Ambient ×', default=1.0, min=0.0, soft_max=5.0, update=_env_update,
+                               description='Multiplies the ambient light of every time of day')
+    all_brightness: FloatProperty(name='Brightness (EV)', default=0.0, soft_min=-3.0, soft_max=3.0, update=_env_update,
+                                  description='Brightens (+) or darkens (-) every time of day, in camera stops')
     time: EnumProperty(name='Time of Day', items=_time_items, update=_env_update)
     light_scale: FloatProperty(name='Light Preview Scale', default=30.0, min=0.0, soft_max=200.0,
                                update=lambda s, c: [apply_light(l, c) for l in bpy.data.lights if l.ootr.enabled],
@@ -245,7 +257,7 @@ def apply_env(context):
     sun.data.color = tuple(pal.sun_color)
     sun.data.energy = pal.sun_intensity / 683.0 if e.elevation > -5 else 0.0
     sun.data.angle = math.radians(1.0)
-    ev = pal.exposure
+    ev = pal.exposure - e.all_brightness
     try:
         sc.view_settings.view_transform = 'AgX'
     except TypeError:
@@ -294,8 +306,8 @@ def apply_env(context):
     amb = L.kelvin_rgb(pal.ambient_temperature) if pal.ambient_use_temperature else tuple(pal.ambient_color)
     # BgDif is physical (lux-like, divided by the exposure like the sun); the hemisphere fill is exposure linked
     # (HemiLightIsEnableExposureLink): its on-screen brightness does not change with the EV
-    a_rad = pal.ambient_intensity * pal.ambient_scale / (683.0 * math.pi) * 0.15
-    h_rad = pal.hemi_intensity * 0.001 / max(2 ** view_exposure(ev), 1e-9)
+    a_rad = pal.ambient_intensity * e.all_ambient * pal.ambient_scale / (683.0 * math.pi) * 0.15
+    h_rad = pal.hemi_intensity * e.all_fill * 0.001 / max(2 ** view_exposure(ev), 1e-9)
     top = [amb[i] * a_rad + pal.hemi_top[i] * h_rad for i in range(3)]
     bottom = [amb[i] * a_rad * 0.35 + pal.hemi_bottom[i] * h_rad for i in range(3)]
     mix.inputs[6].default_value = (*bottom, 1.0)
@@ -405,6 +417,7 @@ def load_env(context, game, banc):
             palette_from(pal, t['palette'])
             if t['name'] == 'Noon': noon = i
         e['time'] = noon
+        e.all_fill, e.all_ambient, e.all_brightness = 1.0, 1.0, 0.0     # (the loaded values already include them)
         apply_env(context)
         return env
     return None
@@ -493,7 +506,7 @@ def gather_env(context, banc):
     if e.banc != banc or not e.palettes: return None
     times, changed = {}, False
     for pal in e.palettes:
-        now = palette_values(pal)
+        now = palette_values(pal, e)
         orig = json.loads(pal.original or '{}')
         diff = {k: v for k, v in now.items() if not L._same(orig.get(k), v)}
         if diff: times[pal.name] = diff; changed = True
@@ -625,7 +638,13 @@ class OOTR_PT_lighting(bpy.types.Panel):
             return
         box = lay.box()
         box.label(text=f'Environment: {e.banc}', icon='WORLD')
+        sub = box.box()
+        sub.label(text='Whole map (every time of day)', icon='LIGHT_SUN')
+        col = sub.column(align=True)
+        col.prop(e, 'all_fill'); col.prop(e, 'all_ambient'); col.prop(e, 'all_brightness')
+        box.separator()
         box.prop(e, 'time')
+        box.label(text='Settings below are for this time of day only', icon='INFO')
         pal = e.current()
         col = box.column(align=True)
         col.prop(e, 'azimuth'); col.prop(e, 'elevation')
