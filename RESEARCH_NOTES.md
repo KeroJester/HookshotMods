@@ -3410,3 +3410,16 @@ names** (75 of 94 found in image.bin / .longshot_exefs/main strings; core/enums.
   (dark without reflection probes). Roughness values export as flat maps (0.5, Blender's default, keeps the stone
   roughness). The disk-full sessions: test run folders moved to ~/.cache/ootr_tests (the pipeline cache in each
   run's user/ copy is GBs; /tmp is a 16 GB tmpfs).
+
+## §98. Environments of every map kind; EnvPalette.pack as a union (2026-11-18)
+- A WorldParam names its palettes three ways: BasePalette_Bluesky (a time table: Market, Kokiri Forest);
+  ConditionEnvTimePalette[i].BasePalette_Bluesky (a table chosen by a story flag: Hyrule Field, so every Blank map
+  with the Hyrule Field look; its table MainField_Bluesky_First holds its times through $parent); DefaultEnvPalette (one
+  fixed palette: SageRoom). read_env reads all three (tables resolved through $parent: MainField_Bluesky_First had 0
+  times before, so the OoT Lighting panel stayed empty for such maps); write_env writes our table in both places for
+  the flag case, a palette of our own for the fixed case, and the sun only when it was edited or set.
+- **A mod's EnvPalette.pack replaces the whole pack**: the map mod's copy is now the pack the game would load without
+  it (e.g. 070-ClockTownDev's, with ClockTown_Bluesky) plus our palettes. The user's 075-MapEdits pack (built on the
+  vanilla pack, 2026-11-18 04:18) hid Clock Town's time table in game; rebuilt (backup in ~/.cache/ootr_tests/).
+- Panel: "Load Environment of <map>" for scenes whose environment was never loaded. Soft shadows: palette
+  HemiLightIntensity (Fill); Blank maps with the Hyrule Field look have Fill 100 / BgDif 110000 at Noon.

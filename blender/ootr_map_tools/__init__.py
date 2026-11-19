@@ -238,9 +238,11 @@ if bpy is not None:
             if env is not None:
                 import glob
                 other = [d for d in glob.glob(os.path.join(game.folder, 'mods', '*', 'romfs', 'Pack', 'EnvPalette.pack.zs'))
-                         if os.path.basename(d.split(os.sep + 'romfs')[0])[:1] not in '_-' and os.path.basename(d.split(os.sep + 'romfs')[0]) != mod_name]
+                         if os.path.basename(d.split(os.sep + 'romfs')[0])[:1] not in '_-'
+                         and os.path.basename(d.split(os.sep + 'romfs')[0]).lower() > mod_name.lower()]   # (mods loading
+                #  before ours are carried in our pack; only a mod loading after ours would replace it)
                 for d in other:
-                    lines.append(f'warning: {d.split(os.sep + "romfs")[0]} also replaces EnvPalette.pack: only one of the two mods\' environments can be active')
+                    lines.append(f'warning: {d.split(os.sep + "romfs")[0]} loads after this mod and replaces EnvPalette.pack: this map\'s environment edits are hidden while it is enabled')
         return lines
 
     def root_items(self, context):

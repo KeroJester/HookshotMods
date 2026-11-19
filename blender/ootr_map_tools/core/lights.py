@@ -305,13 +305,28 @@ def read_env(game, banc, pack=None):
     env = dict(world=world_own, world_rel=wrel, world_full=world, azimuth=float(world.get('MainLightAzimuth', 45.0)),
                elevation=float(world.get('MainLightElevation', 55.0)), cloud_shadow=bool(world.get('CloudShadowOnOff', False)),
                times=[])
-    table = pack.get(work_to_rel(world.get('BasePalette_Bluesky')))
+    # where the map's palettes are (RESEARCH_NOTES.md §98): a time table (BasePalette_Bluesky), a time table chosen by
+    # a story flag (ConditionEnvTimePalette[i].BasePalette_Bluesky: Hyrule Field), or one fixed palette
+    # (DefaultEnvPalette: the Chamber of Sages)
+    tpath, slot = world.get('BasePalette_Bluesky'), 'base'
+    if not tpath:
+        for i, c in enumerate(world.get('ConditionEnvTimePalette') or []):
+            if c.get('BasePalette_Bluesky'):
+                tpath, slot = c['BasePalette_Bluesky'], ('cond', i); break
+    table = resolved(pack.get, tpath) if tpath else None        # (MainField_Bluesky_First: $parent holds the times)
     if table:
         for e in table.get('TimeTableArray', []):
             env['times'].append(dict(name=e.get('Name'), hour=int(e.get('Hour', 0)), palette_path=e.get('EnvPalette'),
                                      palette=resolved(pack.get, e.get('EnvPalette')), own=pack.get(work_to_rel(e.get('EnvPalette')))))
         env['table'] = table
-        env['table_path'] = world.get('BasePalette_Bluesky')
+        env['table_path'] = tpath
+        env['slot'] = slot
+    elif world.get('DefaultEnvPalette'):
+        dp = world['DefaultEnvPalette']
+        pal = resolved(pack.get, dp)
+        if pal:
+            env['times'].append(dict(name='Fixed', hour=12, palette_path=dp, palette=pal, own=pack.get(work_to_rel(dp))))
+            env['slot'] = 'default'
     return env
 
 
@@ -350,9 +365,11 @@ def write_env(game, banc, env, edits, mod_dir, pack=None):
     pack = pack or EnvPack(game)
     files, report = {}, []
     world = dict(env['world'])
-    world['MainLightAzimuth'] = float(edits.get('azimuth', env['azimuth']))
-    world['MainLightElevation'] = float(edits.get('elevation', env['elevation']))
-    world['CloudShadowOnOff'] = bool(edits.get('cloud_shadow', env['cloud_shadow']))
+    for key, ek, cast in (('MainLightAzimuth', 'azimuth', float), ('MainLightElevation', 'elevation', float),
+                          ('CloudShadowOnOff', 'cloud_shadow', bool)):
+        v = cast(edits.get(ek, env[ek]))
+        if key in env['world_full'] or v != cast(env[ek]):     # (absent keys stay absent: Hyrule Field's sun comes
+            world[key] = v                                     #  from its time table)
     side = os.path.join(mod_dir, 'ootr_env')
     os.makedirs(side, exist_ok=True)
     for f in os.listdir(side):                         # (this map's previous palettes are replaced)
@@ -372,7 +389,22 @@ def write_env(game, banc, env, edits, mod_dir, pack=None):
         if mine:
             tname = f'ootr_{banc}.game__wm__ResEnvPaletteTimeTable.bgyml'
             mine[f'WorldMgr/ResEnvPaletteTimeTable/{tname}'] = write_byml(table)
-            world['BasePalette_Bluesky'] = f'Work/WorldMgr/ResEnvPaletteTimeTable/{tname.replace(".bgyml", ".gyml")}'
+            tw = f'Work/WorldMgr/ResEnvPaletteTimeTable/{tname.replace(".bgyml", ".gyml")}'
+            world['BasePalette_Bluesky'] = tw
+            if isinstance(env.get('slot'), tuple):             # (Hyrule Field's flag-chosen table: ours in both places)
+                conds = [dict(c) for c in world.get('ConditionEnvTimePalette') or []]
+                conds[env['slot'][1]]['BasePalette_Bluesky'] = tw
+                world['ConditionEnvTimePalette'] = conds
+    elif env.get('slot') == 'default' and env['times']:
+        t = env['times'][0]
+        ed = (edits.get('times') or {}).get(t['name']) or {}
+        diff = {k: v for k, v in ed.items() if not _same(t['palette'].get(k), v)}
+        if diff:
+            y = {'$parent': t['palette_path']}
+            y.update(_typed(diff))
+            name = f'ootr_{banc}_0_Fixed.game__wm__ResEnvPalette.bgyml'
+            mine[f'WorldMgr/ResEnvPalette/{name}'] = write_byml(y)
+            world['DefaultEnvPalette'] = f'Work/WorldMgr/ResEnvPalette/{name.replace(".bgyml", ".gyml")}'
     for rel, data in mine.items():
         with open(os.path.join(side, os.path.basename(rel)), 'wb') as f: f.write(data)
     allp = {}
@@ -382,13 +414,20 @@ def write_env(game, banc, env, edits, mod_dir, pack=None):
     from ..vendor.zstd_helper import compress_zs
     packrel = 'Pack/EnvPalette.pack.zs'
     if allp:
-        files[packrel] = ('zs', sarc_add_many(pack.raw, allp))
+        # (the pack the game would load without this mod, e.g. another mod's own environments, plus ours: a mod's
+        #  copy replaces the whole pack, so it must carry what the mods loading before it added)
+        from .game import Game
+        mine_dir = os.path.abspath(os.path.join(mod_dir, 'romfs'))
+        others = [os.path.dirname(o) for o in game.overlays if os.path.abspath(o) != mine_dir]
+        base = EnvPack(Game(game.folder, overlays=others))
+        add = {k: v for k, v in allp.items() if k not in base.files}
+        files[packrel] = ('zs', sarc_add_many(base.raw, add))
     else:
         p = os.path.join(mod_dir, 'romfs', packrel)
         if os.path.exists(p): os.remove(p)
     wrel = f'WorldMgr/WorldParam/ootr_{banc}.game__wm__WorldParam.bgyml'
     files[wrel] = write_byml(world)
-    report.append(f'environment: sun {world["MainLightAzimuth"]:.1f} / {world["MainLightElevation"]:.1f}, '
+    report.append(f'environment: sun {world.get("MainLightAzimuth", env["azimuth"]):.1f} / {world.get("MainLightElevation", env["elevation"]):.1f}, '
                   f'{sum(1 for k in mine if "ResEnvPalette/" in k)} edited palettes')
     return files, report, {'WorldMgrName': rel_to_work(wrel)}
 

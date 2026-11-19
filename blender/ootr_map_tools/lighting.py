@@ -383,9 +383,16 @@ def import_lighting(context, game, banc, root, baked=True, report=print):
             nrm = Vector(u).cross(Vector(v))
             ob.rotation_mode = 'QUATERNION'
             ob.rotation_quaternion = Vector((0, 0, -1)).rotation_difference(G2B3 @ nrm)
+    env = load_env(context, game, banc)
+    e = env_props(context)
+    return f'{n} runtime lights, {nb} baked lights' + (f', environment with {len(e.palettes)} times of day' if env else '')
+
+
+def load_env(context, game, banc):
+    """The map's environment (sun, palettes per time of day) into the scene's OoT Lighting settings. -> env or None."""
     env = L.read_env(game, banc)
     e = env_props(context)
-    if env:
+    if env and env['times']:
         e.banc = banc
         e.palettes.clear()
         e['azimuth'], e['elevation'] = env['azimuth'], env['elevation']
@@ -399,7 +406,25 @@ def import_lighting(context, game, banc, root, baked=True, report=print):
             if t['name'] == 'Noon': noon = i
         e['time'] = noon
         apply_env(context)
-    return f'{n} runtime lights, {nb} baked lights' + (f', environment with {len(e.palettes)} times of day' if env else '')
+        return env
+    return None
+
+
+class OOTR_OT_load_env(bpy.types.Operator):
+    """Read this map's environment (sun, ambient, fill, fog... per time of day) for editing"""
+    bl_idname = 'ootr.load_env'
+    bl_label = 'Load Environment'
+    banc: StringProperty()
+
+    def execute(self, context):
+        from . import get_game
+        try:
+            env = load_env(context, get_game(context), self.banc)
+        except Exception as ex:
+            self.report({'ERROR'}, f'{self.banc}: {ex}'); return {'CANCELLED'}
+        if env is None:
+            self.report({'WARNING'}, f'{self.banc}: no editable environment found'); return {'CANCELLED'}
+        return {'FINISHED'}
 
 
 def _json_default(o):
@@ -592,7 +617,12 @@ class OOTR_PT_lighting(bpy.types.Panel):
         row.operator('ootr.add_light', text='Spot', icon='LIGHT_SPOT').kind = 'spot'
         lay.operator('ootr.toggle_baked', icon='HIDE_OFF')
         if not e.palettes:
-            lay.label(text='Import a map to edit its environment'); return
+            from .scene import map_roots
+            roots = map_roots(context)
+            for r in roots:
+                lay.operator('ootr.load_env', text=f'Load Environment of {r["ootr_banc"]}', icon='WORLD').banc = r['ootr_banc']
+            if not roots: lay.label(text='Import or create a map to edit its environment')
+            return
         box = lay.box()
         box.label(text=f'Environment: {e.banc}', icon='WORLD')
         box.prop(e, 'time')
@@ -628,7 +658,7 @@ class OOTR_PT_lighting(bpy.types.Panel):
 
 
 classes = (OOTR_LightProps, OOTR_PaletteProps, OOTR_EnvProps, OOTR_OT_add_light, OOTR_OT_palette_to_all,
-           OOTR_OT_reset_palette, OOTR_OT_toggle_baked, OOTR_PT_lighting)
+           OOTR_OT_reset_palette, OOTR_OT_toggle_baked, OOTR_PT_lighting, OOTR_OT_load_env)
 
 
 def register():
