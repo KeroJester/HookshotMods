@@ -37,6 +37,11 @@ Longshot never load code from mod folders themselves. On Linux, `eval "$(./Hooks
 starting the game another way does the same.
 Installing `.rar` mods needs [7-Zip](https://www.7-zip.org) on Windows (or `unrar`/`7z` on Linux).
 
+**OoT Remake Map Tools for Blender** (experimental, separate pre-release on the Releases page,
+`ootr_map_tools-<version>.zip`): a Blender 4.2+ add-on to open the game's maps, edit them, build new maps from your
+own models and play them straight from Blender. Early and rough in places: see [blender/README.md](blender/README.md)
+for install steps and known problems.
+
 ## What's here
 
 | Folder | What it is |
